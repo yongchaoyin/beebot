@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 import { SAND_COMPUTER_USE_MODEL_SELECTION, SAND_COMPUTER_USE_SUBAGENT_MODEL_ID, isSandAgentModelSelection, type SandAgentModelSelection } from "../../../shared/agents/sand-agent-model.js";
 import { type InferenceReason } from "../../../packages/proto/generated/aiserver/v1/inference_pb.js";
 import { createMockPromptExecutor } from "../../../packages/chat-inference/mock-prompt-executor.js";
@@ -12,9 +10,7 @@ import {
 import { createSandLabelingClient, recordSandPostTurnLabeling, wrapPromptSessionWithSandFollowupLabeling, type LabelMessage, type LabelingClient, type PromptExecutor } from "./sand-labeling.js";
 import { selectSandExperimentTurnModel } from "./sand-model-experiment.js";
 import type { SummarizationPromptSession } from "../../../packages/agent-summarization/summarization-handler.js";
-import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
-import { getSandRootDir } from "../../host-paths.js";
-import { createProviderPromptSession } from "./provider-session.js";
+import { createProviderPromptSession, resolveInferenceForAgent } from "./provider-session.js";
 
 export const SAND_DEFAULT_MODEL_ID = "grok-4.5";
 export const SAND_DEFAULT_MODEL_SELECTION: SandAgentModelSelection = { modelId: SAND_DEFAULT_MODEL_ID, maxMode: true, parameters: [{ id: "effort", value: "high" }, { id: "fast", value: "true" }] };
@@ -111,8 +107,8 @@ export function createCursorSandInference(options: CursorSandInferenceOptions): 
         if (script != null) return createScriptedMockSession(script, modelId);
         return { getExecutor: () => createMockPromptExecutor(() => ({ response: mockResponse, chunkSize: 8 })), getModelId: () => modelId };
       }
-      const routedProvider = new SandSettingsStore(join(getSandRootDir(), "settings.json")).getInferenceProvider();
-      if (routedProvider !== "cursor") return createProviderPromptSession(routedProvider) as unknown as CursorPromptSession;
+      const routed = resolveInferenceForAgent(sessionOptions && typeof (sessionOptions as { conversationId?: string }).conversationId === "string" ? (sessionOptions as { conversationId: string }).conversationId : undefined);
+      if (routed.provider !== "cursor") return createProviderPromptSession(routed.provider, routed.vendor) as unknown as CursorPromptSession;
       const experimentState = options.getModelExperimentState?.(), requestSource = sessionOptions?.requestSource;
       const experimentModelOverride = selectSandExperimentTurnModel({ ...(experimentState === undefined ? {} : { state: experimentState }), ...(requestSource === undefined ? {} : { requestSource }), readConfiguredDefaultModel: () => options.getConfiguredDefaultModel?.(), readConfiguredAutomationsModel: () => options.getConfiguredAutomationsModel?.() });
       const storedDefaultModel = options.getDefaultModel?.(), storedComputerUseModel = options.getComputerUseModel?.(), storedBrowserUseModel = options.getBrowserUseModel?.();

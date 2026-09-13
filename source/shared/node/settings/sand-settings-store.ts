@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname } from "node:path";
 
 import { DEFAULT_SAND_THEME_PREFERENCE, isSandThemePreference, type SandThemePreference } from "../../desktop.js";
+import { DEFAULT_UI_LANGUAGE, isUiLanguage, type UiLanguage } from "../../ui-language.js";
 import { SAND_DISABLED_NOTIFICATION_CONFIG } from "../../host-settings.js";
 import { SAND_DEFAULT_LOCAL_TOOL_PERMISSION, isSandLocalToolPermission, resolveSandLocalToolPermission, type SandLocalToolPermission } from "../../local-tool-permission.js";
 import { clampMcpCustomInstruction, getDefaultMcpCustomInstruction } from "../../mcp-custom-instructions.js";
@@ -10,7 +11,7 @@ import { SidebarSections, type SidebarSection } from "../../sidebar-sections.js"
 import { coerceToEnabledTrack, isSandUpdateTrack, type SandUpdateTrack } from "../../update-track.js";
 import { isSandAgentModelSelection, type SandAgentModelSelection } from "../../agents/sand-agent-model.js";
 import { emptySandInferenceRouterUsage, isSandInferenceProvider, type SandInferenceProvider, type SandInferenceRouterUsage } from "../../inference-router.js";
-import { parseInferenceHttpConfig, type InferenceHttpConfig } from "../../inference-vendor.js";
+import { isHttpInferenceVendor, parseInferenceHttpConfig, parseInferenceVendorAccounts, vendorPreset, type InferenceHttpConfig, type InferenceVendorAccount } from "../../inference-vendor.js";
 import { DEFAULT_SAND_BOX_RUNTIME, isSandBoxRuntime, type SandBoxRuntime } from "../../box-runtime.js";
 
 export const SETTINGS_VERSION = 1;
@@ -29,7 +30,8 @@ export interface SandStoredSettings {
   localToolPermission?: SandLocalToolPermission; localToolPermissionCeiling?: SandLocalToolPermission;
   inferenceProvider?: SandInferenceProvider; inferenceRouterUsage?: SandInferenceRouterUsage;
   inferenceHttp?: InferenceHttpConfig; localAccountActive?: boolean;
-  boxRuntime?: SandBoxRuntime;
+  boxRuntime?: SandBoxRuntime; uiLanguage?: UiLanguage;
+  inferenceVendors?: InferenceVendorAccount[]; defaultInferenceVendorId?: string;
   mcpCustomInstructionsAccountScope?: string; pinnedAgentIds?: string[]; sidebarSections?: SidebarSection[];
 }
 
@@ -64,6 +66,7 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   if (typeof raw.hasSeenOnboardingAccountScope === "string" && raw.hasSeenOnboardingAccountScope.length > 0) result.hasSeenOnboardingAccountScope = raw.hasSeenOnboardingAccountScope;
   if (isSandUpdateTrack(raw.updateTrackOverride)) result.updateTrackOverride = raw.updateTrackOverride;
   if (isSandThemePreference(raw.themePreference)) result.themePreference = raw.themePreference;
+  if (isUiLanguage(raw.uiLanguage)) result.uiLanguage = raw.uiLanguage;
   if (isSandAgentModelSelection(raw.agentDefaultModel)) result.agentDefaultModel = raw.agentDefaultModel;
   if (isSandAgentModelSelection(raw.computerUseModel)) result.computerUseModel = raw.computerUseModel;
   if (typeof raw.notifications === "object" && raw.notifications != null && !Array.isArray(raw.notifications)) result.notifications = raw.notifications as Record<string, unknown>;
@@ -72,6 +75,9 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   if (isSandLocalToolPermission(raw.localToolPermission)) result.localToolPermission = raw.localToolPermission;
   if (isSandLocalToolPermission(raw.localToolPermissionCeiling)) result.localToolPermissionCeiling = raw.localToolPermissionCeiling;
   if (isSandInferenceProvider(raw.inferenceProvider)) result.inferenceProvider = raw.inferenceProvider;
+  const vendors = parseInferenceVendorAccounts(raw.inferenceVendors);
+  if (vendors.length > 0) result.inferenceVendors = vendors;
+  if (typeof raw.defaultInferenceVendorId === "string" && raw.defaultInferenceVendorId.trim().length > 0) result.defaultInferenceVendorId = raw.defaultInferenceVendorId.trim();
   const inferenceHttp = parseInferenceHttpConfig(raw.inferenceHttp);
   if (inferenceHttp != null) result.inferenceHttp = inferenceHttp;
   if (raw.localAccountActive === true) result.localAccountActive = true;
@@ -130,6 +136,8 @@ export class SandSettingsStore {
   setAutoUpdateWhenIdleOptIn(value: boolean): void { this.update((s) => ({ ...s, autoUpdateWhenIdleOptIn: value })); }
   getThemePreference(): SandThemePreference { return this.load().themePreference ?? DEFAULT_SAND_THEME_PREFERENCE; }
   setThemePreference(value: SandThemePreference): void { this.update((s) => ({ ...s, themePreference: value })); }
+  getUiLanguage(): UiLanguage { return this.load().uiLanguage ?? DEFAULT_UI_LANGUAGE; }
+  setUiLanguage(value: UiLanguage): void { this.update((s) => ({ ...s, uiLanguage: value })); }
   getBoxRuntime(): SandBoxRuntime {
     const loaded = this.load();
     if (isSandBoxRuntime(loaded.boxRuntime)) return loaded.boxRuntime;
@@ -191,6 +199,40 @@ export class SandSettingsStore {
   setInferenceProvider(value: SandInferenceProvider): void { this.update((s) => ({ ...s, inferenceProvider: value })); }
   getInferenceHttp(): InferenceHttpConfig | undefined { return this.load().inferenceHttp; }
   setInferenceHttp(value: InferenceHttpConfig | undefined): void { this.update((s) => { const { inferenceHttp: _old, ...rest } = s; return value == null ? rest : { ...rest, inferenceHttp: { baseUrl: value.baseUrl, modelId: value.modelId } }; }); }
+  getInferenceVendors(): InferenceVendorAccount[] {
+    const loaded = this.load();
+    if ((loaded.inferenceVendors ?? []).length > 0) return loaded.inferenceVendors ?? [];
+    const provider = loaded.inferenceProvider;
+    if (!isHttpInferenceVendor(provider)) return [];
+    const http = loaded.inferenceHttp;
+    const preset = vendorPreset(provider);
+    const id = "legacy";
+    return [{ id, label: preset.label, provider, baseUrl: http?.baseUrl || preset.defaultBaseUrl, modelId: http?.modelId || preset.defaultModelId, secretKey: preset.secretKey }];
+  }
+  setInferenceVendors(vendors: readonly InferenceVendorAccount[]): void {
+    this.update((s) => {
+      const next = [...vendors];
+      const { defaultInferenceVendorId: _old, ...rest } = s;
+      const defaultInferenceVendorId = next.some((item) => item.id === s.defaultInferenceVendorId) ? s.defaultInferenceVendorId : next[0]?.id;
+      return defaultInferenceVendorId == null
+        ? { ...rest, inferenceVendors: next }
+        : { ...rest, inferenceVendors: next, defaultInferenceVendorId };
+    });
+  }
+  getDefaultInferenceVendorId(): string | undefined {
+    const vendors = this.getInferenceVendors();
+    const loaded = this.load().defaultInferenceVendorId;
+    if (loaded != null && vendors.some((item) => item.id === loaded)) return loaded;
+    return vendors[0]?.id;
+  }
+  setDefaultInferenceVendorId(id: string): void { this.update((s) => ({ ...s, defaultInferenceVendorId: id })); }
+  getInferenceVendor(id: string | undefined): InferenceVendorAccount | undefined {
+    if (id == null || id.length === 0) {
+      const fallback = this.getDefaultInferenceVendorId();
+      return fallback == null ? undefined : this.getInferenceVendors().find((item) => item.id === fallback);
+    }
+    return this.getInferenceVendors().find((item) => item.id === id);
+  }
   getLocalAccountActive(): boolean { return this.load().localAccountActive === true; }
   setLocalAccountActive(value: boolean): void { this.update((s) => { const { localAccountActive: _old, ...rest } = s; return value ? { ...rest, localAccountActive: true } : rest; }); }
   getInferenceRouterUsage(): SandInferenceRouterUsage { return this.load().inferenceRouterUsage ?? emptySandInferenceRouterUsage(); }

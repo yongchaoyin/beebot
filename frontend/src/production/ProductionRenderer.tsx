@@ -78,6 +78,7 @@ import { AccountMenu } from "../recovered/features/account/session/menu";
 import { SandBadge, SandButton, SandIcon, SandIconButton } from "../recovered/ui/sand-kit-primitives";
 import { OverlayDialog } from "../recovered/ui/overlay-primitives";
 import { VendorSetup } from "../recovered/features/account/session/vendor-setup";
+import { CreateBotSheet, parseUiLanguage, type UiLanguage } from "../recovered/features/roster/create-bot-sheet";
 import { isRosterPrivacyBlockFailure, PrivacyBlockedDialog } from "../recovered/features/roster/privacy-blocked";
 import { RosterStatus } from "../recovered/features/roster/status";
 import { projectRosterFailure, selectRosterAccessReadiness } from "../recovered/features/roster/access-readiness";
@@ -916,6 +917,10 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   const asyncTasksReturnFocusRef = useRef<HTMLElement | null>(null);
   const [globalShortcutController] = useState(() => createGlobalKeyboardShortcutController([]));
   const createAgentRef = useRef<() => void | Promise<unknown>>(() => {});
+  const [createBotOpen, setCreateBotOpen] = useState(false);
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
+  const [inferenceVendors, setInferenceVendors] = useState<readonly { id: string; label: string; modelId?: string }[]>([]);
+  const [defaultInferenceVendorId, setDefaultInferenceVendorId] = useState("");
   const openAgentRef = useRef<(agentId: string) => void | Promise<unknown>>(() => {});
   const acknowledgementScopeRef = useRef<{ accountSlot: string | null; agentId: string | null }>({ accountSlot: null, agentId: null });
   const rosterAttemptRef = useRef(0);
@@ -1276,7 +1281,8 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       name: activeAgent.name,
       description: activeAgent.description ?? "",
       isGroup: activeAgent.isGroup,
-      notifyOnUpdatesEnabled: activeAgent.raw.notifyOnUpdatesEnabled === true
+      notifyOnUpdatesEnabled: activeAgent.raw.notifyOnUpdatesEnabled === true,
+      inferenceVendorId: typeof activeAgent.raw.inferenceVendorId === "string" ? activeAgent.raw.inferenceVendorId : ""
     });
     if (initialAgent == null) return null;
     return createAgentSettingsController({
@@ -2799,11 +2805,24 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     return () => { active = false; window.removeEventListener("focus", onFocus); };
   }, [client, refreshRoster, transport]);
 
+  useEffect(() => {
+    void bridge?.agent.getUiLanguage?.().then((value: { language?: string }) => setUiLanguage(parseUiLanguage(value?.language))).catch(() => undefined);
+    void bridge?.agent.getInferenceVendors?.().then((listed) => {
+      setInferenceVendors(listed?.vendors ?? []);
+      setDefaultInferenceVendorId(listed?.defaultVendorId ?? "");
+    }).catch(() => undefined);
+  }, [bridge, createBotOpen]);
+
   const createAgent = async () => {
+    setCreateBotOpen(true);
+  };
+
+  const submitCreateBot = async (draft: { name: string; avatarColor: string; avatarShape: string; inferenceVendorId?: string }) => {
     if (client == null) return;
+    setCreateBotOpen(false);
     setBusy(true);
     try {
-      const result = await client.call("createAgent", { name: "New chat", description: "", origin: "user", isKickstartRequested: false, clientNonce: makeClientNonce() });
+      const result = await client.call("createAgent", { name: draft.name, description: "", origin: "user", avatarColor: draft.avatarColor, avatarShape: draft.avatarShape, ...(draft.inferenceVendorId ? { inferenceVendorId: draft.inferenceVendorId } : {}), isKickstartRequested: true, clientNonce: makeClientNonce() });
       const created = result && typeof result === "object" && "agent" in result ? (result as { agent: unknown }).agent : result;
       const projected = projectRendererAgent(created);
       await refreshRoster();
@@ -3544,7 +3563,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         data-open="true"
       >
         <RootInfoPaneHeader onClose={() => setAgentSettingsOpen(false)} />
-        <AgentSettingsPanel controller={agentSettingsController} />
+        <AgentSettingsPanel controller={agentSettingsController} language={uiLanguage} vendors={inferenceVendors} />
         {/* @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2750022 (Edit agent avatar trigger/editor region) */}
         {avatarEditorReady ? <SandButton
           aria-expanded={avatarEditorOpen}
@@ -3674,6 +3693,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         isVisible={accessCoverComposition.isVisible}
       /> : null}
       {showSignIn && bridge != null && account != null ? <SignInLanding account={account} bridge={bridge} onStatus={setAccount} /> : null}
+      {createBotOpen ? <CreateBotSheet defaultVendorId={defaultInferenceVendorId} language={uiLanguage} vendors={inferenceVendors} onCancel={() => setCreateBotOpen(false)} onCreate={(draft) => void submitCreateBot(draft)} /> : null}
       {onboardingOpen && account?.kind === "logged-in" && bridge != null ? <SignedInOnboarding
         accountSlot={account.authId ?? account.email ?? "account"}
         bridge={bridge}

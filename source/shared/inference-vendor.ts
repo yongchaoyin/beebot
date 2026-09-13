@@ -28,6 +28,49 @@ export interface InferenceHttpConfig {
   readonly modelId: string;
 }
 
+export interface InferenceVendorAccount {
+  readonly id: string;
+  readonly label: string;
+  readonly provider: HttpInferenceVendor;
+  readonly baseUrl: string;
+  readonly modelId: string;
+  readonly secretKey: string;
+}
+
+export function vendorAccountSecretKey(id: string): string {
+  return `VENDOR_${id.replace(/[^A-Za-z0-9]/g, "").slice(0, 24)}_KEY`;
+}
+
+export function parseInferenceVendorAccount(value: unknown): InferenceVendorAccount | null {
+  if (typeof value !== "object" || value == null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || record.id.trim().length === 0) return null;
+  if (!isHttpInferenceVendor(record.provider)) return null;
+  const id = record.id.trim();
+  const preset = vendorPreset(record.provider);
+  return {
+    id,
+    label: typeof record.label === "string" && record.label.trim().length > 0 ? record.label.trim() : preset.label,
+    provider: record.provider,
+    baseUrl: typeof record.baseUrl === "string" ? record.baseUrl.trim().replace(/\/+$/, "") : preset.defaultBaseUrl,
+    modelId: typeof record.modelId === "string" ? record.modelId.trim() : preset.defaultModelId,
+    secretKey: typeof record.secretKey === "string" && record.secretKey.trim().length > 0 ? record.secretKey.trim() : vendorAccountSecretKey(id),
+  };
+}
+
+export function parseInferenceVendorAccounts(value: unknown): InferenceVendorAccount[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const accounts: InferenceVendorAccount[] = [];
+  for (const item of value) {
+    const parsed = parseInferenceVendorAccount(item);
+    if (parsed == null || seen.has(parsed.id)) continue;
+    seen.add(parsed.id);
+    accounts.push(parsed);
+  }
+  return accounts;
+}
+
 export interface VendorSetupInput {
   readonly provider: string;
   readonly apiKey: string;

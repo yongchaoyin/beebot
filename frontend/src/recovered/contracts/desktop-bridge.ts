@@ -364,6 +364,46 @@ export interface AgentDesktopBridge {
   getComputerUseModel(): Promise<AgentModelSelection | null>;
   setComputerUseModel(model: AgentModelSelection | null): Promise<AgentModelSelection | null>;
   getAvailableModels(): Promise<unknown>;
+  getUiLanguage(): Promise<{ language: string }>;
+  setUiLanguage(language: string): Promise<{ language: string }>;
+  getInferenceVendors(): Promise<{
+    vendors: readonly {
+      id: string;
+      label: string;
+      provider: string;
+      baseUrl: string;
+      modelId: string;
+    }[];
+    defaultVendorId: string | null;
+  }>;
+  upsertInferenceVendor(request: {
+    id?: string;
+    label?: string;
+    provider: string;
+    apiKey?: string;
+    baseUrl?: string;
+    modelId?: string;
+    makeDefault?: boolean;
+  }): Promise<{
+    vendors: readonly {
+      id: string;
+      label: string;
+      provider: string;
+      baseUrl: string;
+      modelId: string;
+    }[];
+    defaultVendorId: string | null;
+  }>;
+  deleteInferenceVendor(id: string): Promise<{
+    vendors: readonly {
+      id: string;
+      label: string;
+      provider: string;
+      baseUrl: string;
+      modelId: string;
+    }[];
+    defaultVendorId: string | null;
+  }>;
   getInferenceRouter(): Promise<{
     provider: string;
     usage: unknown;

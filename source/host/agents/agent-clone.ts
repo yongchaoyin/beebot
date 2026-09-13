@@ -16,7 +16,7 @@ export function cloneAgentDir(sourceDir: string, targetDir: string, newAgentId: 
   mkdirSync(targetDir, { recursive: true });
   try {
     const store = join(sourceDir, STORE_FILENAME); if (!existsSync(store)) throw new SandAgentCloneError("This agent's data is missing and can't be duplicated."); adapters.checkpointStore(store); copyFileSync(store, join(targetDir, STORE_FILENAME));
-    const profile = readSandProfileFile(getSandProfilePath(sourceDir)); writeSandProfileFile(getSandProfilePath(targetDir), { name: cloneName, description: profile?.description ?? "", title: profile?.title ?? "", avatarShape: profile?.avatarShape ?? "", avatarColor: profile?.avatarColor ?? "" });
+    const profile = readSandProfileFile(getSandProfilePath(sourceDir)); writeSandProfileFile(getSandProfilePath(targetDir), { name: cloneName, description: profile?.description ?? "", title: profile?.title ?? "", avatarShape: profile?.avatarShape ?? "", avatarColor: profile?.avatarColor ?? "", inferenceVendorId: profile?.inferenceVendorId ?? "" });
     copyIfPresent(getSandSettingsPath(sourceDir), getSandSettingsPath(targetDir)); writeSandSettingsFile(getSandSettingsPath(targetDir), { hiddenFromSidebar: false });
     copyIfPresent(getAgentWorkflowEnablementPath(sourceDir), getAgentWorkflowEnablementPath(targetDir));
     resolveDerivedAvatarFilename(sourceDir, readLegacyProfileAvatarField(getSandProfilePath(sourceDir))); for (const name of listConventionalAvatarFilenames(sourceDir)) copyFileSync(join(sourceDir, name), join(targetDir, name));

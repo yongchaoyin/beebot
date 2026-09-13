@@ -9,6 +9,7 @@ export interface SandAgentProfile {
   title: string;
   avatarShape: string;
   avatarColor: string;
+  inferenceVendorId: string;
 }
 
 export function getSandProfilePath(agentDir: string): string { return join(agentDir, SAND_PROFILE_FILENAME); }
@@ -28,7 +29,8 @@ export function readSandProfileFile(path: string): SandAgentProfile | null {
     description: typeof parsed.description === "string" ? parsed.description : "",
     title: typeof parsed.title === "string" ? parsed.title.trim() : "",
     avatarShape: typeof parsed.avatarShape === "string" ? parsed.avatarShape.trim() : "",
-    avatarColor: typeof parsed.avatarColor === "string" ? parsed.avatarColor.trim() : ""
+    avatarColor: typeof parsed.avatarColor === "string" ? parsed.avatarColor.trim() : "",
+    inferenceVendorId: typeof parsed.inferenceVendorId === "string" ? parsed.inferenceVendorId.trim() : ""
   };
 }
 
@@ -41,7 +43,7 @@ export function readLegacyProfileAvatarField(path: string): string | null {
 
 export function writeSandProfileFile(path: string, profile: SandAgentProfile): void {
   mkdirSync(dirname(path), { recursive: true });
-  const serialized = `${JSON.stringify({ ...profile, title: profile.title.trim(), avatarShape: profile.avatarShape.trim(), avatarColor: profile.avatarColor.trim() }, null, 2)}\n`;
+  const serialized = `${JSON.stringify({ ...profile, title: profile.title.trim(), avatarShape: profile.avatarShape.trim(), avatarColor: profile.avatarColor.trim(), inferenceVendorId: profile.inferenceVendorId.trim() }, null, 2)}\n`;
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporary, serialized, "utf8");
   renameSync(temporary, path);

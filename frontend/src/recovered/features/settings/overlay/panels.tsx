@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { CursorUsageSummary, CursorUsageUpgradeAction, DesktopTimeZoneState } from "../../../contracts/desktop-bridge";
 import { egressTunnelStatusDescription, type EgressTunnelStatus, type UpdateStatus, type UpdateTrack } from "./updates";
 // @evidence src/app/dist/renderer/assets/index-BlqerJhg.js#L1
@@ -12,7 +12,7 @@ import type { SandIconPlatform } from "../../../ui/sand-icon-registry";
 import { SandSelect } from "../../../ui/sand-floating-primitives";
 import { SandSwitch } from "../../../ui/sand-form-primitives";
 import { OverlayDialog } from "../../../ui/overlay-primitives";
-import { ROUTER_PROVIDERS, routerProviderById, type RouterProviderId } from "./router";
+import { HTTP_ROUTER_PROVIDERS, ROUTER_PROVIDERS, routerProviderById, type HttpRouterProviderId, type RouterProviderId } from "./router";
 
 export type AccountState =
   | { kind: "logged-out"; errorMessage?: string }
@@ -26,6 +26,9 @@ export interface GeneralSettingsPanelProps {
   theme: "system" | "light" | "dark";
   onAccountAction(): void;
   onThemeChange(theme: "system" | "light" | "dark"): void | Promise<unknown>;
+  language?: "en" | "zh";
+  languagePending?: boolean;
+  onLanguageChange?(language: "en" | "zh"): void | Promise<unknown>;
   timeZone?: { state: DesktopTimeZoneState; onChange(timeZone: string | null): void | Promise<DesktopTimeZoneState> };
   localToolPermission?: { state: LocalToolPermissionState; onChange(permission: LocalToolPermission): void | Promise<LocalToolPermission> };
   securityKey?: { enabled: boolean; platform: NodeJS.Platform; onChange(enabled: boolean): void | Promise<boolean> };
@@ -89,7 +92,7 @@ export function ThemePreferencePicker({ value, disabled = false, onChange }: The
   />;
 }
 
-export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onThemeChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
+export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
   const [themePending, setThemePending] = useState(false);
   const signedIn = account.kind === "logged-in";
@@ -144,6 +147,20 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
           <span>Theme</span>
           <ThemePreferencePicker disabled={themePending} onChange={handleThemeChange} value={theme} />
         </label>
+        {onLanguageChange == null ? null : (
+          <label>
+            <span>{language === "zh" ? "语言" : "Language"}</span>
+            <SandSelect
+              ariaLabel={language === "zh" ? "语言" : "Language"}
+              disabled={languagePending}
+              onValueChange={(value) => {
+                if (value === "en" || value === "zh") void onLanguageChange(value);
+              }}
+              options={[{ value: "en", label: "English" }, { value: "zh", label: "中文" }]}
+              value={language ?? "en"}
+            />
+          </label>
+        )}
       </SettingsGroup>
       {timeZone || localToolPermission || autoReview ? <SettingsGroup title="Agent">
         {timeZone ? <TimeZoneSettingsPanel {...timeZone} /> : null}
@@ -458,6 +475,14 @@ export function UsageSettingsPanel({ meters = [], state, onRetry, onUpgrade, onC
   );
 }
 
+export interface VendorAccountView {
+  readonly id: string;
+  readonly label: string;
+  readonly provider: string;
+  readonly baseUrl: string;
+  readonly modelId: string;
+}
+
 export interface RouterSettingsPanelProps {
   provider: RouterProviderId;
   pending?: boolean;
@@ -471,12 +496,107 @@ export interface RouterSettingsPanelProps {
     onApiKeyChange(value: string): void;
     onSave(): void | Promise<unknown>;
   };
+  vendorAccounts?: {
+    vendors: readonly VendorAccountView[];
+    defaultVendorId: string | null;
+    pending?: boolean;
+    error?: string | null;
+    language?: "en" | "zh";
+    onAdd(input: { id?: string; label: string; provider: HttpRouterProviderId; apiKey: string; baseUrl: string; modelId: string }): void | Promise<unknown>;
+    onRemove(id: string): void | Promise<unknown>;
+    onMakeDefault(account: VendorAccountView): void | Promise<unknown>;
+  };
 }
 
-export function RouterSettingsPanel({ provider, pending = false, onChange, http }: RouterSettingsPanelProps) {
+function VendorAccountsPanel({ accounts }: { accounts: NonNullable<RouterSettingsPanelProps["vendorAccounts"]> }) {
+  const zh = accounts.language === "zh";
+  const copy = zh
+    ? { title: "模型 API", add: "添加模型", save: "保存", cancel: "取消", remove: "删除", edit: "编辑", def: "默认", setDef: "设为默认", name: "名称", namePh: "例如 DeepSeek 主力", vendor: "厂商", key: "API key", keyPh: "粘贴 API key", keyReplace: "已保存 — 粘贴即可更换", base: "Base URL", model: "模型 ID", empty: "还没有保存的模型。添加后，新建 Bot 时可以为每个 Bot 选择不同的 API。", adding: "添加模型", editing: "编辑模型" }
+    : { title: "Model APIs", add: "Add model", save: "Save", cancel: "Cancel", remove: "Remove", edit: "Edit", def: "Default", setDef: "Set default", name: "Name", namePh: "e.g. DeepSeek main", vendor: "Vendor", key: "API key", keyPh: "Paste API key", keyReplace: "Saved — paste to replace", base: "Base URL", model: "Model ID", empty: "No saved models yet. Add one, then pick it when you create a bot.", adding: "Add model", editing: "Edit model" };
+  const first = HTTP_ROUTER_PROVIDERS[0]!;
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [provider, setProvider] = useState<HttpRouterProviderId>(first.id);
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState(first.defaultBaseUrl);
+  const [modelId, setModelId] = useState(first.defaultModelId);
+  const [hasKey, setHasKey] = useState(false);
+  const pick = (id: HttpRouterProviderId) => {
+    const next = HTTP_ROUTER_PROVIDERS.find((item) => item.id === id) ?? first;
+    setProvider(next.id);
+    setBaseUrl(next.defaultBaseUrl);
+    setModelId(next.defaultModelId);
+  };
+  const reset = () => {
+    setAdding(false);
+    setEditingId(null);
+    setLabel("");
+    setProvider(first.id);
+    setApiKey("");
+    setBaseUrl(first.defaultBaseUrl);
+    setModelId(first.defaultModelId);
+    setHasKey(false);
+  };
+  const beginEdit = (item: VendorAccountView) => {
+    setAdding(true);
+    setEditingId(item.id);
+    setLabel(item.label);
+    setProvider((HTTP_ROUTER_PROVIDERS.some((option) => option.id === item.provider) ? item.provider : first.id) as HttpRouterProviderId);
+    setApiKey("");
+    setBaseUrl(item.baseUrl);
+    setModelId(item.modelId);
+    setHasKey(true);
+  };
+  const field = (rowLabel: string, control: ReactNode, divided = false) => (
+    <label className="sand-settings-row" data-divided={divided || undefined}>
+      <span className="sand-settings-copy"><strong>{rowLabel}</strong></span>
+      {control}
+    </label>
+  );
+  return (
+    <SettingsGroup title={copy.title}>
+      {accounts.vendors.length === 0
+        ? <label className="sand-settings-row"><span className="sand-settings-copy"><strong>{copy.title}</strong><small>{copy.empty}</small></span><SandButton disabled={accounts.pending} onClick={() => { reset(); setAdding(true); }} size="sm">{copy.add}</SandButton></label>
+        : accounts.vendors.map((item) => (
+          <label className="sand-settings-row" key={item.id}>
+            <span className="sand-settings-copy">
+              <strong>{item.label}</strong>
+              <small>{item.provider} · {item.modelId}</small>
+            </span>
+            <span className="sand-settings-row__actions">
+              {item.id === accounts.defaultVendorId
+                ? <small>{copy.def}</small>
+                : <SandButton disabled={accounts.pending} onClick={() => void accounts.onMakeDefault(item)} size="sm" variant="secondary">{copy.setDef}</SandButton>}
+              <SandButton disabled={accounts.pending} onClick={() => beginEdit(item)} size="sm" variant="secondary">{copy.edit}</SandButton>
+              <SandButton disabled={accounts.pending} onClick={() => void accounts.onRemove(item.id)} size="sm" variant="secondary">{copy.remove}</SandButton>
+            </span>
+          </label>
+        ))}
+      {accounts.vendors.length > 0 && !adding ? <SandButton disabled={accounts.pending} onClick={() => { reset(); setAdding(true); }} size="sm">{copy.add}</SandButton> : null}
+      {adding ? (
+        <SettingsGroup title={editingId == null ? copy.adding : copy.editing}>
+          {field(copy.name, <input aria-label={copy.name} onChange={(event) => setLabel(event.currentTarget.value)} placeholder={copy.namePh} value={label} />)}
+          {field(copy.vendor, <SandSelect ariaLabel={copy.vendor} className="ui-select-trigger" menuSize="md" onValueChange={(value) => { if (value != null) pick(value as HttpRouterProviderId); }} options={HTTP_ROUTER_PROVIDERS.map((item) => ({ value: item.id, label: item.label }))} placement="bottom-end" value={provider} />, true)}
+          {field(copy.key, <input aria-label={copy.key} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={hasKey ? copy.keyReplace : copy.keyPh} type="password" value={apiKey} />, true)}
+          {field(copy.base, <input aria-label={copy.base} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder={copy.base} value={baseUrl} />, true)}
+          {field(copy.model, <input aria-label={copy.model} onChange={(event) => setModelId(event.currentTarget.value)} placeholder={copy.model} value={modelId} />, true)}
+          <div className="sand-settings-row__actions">
+            <SandButton disabled={accounts.pending} onClick={reset} size="sm" variant="secondary">{copy.cancel}</SandButton>
+            <SandButton disabled={accounts.pending || apiKey.trim().length === 0 && !hasKey} onClick={() => void Promise.resolve(accounts.onAdd({ id: editingId ?? undefined, label, provider, apiKey, baseUrl, modelId })).then(() => reset())} size="sm">{accounts.pending ? "Saving…" : copy.save}</SandButton>
+          </div>
+        </SettingsGroup>
+      ) : null}
+      {accounts.error == null ? null : <p aria-live="polite">{accounts.error}</p>}
+    </SettingsGroup>
+  );
+}
+
+export function RouterSettingsPanel({ provider, pending = false, onChange, http, vendorAccounts }: RouterSettingsPanelProps) {
   const selectedProvider = routerProviderById(provider);
   return (
     <div className="sand-router-section">
+      {vendorAccounts != null ? <VendorAccountsPanel accounts={vendorAccounts} /> : null}
       <SettingsGroup title="Provider">
         <label className="sand-settings-row">
           <span className="sand-settings-copy">

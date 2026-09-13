@@ -60,6 +60,10 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   const [routerProvider, setRouterProvider] = useState<RouterProviderId>(DEFAULT_ROUTER_PROVIDER);
   const [routerPending, setRouterPending] = useState(false);
   const [routerHttp, setRouterHttp] = useState({ apiKey: "", baseUrl: "", modelId: "" });
+  const [uiLanguage, setUiLanguage] = useState<"en" | "zh">("en");
+  const [vendorAccounts, setVendorAccounts] = useState<{ vendors: { id: string; label: string; provider: string; baseUrl: string; modelId: string }[]; defaultVendorId: string | null }>({ vendors: [], defaultVendorId: null });
+  const [vendorAccountsPending, setVendorAccountsPending] = useState(false);
+  const [vendorAccountsError, setVendorAccountsError] = useState<string | null>(null);
   const handleCancelTrialDialogOpen = useCallback((open: boolean) => setCancelTrialDialogOpen(open), []);
   const handleNotice = useCallback((event: SettingsNoticeEvent) => {
     setSurfaceNotice(settingsNoticeFromEvent(event));
@@ -137,6 +141,11 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
+    void bridge.agent.getUiLanguage?.().then((value) => { if (active && value?.language === "zh") setUiLanguage("zh"); }).catch(() => undefined);
+    void bridge.agent.getInferenceVendors?.().then((listed) => {
+      if (!active) return;
+      setVendorAccounts({ vendors: [...(listed?.vendors ?? [])], defaultVendorId: listed?.defaultVendorId ?? null });
+    }).catch(() => undefined);
     void bridge.agent.getInferenceRouter().then((router) => {
       if (!active) return;
       const provider = HTTP_ROUTER_PROVIDERS.some((item) => item.id === router.provider) || router.provider === "cursor" || router.provider === "claude-code" || router.provider === "codex"
@@ -250,6 +259,11 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
               onChange: (timeZone) => mutate(() => setTimeZoneOverride(bridge, timeZone), "settings-time-zone", updateTimeZone)
             }}
             theme={snapshot.theme}
+            language={uiLanguage}
+            onLanguageChange={async (next) => {
+              setUiLanguage(next);
+              await bridge.agent.setUiLanguage?.(next);
+            }}
           />
         );
         if (section === "usage") return (
@@ -267,6 +281,67 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
         );
         if (section === "router") return (
           <RouterSettingsPanel
+            vendorAccounts={{
+              vendors: vendorAccounts.vendors,
+              defaultVendorId: vendorAccounts.defaultVendorId,
+              pending: vendorAccountsPending,
+              error: vendorAccountsError,
+              language: uiLanguage,
+              onAdd: async (input) => {
+                setVendorAccountsPending(true);
+                setVendorAccountsError(null);
+                try {
+                  const listed = await bridge.agent.upsertInferenceVendor({
+                    ...(input.id == null ? {} : { id: input.id }),
+                    label: input.label,
+                    provider: input.provider,
+                    apiKey: input.apiKey,
+                    baseUrl: input.baseUrl,
+                    modelId: input.modelId
+                  });
+                  setVendorAccounts({ vendors: [...(listed?.vendors ?? [])], defaultVendorId: listed?.defaultVendorId ?? null });
+                } catch (reason) {
+                  const message = reason instanceof Error ? reason.message : String(reason);
+                  setVendorAccountsError(message);
+                  throw reason;
+                } finally {
+                  setVendorAccountsPending(false);
+                }
+              },
+              onRemove: async (id) => {
+                setVendorAccountsPending(true);
+                setVendorAccountsError(null);
+                try {
+                  const listed = await bridge.agent.deleteInferenceVendor(id);
+                  setVendorAccounts({ vendors: [...(listed?.vendors ?? [])], defaultVendorId: listed?.defaultVendorId ?? null });
+                } catch (reason) {
+                  const message = reason instanceof Error ? reason.message : String(reason);
+                  setVendorAccountsError(message);
+                } finally {
+                  setVendorAccountsPending(false);
+                }
+              },
+              onMakeDefault: async (account) => {
+                setVendorAccountsPending(true);
+                setVendorAccountsError(null);
+                try {
+                  const listed = await bridge.agent.upsertInferenceVendor({
+                    id: account.id,
+                    label: account.label,
+                    provider: account.provider,
+                    baseUrl: account.baseUrl,
+                    modelId: account.modelId,
+                    makeDefault: true
+                  });
+                  setVendorAccounts({ vendors: [...(listed?.vendors ?? [])], defaultVendorId: listed?.defaultVendorId ?? null });
+                } catch (reason) {
+                  const message = reason instanceof Error ? reason.message : String(reason);
+                  setVendorAccountsError(message);
+                } finally {
+                  setVendorAccountsPending(false);
+                }
+              }
+            }}
             http={{
               apiKey: routerHttp.apiKey,
               baseUrl: routerHttp.baseUrl,

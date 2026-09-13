@@ -90,7 +90,10 @@ export function createHostGatewayApi(
           : { avatarShape: args.avatarShape }),
         ...(args.avatarColor === undefined
           ? {}
-          : { avatarColor: args.avatarColor })
+          : { avatarColor: args.avatarColor }),
+        ...(args.inferenceVendorId === undefined
+          ? {}
+          : { inferenceVendorId: args.inferenceVendorId })
       },
       args.origin,
       {

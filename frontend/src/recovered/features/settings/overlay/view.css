@@ -56,6 +56,9 @@
 .sand-usage-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .sand-settings-beta__status { display: block; margin-top: 8px; color: var(--cursor-text-secondary, #aaa); }
 .sand-settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 13px; background: var(--cursor-bg-secondary, #292929); border: 1px solid var(--cursor-border-secondary, #393939); border-radius: 9px; }
+.sand-settings-row[data-divided] { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -1px; }
+.sand-settings-row__actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.sand-settings-row input[type="text"], .sand-settings-row input[type="password"] { min-width: 160px; width: 220px; height: 34px; padding: 0 10px; color: inherit; background: var(--cursor-bg-tertiary, #3b3b3b); border: 1px solid var(--cursor-stroke-tertiary, #494949); border-radius: 6px; font: inherit; }
 .sand-settings-copy { display: grid; flex: 1; min-width: 0; gap: 4px; }
 .sand-settings-field__hint { color: var(--cursor-text-secondary, #aaa); font-size: 11px; }
 .sand-settings-control { display: flex; align-items: center; flex: 0 0 auto; }

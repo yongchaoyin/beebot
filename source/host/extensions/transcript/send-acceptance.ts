@@ -92,6 +92,7 @@ export function applySendRosterSideEffects(
       title: currentProfile?.title ?? "",
       avatarShape: currentProfile?.avatarShape ?? "",
       avatarColor: currentProfile?.avatarColor ?? "",
+      inferenceVendorId: currentProfile?.inferenceVendorId ?? "",
     });
     tm.roster.lastKnownAgentNames.set(session.id, seededName);
     needsRosterRefresh = true;

@@ -43,3 +43,14 @@ test("settings registry exposes Router with the native settings icon contract", 
   const source = await readFile(path.join(repoRoot, "frontend/src/recovered/features/settings/overlay/view.tsx"), "utf8");
   assert.match(source, /\{ id: "router", label: "Router", icon: "git-branch" \}/);
 });
+
+test("Router settings can add and remove multiple vendor APIs", async () => {
+  const source = await readFile(path.join(repoRoot, "frontend/src/recovered/features/settings/overlay/panels.tsx"), "utf8");
+  assert.match(source, /Model APIs/);
+  assert.match(source, /Add model/);
+  assert.match(source, /onMakeDefault/);
+  assert.match(source, /beginEdit/);
+  const surface = await readFile(path.join(repoRoot, "frontend/src/recovered/features/settings/overlay/desktop-surface.tsx"), "utf8");
+  assert.match(surface, /upsertInferenceVendor/);
+  assert.match(surface, /deleteInferenceVendor/);
+});

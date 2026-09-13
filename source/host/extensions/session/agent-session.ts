@@ -93,16 +93,16 @@ export class SandAgentSessionStore {
   getAgentDir(agentId: string): string { return join(this.rootDir, agentId); }
   agentExists(agentId: string): boolean { return existsSync(getAgentDbPath(this.rootDir, agentId)); }
   agentDirExists(agentId: string): boolean { return existsSync(this.getAgentDir(agentId)); }
-  writeAgentProfileFile(agentId: string, profile: Partial<SandAgentProfile> & { name: string; description: string }): void {
+  writeAgentProfileFile(agentId: string, profile: Partial<SandAgentProfile> & { name: string }): void {
     const path = getSandProfilePath(this.getAgentDir(agentId)), current = readSandProfileFile(path), name = resolveProfileName(profile.name.trim(), current);
-    writeSandProfileFile(path, { name, description: profile.description.trim(), title: profile.title?.trim() ?? current?.title ?? "", avatarShape: profile.avatarShape?.trim() ?? current?.avatarShape ?? "", avatarColor: profile.avatarColor?.trim() ?? current?.avatarColor ?? "" });
+    writeSandProfileFile(path, { name, description: typeof profile.description === "string" ? profile.description.trim() : current?.description ?? "", title: profile.title?.trim() ?? current?.title ?? "", avatarShape: profile.avatarShape?.trim() ?? current?.avatarShape ?? "", avatarColor: profile.avatarColor?.trim() ?? current?.avatarColor ?? "", inferenceVendorId: profile.inferenceVendorId?.trim() ?? current?.inferenceVendorId ?? "" });
   }
   async withAgentDb<T>(agentId: string, fn: (db: SandAgentDb, dbPath: string) => T | Promise<T>): Promise<T> { const dbPath = getAgentDbPath(this.rootDir, agentId), db = new SandAgentDb(dbPath); try { return await fn(db, dbPath); } finally { db.close(); } }
 
   private async createLocalSession(profile: Partial<SandAgentProfile>, origin: "user" | "dev", purpose?: string): Promise<OpenAgentSession> {
     let id = randomUUID(); while (this.agentDirExists(id)) id = randomUUID();
     mkdirSync(this.getAgentDir(id), { recursive: true });
-    this.writeAgentProfileFile(id, { name: profile.name ?? "Grok", description: profile.description ?? "", ...(profile.title == null ? {} : { title: profile.title }), ...(profile.avatarShape == null ? {} : { avatarShape: profile.avatarShape }), ...(profile.avatarColor == null ? {} : { avatarColor: profile.avatarColor }) });
+    this.writeAgentProfileFile(id, { name: profile.name ?? "Grok", description: profile.description ?? "", ...(profile.title == null ? {} : { title: profile.title }), ...(profile.avatarShape == null ? {} : { avatarShape: profile.avatarShape }), ...(profile.avatarColor == null ? {} : { avatarColor: profile.avatarColor }), ...(profile.inferenceVendorId == null ? {} : { inferenceVendorId: profile.inferenceVendorId }) });
     const dbPath = getAgentDbPath(this.rootDir, id), db = new SandAgentDb(dbPath); db.set("agentId", id); db.setAgentOrigin(origin); if (purpose != null) db.setAgentPurpose(purpose); db.setIntroductionPending(true);
     return { id, dbPath, db, agentStore: { dispose: async () => {} } };
   }
@@ -116,7 +116,7 @@ export class SandAgentSessionStore {
   readActiveAgentId(): string | null { try { const parsed = JSON.parse(readFileSync(this.activeAgentPointerPath(), "utf8")) as { activeAgentId?: unknown }; const id = parsed.activeAgentId; return typeof id === "string" && id.length > 0 ? id : null; } catch { return null; } }
   writeActiveAgentId(agentId: string): void { try { mkdirSync(this.rootDir, { recursive: true }); const path = this.activeAgentPointerPath(), temp = `${path}.${process.pid}.tmp`; writeFileSync(temp, JSON.stringify({ activeAgentId: agentId })); renameSync(temp, path); } catch {} }
 
-  async updateAgentProfile(agentId: string, profile: Partial<SandAgentProfile> & { name: string; description: string }): Promise<Record<string, unknown> | null> { return updateAgentProfile(this.profileFilesHost(), agentId, profile); }
+  async updateAgentProfile(agentId: string, profile: Partial<SandAgentProfile> & { name: string }): Promise<Record<string, unknown> | null> { return updateAgentProfile(this.profileFilesHost(), agentId, profile); }
   getAgentProfileText(agentId: string): SandAgentProfile | null { return getAgentProfileText(this, agentId); }
   getAgentAvatar(agentId: string) { return getAgentAvatar(this, agentId); }
   getAgentAvatarPng(agentId: string) { return getAgentAvatarPng(this, agentId); }
@@ -235,5 +235,5 @@ export class SandAgentSessionStore {
   async listAllAutomationDefinitions() { return this.listAllAutomationsFrom({ definitionsOnly: true }); }
   async isAgentCapReached(): Promise<boolean> { return await this.materialization?.isAgentCapReached?.() ?? false; }
   async statOpenDb(args: { dbPath: string; agentId: string }) { try { return await stat(args.dbPath); } catch { return undefined; } }
-  private profileFilesHost() { return { memory: this.memory, withAgentDb: <T>(agentId: string, fn: (db: SandAgentDb, dbPath: string) => T | Promise<T>) => this.withAgentDb(agentId, fn), statOpenDb: (args: { dbPath: string; agentId: string }) => this.statOpenDb(args), writeAgentProfileFile: (agentId: string, profile: Partial<SandAgentProfile> & { name: string; description: string }) => this.writeAgentProfileFile(agentId, profile) }; }
+  private profileFilesHost() { return { memory: this.memory, withAgentDb: <T>(agentId: string, fn: (db: SandAgentDb, dbPath: string) => T | Promise<T>) => this.withAgentDb(agentId, fn), statOpenDb: (args: { dbPath: string; agentId: string }) => this.statOpenDb(args), writeAgentProfileFile: (agentId: string, profile: Partial<SandAgentProfile> & { name: string }) => this.writeAgentProfileFile(agentId, profile) }; }
 }

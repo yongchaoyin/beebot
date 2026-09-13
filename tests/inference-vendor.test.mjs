@@ -15,6 +15,19 @@ async function loadVendorModule() {
   return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 }
 
+test("vendor accounts parse unique ids and secret keys", async () => {
+  const vendor = await loadVendorModule();
+  const parsed = vendor.parseInferenceVendorAccounts([
+    { id: "a", provider: "deepseek", label: "DS", baseUrl: "https://api.deepseek.com", modelId: "deepseek-chat" },
+    { id: "a", provider: "openai", label: "dup" },
+    { id: "b", provider: "openai", baseUrl: "https://api.openai.com/v1", modelId: "gpt-4.1-mini" },
+  ]);
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].label, "DS");
+  assert.equal(parsed[1].provider, "openai");
+  assert.match(vendor.vendorAccountSecretKey("hello-world"), /^VENDOR_/);
+});
+
 test("http vendor presets expose OpenRouter, OpenAI, DeepSeek, and custom defaults", async () => {
   const vendor = await loadVendorModule();
   assert.deepEqual(vendor.HTTP_INFERENCE_VENDORS, ["openrouter", "openai", "deepseek", "custom"]);
@@ -68,6 +81,31 @@ test("stored http config overrides vendor defaults", async () => {
     baseUrl: "https://api.openai.com/v1",
     modelId: "gpt-4.1-mini",
   });
+});
+
+test("create overlay remembers the vendor chosen for a new bot", async () => {
+  const overlay = await readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8");
+  assert.match(overlay, /window\.__sandRoster=e/);
+  assert.match(overlay, /RAgentVendorId/);
+  assert.match(overlay, /__sandAgentVendors\[id\]=r\.inferenceVendorId/);
+  assert.match(overlay, /row\.inferenceVendorId/);
+});
+
+test("changing a bot vendor does not blank its description", async () => {
+  const overlay = await readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8");
+  assert.match(overlay, /inferenceVendorId:sel\.value/);
+  assert.doesNotMatch(overlay, /description:""/);
+  const lifecycle = await readFile(path.join(repoRoot, "source/host/extensions/transcript/agent-lifecycle.ts"), "utf8");
+  assert.match(lifecycle, /typeof profile\.description === "string"/);
+});
+
+test("each bot resolves its own saved vendor account", async () => {
+  const source = await readFile(path.join(repoRoot, "source/host/extensions/inference/provider-session.ts"), "utf8");
+  assert.match(source, /export function resolveInferenceForAgent/);
+  assert.match(source, /profile\?\.inferenceVendorId/);
+  assert.match(source, /httpVendorSession\(provider, vendor\)/);
+  const summaries = await readFile(path.join(repoRoot, "source/host/extensions/session/session-summaries.ts"), "utf8");
+  assert.match(summaries, /inferenceVendorId:orNull\(profile\?\.inferenceVendorId\)/);
 });
 
 test("routed HTTP models are told they have a computer and must use tools", async () => {

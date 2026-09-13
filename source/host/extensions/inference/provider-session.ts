@@ -8,12 +8,13 @@ import { streamText, tool, type CoreMessage, type LanguageModelV1, type ToolSet 
 
 import { BasePromptBuilder, BasePromptExecutor } from "../../../packages/chat-inference/base.js";
 import type { SandInferenceProvider } from "../../../shared/inference-router.js";
-import { isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset, type HttpInferenceVendor } from "../../../shared/inference-vendor.js";
+import { isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset, type HttpInferenceVendor, type InferenceVendorAccount } from "../../../shared/inference-vendor.js";
 import { resolveHttpToolParameters, withSyntheticSendMessage } from "../../../shared/http-tool-parameters.js";
 import { resolveClaudeCodeCliPath } from "../../../shared/node/inference-router-local.js";
 import { getSandRootDir } from "../../host-paths.js";
 import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
 import { getBoxSecretsStorePath } from "../secrets/secrets-service.js";
+import { getSandProfilePath, readSandProfileFile } from "../../agents/agent-profile.js";
 import { streamCodexDirectResponses, type CodexDirectTool } from "./codex-direct-responses.js";
 import type { LabelMessage, PromptExecutor } from "./sand-labeling.js";
 
@@ -46,17 +47,34 @@ function persistedSecrets(): Record<string, string> {
   } catch { return {}; }
 }
 
-function httpVendorSession(provider: HttpInferenceVendor): { readonly apiKey: string; readonly baseUrl: string; readonly modelId: string } {
+function httpVendorSession(provider: HttpInferenceVendor, vendor?: InferenceVendorAccount): { readonly apiKey: string; readonly baseUrl: string; readonly modelId: string } {
   const preset = vendorPreset(provider);
   const settings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
-  const http = resolveVendorHttpConfig(provider, settings.getInferenceHttp());
+  const account = vendor ?? settings.getInferenceVendor(undefined);
+  const http = account != null && account.provider === provider
+    ? { baseUrl: account.baseUrl, modelId: account.modelId }
+    : resolveVendorHttpConfig(provider, settings.getInferenceHttp());
+  const secretKey = account?.secretKey ?? preset.secretKey;
   const envOverride = provider === "openrouter" ? process.env.SAND_OPENROUTER_MODEL?.trim() : undefined;
-  const apiKey = process.env[preset.secretKey]?.trim() || persistedSecrets()[preset.secretKey]?.trim();
-  if (apiKey == null || apiKey.length === 0) throw new Error(`${preset.label} needs ${preset.secretKey}. Add it on the setup page.`);
+  const apiKey = process.env[secretKey]?.trim() || persistedSecrets()[secretKey]?.trim() || persistedSecrets()[preset.secretKey]?.trim();
+  if (apiKey == null || apiKey.length === 0) throw new Error(`${account?.label ?? preset.label} needs an API key. Add it in Settings.`);
   if (http.baseUrl.length === 0 || (envOverride == null || envOverride.length === 0) && http.modelId.length === 0) {
-    throw new Error(`${preset.label} needs a Base URL and model ID.`);
+    throw new Error(`${account?.label ?? preset.label} needs a Base URL and model ID.`);
   }
   return { apiKey, baseUrl: http.baseUrl, modelId: envOverride && envOverride.length > 0 ? envOverride : http.modelId };
+}
+
+export function resolveInferenceForAgent(agentId?: string): { provider: SandInferenceProvider; vendor?: InferenceVendorAccount } {
+  const settings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
+  if (agentId != null && agentId.length > 0) {
+    const profile = readSandProfileFile(getSandProfilePath(join(getSandRootDir(), "agents", agentId)))
+      ?? readSandProfileFile(getSandProfilePath(join(getSandRootDir(), agentId)));
+    const vendor = settings.getInferenceVendor(profile?.inferenceVendorId);
+    if (vendor != null) return { provider: vendor.provider, vendor };
+  }
+  const vendor = settings.getInferenceVendor(undefined);
+  if (vendor != null) return { provider: vendor.provider, vendor };
+  return { provider: settings.getInferenceProvider() };
 }
 
 function providerPrompt(messages: readonly ProviderMessage[]): string {
@@ -255,8 +273,8 @@ function toToolSet(definitions: readonly Loose[] | undefined, executeTool?: Rout
   return Object.keys(tools).length === 0 ? undefined : tools;
 }
 
-function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void) {
-  const session = httpVendorSession(provider);
+function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void, vendor?: InferenceVendorAccount) {
+  const session = httpVendorSession(provider, vendor);
   const headers = provider === "openrouter" ? { "HTTP-Referer": "https://github.com/yongchaoyin/botfly", "X-Title": "Botfly" } : undefined;
   const model: LanguageModelV1 = createOpenAI({ apiKey: session.apiKey, baseURL: session.baseUrl, compatibility: "compatible", name: provider, ...(headers == null ? {} : { headers }) }).chat(session.modelId as any);
   const tools = toToolSet(definitions, executeTool);
@@ -283,18 +301,18 @@ function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly Pr
 }
 
 class ProviderPromptExecutor extends BasePromptExecutor<ProviderMessage> {
-  constructor(readonly provider: RoutedProvider, initialMessages?: readonly ProviderMessage[], readonly onUsage?: (usage: UsageRecord) => void) { super(new BasePromptBuilder(initialMessages)); }
+  constructor(readonly provider: RoutedProvider, initialMessages?: readonly ProviderMessage[], readonly onUsage?: (usage: UsageRecord) => void, readonly vendor?: InferenceVendorAccount) { super(new BasePromptBuilder(initialMessages)); }
   stream(_ctx: unknown, invocationId = crypto.randomUUID(), definitions?: readonly Loose[]) {
     if (this.provider === "codex") return codexExecutor(this.getMessages(), invocationId, definitions, undefined, this.onUsage);
     if (this.provider === "claude-code") return claudeExecutor(this.getMessages(), invocationId, this.onUsage);
-    return httpVendorExecutor(isHttpInferenceVendor(this.provider) ? this.provider : "openrouter", this.getMessages(), invocationId, definitions, undefined, this.onUsage);
+    return httpVendorExecutor(isHttpInferenceVendor(this.provider) ? this.provider : "openrouter", this.getMessages(), invocationId, definitions, undefined, this.onUsage, this.vendor);
   }
 }
 
-export function createProviderPromptSession(provider: RoutedProvider): { getModelId(): string; getExecutor(state?: unknown): PromptExecutor } {
+export function createProviderPromptSession(provider: RoutedProvider, vendor?: InferenceVendorAccount): { getModelId(): string; getExecutor(state?: unknown): PromptExecutor } {
   const httpProvider = isHttpInferenceVendor(provider) ? provider : "openrouter";
-  const modelId = provider === "codex" ? configuredCodexModel() : provider === "claude-code" ? "claude-code" : resolveVendorHttpConfig(httpProvider, new SandSettingsStore(join(getSandRootDir(), "settings.json")).getInferenceHttp()).modelId || vendorPreset(httpProvider).defaultModelId;
-  return { getModelId: () => modelId, getExecutor: state => new ProviderPromptExecutor(provider, Array.isArray(state) ? state as ProviderMessage[] : undefined, usage => recordRoutedUsage(provider, usage)) };
+  const modelId = provider === "codex" ? configuredCodexModel() : provider === "claude-code" ? "claude-code" : vendor?.modelId || resolveVendorHttpConfig(httpProvider, new SandSettingsStore(join(getSandRootDir(), "settings.json")).getInferenceHttp()).modelId || vendorPreset(httpProvider).defaultModelId;
+  return { getModelId: () => modelId, getExecutor: state => new ProviderPromptExecutor(provider, Array.isArray(state) ? state as ProviderMessage[] : undefined, usage => recordRoutedUsage(provider, usage), vendor) };
 }
 
 export async function runRoutedProviderText(provider: RoutedProvider, messages: readonly ProviderMessage[], options?: {

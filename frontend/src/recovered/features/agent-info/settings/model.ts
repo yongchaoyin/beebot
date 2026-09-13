@@ -9,6 +9,7 @@ export interface AgentSettingsAgent {
   readonly name: string;
   readonly title?: string;
   readonly description: string;
+  readonly inferenceVendorId?: string;
   readonly isGroup: boolean;
   readonly notifyOnUpdatesEnabled: boolean;
   readonly [key: string]: unknown;
@@ -18,6 +19,7 @@ export interface AgentSettingsProfile {
   readonly name: string;
   readonly title?: string;
   readonly description: string;
+  readonly inferenceVendorId?: string;
 }
 
 export interface AgentSettingsSource {
@@ -49,12 +51,14 @@ function booleanValue(value: unknown): boolean | undefined {
 export function projectAgentSettingsAgent(value: unknown): AgentSettingsAgent | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
   const title = stringValue(value.title);
+  const inferenceVendorId = stringValue(value.inferenceVendorId);
   return {
     ...value,
     id: value.id,
     name: value.name,
     ...(title === undefined ? {} : { title }),
     description: stringValue(value.description) ?? "",
+    ...(inferenceVendorId === undefined ? {} : { inferenceVendorId }),
     isGroup: value.isGroup === true,
     notifyOnUpdatesEnabled: booleanValue(value.notifyOnUpdatesEnabled) ?? false
   };
@@ -64,12 +68,13 @@ export function profileFromAgent(agent: AgentSettingsAgent): AgentSettingsProfil
   return {
     name: agent.name,
     ...(agent.title === undefined ? {} : { title: agent.title }),
-    description: agent.description
+    description: agent.description,
+    ...(agent.inferenceVendorId === undefined ? {} : { inferenceVendorId: agent.inferenceVendorId })
   };
 }
 
 function profileChanged(current: AgentSettingsProfile, next: AgentSettingsProfile): boolean {
-  return current.name !== next.name || current.title !== next.title || current.description !== next.description;
+  return current.name !== next.name || current.title !== next.title || current.description !== next.description || current.inferenceVendorId !== next.inferenceVendorId;
 }
 
 function eventAgent(value: unknown): AgentSettingsAgent | null {
@@ -135,7 +140,8 @@ export function createAgentSettingsController(source: AgentSettingsSource, initi
       const normalized: AgentSettingsProfile = {
         name: next.name.trim(),
         ...(next.title === undefined ? {} : { title: next.title.trim() }),
-        description: next.description.trim()
+        description: next.description.trim(),
+        ...(next.inferenceVendorId === undefined ? {} : { inferenceVendorId: next.inferenceVendorId.trim() })
       };
       if (normalized.name.length === 0) return false;
       const before = profileFromAgent(current);

@@ -1,6 +1,6 @@
 /* @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2773215 (sand-agent-settings) */
 .sand-agent-settings { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
-.sand-agent-settings input, .sand-agent-settings textarea { background: var(--cursor-bg-input, var(--cursor-bg-editor)); border: 1px solid var(--cursor-stroke-secondary); border-radius: 4px; color: var(--cursor-text-primary); font: inherit; min-height: 30px; padding: 6px 8px; }
+.sand-agent-settings input, .sand-agent-settings textarea, .sand-agent-settings select { background: var(--cursor-bg-input, var(--cursor-bg-editor)); border: 1px solid var(--cursor-stroke-secondary); border-radius: 4px; color: var(--cursor-text-primary); font: inherit; min-height: 30px; padding: 6px 8px; }
 .sand-agent-settings textarea { min-height: 72px; resize: vertical; }
 .sand-agent-settings input:focus-visible, .sand-agent-settings textarea:focus-visible, .sand-agent-settings button:focus-visible { outline: 2px solid var(--cursor-icon-accent-primary); outline-offset: 2px; }
 .sand-agent-settings__card { border: 1px solid var(--cursor-stroke-secondary); border-radius: 6px; padding: 10px; }

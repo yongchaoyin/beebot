@@ -35,6 +35,33 @@ test("local vendor accounts skip Cursor review and allow the computer without as
   }
 });
 
+test("settings keep multiple vendor APIs and resolve the one a bot selected", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-vendors-"));
+  try {
+    const { SandSettingsStore } = await loadStore(directory);
+    const store = new SandSettingsStore(path.join(directory, "settings.json"));
+    store.setInferenceProvider("deepseek");
+    store.setInferenceHttp({ baseUrl: "https://api.deepseek.com", modelId: "deepseek-chat" });
+    const legacy = store.getInferenceVendors();
+    assert.equal(legacy.length, 1);
+    assert.equal(legacy[0].id, "legacy");
+    assert.equal(legacy[0].provider, "deepseek");
+    store.setInferenceVendors([
+      ...legacy,
+      { id: "openai-main", label: "OpenAI main", provider: "openai", baseUrl: "https://api.openai.com/v1", modelId: "gpt-4.1-mini", secretKey: "VENDOR_openai-main_KEY" },
+    ]);
+    store.setDefaultInferenceVendorId("legacy");
+    assert.equal(store.getInferenceVendors().length, 2);
+    assert.equal(store.getDefaultInferenceVendorId(), "legacy");
+    assert.equal(store.getInferenceVendor("openai-main")?.modelId, "gpt-4.1-mini");
+    assert.equal(store.getInferenceVendor(undefined)?.id, "legacy");
+    assert.equal(store.getInferenceVendor("")?.id, "legacy");
+    assert.equal(store.getInferenceVendor("openai-main")?.provider, "openai");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("local vendor accounts default to the local Docker computer", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-box-runtime-"));
   try {

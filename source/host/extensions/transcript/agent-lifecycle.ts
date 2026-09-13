@@ -504,8 +504,11 @@ export class AgentLifecycle {
       ...(profile.avatarColor === undefined
         ? {}
         : { avatarColor: profile.avatarColor.trim() }),
+      ...(profile.inferenceVendorId === undefined
+        ? {}
+        : { inferenceVendorId: String(profile.inferenceVendorId).trim() }),
       name: profile.name.trim(),
-      description: profile.description.trim(),
+      ...(typeof profile.description === "string" ? { description: profile.description.trim() } : {}),
       ...(profile.title === undefined ? {} : { title: profile.title.trim() }),
     };
     const stamp = this.tm.roster.reserveSnapshotStamp();

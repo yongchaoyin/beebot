@@ -1,13 +1,9 @@
-import { join } from "node:path";
-
 import { resolveComputerUseModelSelection, type SandAgentModelSelection } from "../../../shared/agents/sand-agent-model.js";
 import type { SandModelExperimentState } from "../../../shared/node/experiments/sand-model-experiment.js";
-import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
 import { createCursorSandInference } from "./cursor-session.js";
 import type { SandInferenceProvider } from "../../../shared/inference-router.js";
 import type { PromptExecutor } from "./sand-labeling.js";
-import { createProviderPromptSession } from "./provider-session.js";
-import { getSandRootDir } from "../../host-paths.js";
+import { createProviderPromptSession, resolveInferenceForAgent } from "./provider-session.js";
 export interface HostInferenceOptions {
   auth: { getAccessToken(...args: unknown[]): Promise<string>; getMachineId(): string };
   experiments: { checkFeatureGate(name: string): boolean; getComputerUseModelOverride(): SandAgentModelSelection | undefined; getBrowserUseModelOverride(): SandAgentModelSelection | undefined; getSandModelExperimentState(): SandModelExperimentState | null | undefined; hasHydratedStatsigUserId(): boolean; getConfiguredDefaultModel(): SandAgentModelSelection | undefined; getConfiguredAutomationsModel(): SandAgentModelSelection | undefined };
@@ -16,7 +12,6 @@ export interface HostInferenceOptions {
 }
 export function createHostInference(options: HostInferenceOptions) {
   const { auth, experiments, settings } = options;
-  const routerSettings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
   const cursor = createCursorSandInference({
     getAccessToken: auth.getAccessToken,
     getMachineId: auth.getMachineId,
@@ -56,14 +51,20 @@ export function createHostInference(options: HostInferenceOptions) {
   return {
     ...cursor,
     createSession(onRequestId: (requestId: string) => void, sessionOptions?: Parameters<typeof cursor.createSession>[1]) {
-      const provider = routerSettings.getInferenceProvider();
-      if (provider === "cursor") return routedSession(cursor.createSession(onRequestId, sessionOptions), provider);
-      return createProviderPromptSession(provider) as ReturnType<typeof cursor.createSession>;
+      const conversationId = sessionOptions != null && typeof (sessionOptions as { conversationId?: unknown }).conversationId === "string"
+        ? (sessionOptions as { conversationId: string }).conversationId
+        : undefined;
+      const routed = resolveInferenceForAgent(conversationId);
+      if (routed.provider === "cursor") return routedSession(cursor.createSession(onRequestId, sessionOptions), routed.provider);
+      return createProviderPromptSession(routed.provider, routed.vendor) as ReturnType<typeof cursor.createSession>;
     },
     createSummarizationSession(onRequestId: (requestId: string) => void, sessionOptions?: Parameters<NonNullable<typeof cursor.createSummarizationSession>>[1]) {
-      const provider = routerSettings.getInferenceProvider();
-      if (provider === "cursor") return routedSession(cursor.createSession(onRequestId, { ...(sessionOptions ?? {}), isSummarizationSession: true }), provider) as ReturnType<NonNullable<typeof cursor.createSummarizationSession>>;
-      return createProviderPromptSession(provider) as ReturnType<NonNullable<typeof cursor.createSummarizationSession>>;
+      const conversationId = sessionOptions != null && typeof (sessionOptions as { conversationId?: unknown }).conversationId === "string"
+        ? (sessionOptions as { conversationId: string }).conversationId
+        : undefined;
+      const routed = resolveInferenceForAgent(conversationId);
+      if (routed.provider === "cursor") return routedSession(cursor.createSession(onRequestId, { ...(sessionOptions ?? {}), isSummarizationSession: true }), routed.provider) as ReturnType<NonNullable<typeof cursor.createSummarizationSession>>;
+      return createProviderPromptSession(routed.provider, routed.vendor) as ReturnType<NonNullable<typeof cursor.createSummarizationSession>>;
     },
   };
 }
