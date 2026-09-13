@@ -1,6 +1,6 @@
 # Architecture
 
-The repository keeps two editable source roots:
+Botfly keeps two editable source roots:
 
 - `source/` contains the Electron main, host, coordinator, local-exec, shared,
   and protocol reconstruction.

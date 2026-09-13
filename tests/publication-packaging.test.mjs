@@ -90,7 +90,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(codexDirect, /response\.output_text\.delta/);
   assert.match(codexDirect, /type: "function_call_output"/);
   assert.match(providers, /parameters: jsonSchema\(parameters\)/);
-  assert.match(providers, /You are Grok Bot, a warm, concise desktop assistant/);
+  assert.match(providers, /You are Botfly, a warm, concise desktop assistant/);
   assert.match(providers, /mcpServers: \{ grok_bot_plugins:/);
   assert.match(providers, /recordRoutedUsage\(provider, usage\)/);
   assert.match(providers, /queryClaude/);

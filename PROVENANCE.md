@@ -1,5 +1,11 @@
 # Provenance
 
+Botfly is an independent open-source project. Its packaged runtime is based on
+the public macOS arm64 Grok Bot 0.18.0 release artifact:
+
+- Product name: Botfly
+- Bundle ID: `com.yongchaoyin.botfly`
+
 The reconstruction is based on the public macOS arm64 release artifact:
 
 - Product: Grok Bot
@@ -17,7 +23,7 @@ Windows x64 installer through Git LFS. The Windows artifact identity is:
 - Installer SHA-256: `464079a15ef5fa8b61ccea8fffcc78f63cfcf6df65fb0ad5e725d8b95f7e437e`
 - Preservation manifest: `research-archives/original/0.18.0/artifacts.json`
 
-The original application was Developer ID signed and notarized by Anysphere Incorporated. Reconstructed builds are intentionally given a different bundle ID and only ad-hoc signed; they do not retain or claim the upstream signature.
+The original application was Developer ID signed and notarized by Anysphere Incorporated. Botfly builds are intentionally given a different bundle ID (`com.yongchaoyin.botfly`) and only ad-hoc signed; they do not retain or claim the upstream signature.
 
 The shipped renderer contained optimized production bundles, not the authored
 frontend source or source maps. The readable `frontend/` tree is therefore a

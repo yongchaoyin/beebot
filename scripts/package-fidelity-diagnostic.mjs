@@ -49,7 +49,7 @@ const renderer = await verifyChecksumPinnedRendererPackage({
 });
 const asarSha256 = sha256(await readFile(archivePath));
 const shortHash = asarSha256.slice(0, 12);
-const appName = `Grok Bot 0.18 Fidelity Diagnostic-${shortHash}.app`;
+const appName = `Botfly Fidelity Diagnostic-${shortHash}.app`;
 const stagedApp = path.join(outputDir, appName);
 const installedApp = path.join("/Applications", appName);
 if (existsSync(stagedApp) || existsSync(installedApp)) {
@@ -69,8 +69,8 @@ await cp(unpackedRoot, packagedUnpacked, { recursive: true, dereference: false, 
 
 const infoPlist = path.join(stagedApp, "Contents", "Info.plist");
 await run(SYSTEM_TOOLS.plutil, ["-remove", "ElectronAsarIntegrity", infoPlist]);
-await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleIdentifier", "-string", `com.anysphere.sand.reconstructed.fidelity.diagnostic.build${shortHash}`, infoPlist]);
-await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleDisplayName", "-string", `Grok Bot 0.18 Fidelity Diagnostic-${shortHash}`, infoPlist]);
+await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleIdentifier", "-string", `com.yongchaoyin.botfly.fidelity.diagnostic.build${shortHash}`, infoPlist]);
+await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleDisplayName", "-string", `Botfly Fidelity Diagnostic-${shortHash}`, infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleURLTypes", infoPlist]);
 await rm(path.join(stagedApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 await signAppBundleAdHoc(stagedApp);

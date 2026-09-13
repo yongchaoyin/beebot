@@ -1,9 +1,19 @@
 {
-  "name": "grok-bot-0.18-reconstructed",
-  "version": "0.18.0-reconstructed.1",
+  "name": "botfly",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Source-oriented reconstruction of the publicly shipped Grok Bot 0.18.0 macOS application",
+  "description": "Open-source macOS desktop agent with a multi-provider inference router",
+  "license": "MIT",
+  "author": "yongchaoyin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yongchaoyin/botfly.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yongchaoyin/botfly/issues"
+  },
+  "homepage": "https://github.com/yongchaoyin/botfly",
   "engines": {
     "node": ">=26.5.0 <27"
   },

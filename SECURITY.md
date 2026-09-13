@@ -1,7 +1,8 @@
 # Security notes
 
-This is a small-club reconstruction, not a supported production distribution.
-Do not reuse real credentials or sensitive accounts while experimenting with it.
+Botfly is an experimental open-source desktop agent, not a supported production
+distribution. Do not reuse real credentials or sensitive accounts while
+experimenting with it.
 
 Reconstructed packages default the official updater, Sentry, and upstream
 telemetry off at the Electron-main packaging boundary. The bootstrap download
@@ -14,5 +15,6 @@ contracts. The remaining major upgrades are intentionally tracked as follow-up
 work rather than silently changing application behavior during publication
 cleanup.
 
-Please report issues privately to the repository owner rather than opening a
-public disclosure against this experimental codebase.
+Please report issues privately to the repository owner at
+https://github.com/yongchaoyin/botfly/security rather than opening a public
+disclosure against this experimental codebase.

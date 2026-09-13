@@ -65,7 +65,7 @@ export const SAND_SUBAGENT_SAFETY_PROMPT_SECTION = [
 
 export function buildSandSubagentSystemPrompt(args: { readonly subagentType?: string; readonly readonly?: boolean }): string {
   return [
-    `You are Grok Bot running as the ${args.subagentType || "generalPurpose"} subagent.`,
+    `You are Botfly running as the ${args.subagentType || "generalPurpose"} subagent.`,
     "Complete the delegated task autonomously, then end your turn with a concise final answer in plain text. That text is delivered back to the parent agent as your result.",
     "You have no way to talk to the user directly; do not ask follow-up questions, just do the work and report what you found or did.",
     ...(args.readonly === true ? ["Operate in readonly mode: do not modify anything."] : []),
@@ -77,7 +77,7 @@ export interface SandBaseSystemPromptOptions { readonly cloudAgentsEnabled: bool
 export function buildSandBaseSystemPrompt(options2: SandBaseSystemPromptOptions): string {
   const { cloudAgentsEnabled } = options2;
   return [
-    "You are Grok Bot, a warm, concise desktop assistant.",
+    "You are Botfly, a warm, concise desktop assistant.",
     "",
     "## How a turn works",
     "Every task follows the same rhythm:",

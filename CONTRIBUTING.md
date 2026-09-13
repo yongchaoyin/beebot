@@ -1,7 +1,7 @@
 # Contributing
 
-This repository is intended for a small technical study group. Keep changes
-reviewable and do not commit generated application payloads or local evidence.
+Botfly is an open-source project. Keep changes reviewable and do not commit
+generated application payloads or local evidence.
 
 Before sharing a change, run:
 

@@ -149,7 +149,7 @@ export async function buildAsar({
     const stagedPackagePath = path.join(stageRoot, "package.json");
     const stagedPackage = JSON.parse(await readFile(stagedPackagePath, "utf8"));
     stagedPackage.sandLab = true;
-    stagedPackage.productName = "Grok Bot 0.18 Dev";
+    stagedPackage.productName = "Botfly Dev";
     await writeFile(stagedPackagePath, `${JSON.stringify(stagedPackage, null, 2)}\n`);
   }
 

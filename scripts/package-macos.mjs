@@ -51,10 +51,10 @@ await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleDisplayName", "-string", re
 // reconstructed bundle's claim explicit and remove inherited aliases such as
 // `grokbot`; the original bundle remains untouched and remains reference-only.
 await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleURLTypes", infoPlist]);
-await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>Grok Bot reconstructed auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
+await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>Botfly auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
 // Keep CFBundleName/CFBundleExecutable as "Grok Bot": Electron derives the
 // expected nested helper names from it, and this build intentionally reuses the
-// exact ABI-matched 0.18 runtime. CFBundleDisplayName provides the fork's name.
+// exact ABI-matched 0.18 runtime. CFBundleDisplayName provides the Botfly name.
 
 await rm(path.join(outputApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 try {

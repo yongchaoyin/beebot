@@ -14,6 +14,7 @@ import {
   NATIVE_OBSERVATION_SCHEMA_VERSION,
   assertNativeObservationReport,
 } from "./lib/native-observation-report.mjs";
+import { outputApp } from "./lib/config.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
 
 export const REQUIRED_PACKAGED_ARTIFACTS = Object.freeze([
@@ -641,7 +642,7 @@ export async function launchPackagedApp({ appPath, timeoutMs = 15_000, pollMs = 
 }
 
 function parseArgs(argv) {
-  const options = { appPath: path.resolve("dist/Grok Bot 0.18 Reconstructed.app"), payloadPath: null, structuralOnly: false, json: false, timeoutMs: 15_000 };
+  const options = { appPath: path.resolve(outputApp), payloadPath: null, structuralOnly: false, json: false, timeoutMs: 15_000 };
   for (let index = 0; index < argv.length; index += 1) { const arg = argv[index]; if (arg === "--app") options.appPath = path.resolve(argv[++index]); else if (arg === "--payload") options.payloadPath = path.resolve(argv[++index]); else if (arg === "--structural-only") options.structuralOnly = true; else if (arg === "--json") options.json = true; else if (arg === "--timeout-ms") options.timeoutMs = Number(argv[++index]); else throw new Error(`Unknown argument ${arg}`); }
   return options;
 }
