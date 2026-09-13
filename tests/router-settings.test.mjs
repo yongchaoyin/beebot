@@ -15,12 +15,12 @@ async function loadRouterModule() {
   return import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
 }
 
-test("router provider preference defaults to Cursor and round-trips every provider", async () => {
+test("router provider preference defaults to OpenRouter and round-trips every provider", async () => {
   const router = await loadRouterModule();
-  assert.deepEqual(router.ROUTER_PROVIDERS.map(({ id }) => id), ["cursor", "claude-code", "codex", "openrouter"]);
-  assert.equal(router.parseRouterProviderPreference(null), "cursor");
-  assert.equal(router.parseRouterProviderPreference("not-json"), "cursor");
-  assert.equal(router.parseRouterProviderPreference(JSON.stringify({ schemaVersion: 1, provider: "unknown" })), "cursor");
+  assert.deepEqual(router.ROUTER_PROVIDERS.map(({ id }) => id), ["claude-code", "codex", "openrouter", "openai", "deepseek", "custom"]);
+  assert.equal(router.parseRouterProviderPreference(null), "openrouter");
+  assert.equal(router.parseRouterProviderPreference("not-json"), "openrouter");
+  assert.equal(router.parseRouterProviderPreference(JSON.stringify({ schemaVersion: 1, provider: "unknown" })), "openrouter");
 
   let stored = null;
   const persistence = {

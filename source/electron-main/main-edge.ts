@@ -7,9 +7,12 @@ import { isValidIanaTimeZone } from "../shared/timezone.js";
 import { sandWebauthnProxyMirroredEnablement } from "../shared/webauthn-proxy-availability.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { isSandInferenceProvider } from "../shared/inference-router.js";
+import { isCursorlessProvider, isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset } from "../shared/inference-vendor.js";
+import { persistVendorSecret, readPersistedVendorSecrets } from "../shared/node/vendor-secrets.js";
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { isSandBoxRuntime } from "../shared/box-runtime.js";
 import { getLocalDockerStatus, startLocalDockerBox, stopLocalDockerBox } from "./box/local-docker-host-connector.js";
+import { dirname, join } from "node:path";
 
 export const MAIN_EDGE_UNSERVED = "main/unserved-method";
 export const MAIN_EDGE_UPDATE_UNAVAILABLE = "main/update-unavailable";
@@ -112,8 +115,41 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     getHostSidebarSections: async () => (await deps.readHostSettingsFromBox()).sidebarSections ?? null,
     setHostSidebarSections: (raw) => echo(deps, "sidebarSections", req(raw).sections, "sidebar sections"),
     getAvailableModels: () => deps.fetchAvailableModels(),
-    getInferenceRouter: async () => { const settings = await deps.readHostSettingsFromBox().catch(() => ({} as UnknownRecord)); const provider = invoke(deps.settingsStore, "getInferenceProvider"); return { provider: isSandInferenceProvider(provider) ? provider : "cursor", usage: settings.inferenceRouterUsage ?? invoke(deps.settingsStore, "getInferenceRouterUsage") ?? null, local: getLocalInferenceCliStatus() }; },
-    setInferenceRouter: async (raw) => { const provider = req(raw).provider; invariant(isSandInferenceProvider(provider), "Unknown inference provider."); invoke(deps.settingsStore, "setInferenceProvider", provider); const settings = await deps.syncHostSettingsToBox({ inferenceProvider: provider }).catch(() => null); return { provider, usage: settings?.inferenceRouterUsage ?? invoke(deps.settingsStore, "getInferenceRouterUsage") ?? null, local: getLocalInferenceCliStatus() }; },
+    getInferenceRouter: async () => { const settings = await deps.readHostSettingsFromBox().catch(() => ({} as UnknownRecord)); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const http = invoke(deps.settingsStore, "getInferenceHttp"); return { provider: isSandInferenceProvider(provider) ? provider : "cursor", usage: settings.inferenceRouterUsage ?? invoke(deps.settingsStore, "getInferenceRouterUsage") ?? null, local: getLocalInferenceCliStatus(), http: http ?? null }; },
+    setInferenceRouter: async (raw) => {
+      const request = req(raw);
+      const provider = request.provider;
+      invariant(isSandInferenceProvider(provider), "Unknown inference provider.");
+      const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath"));
+      const secretsPath = join(dirname(settingsPath), "box-secrets.json");
+      if (isHttpInferenceVendor(provider)) {
+        const apiKey = typeof request.apiKey === "string" ? request.apiKey.trim() : "";
+        const http = resolveVendorHttpConfig(provider, { baseUrl: typeof request.baseUrl === "string" ? request.baseUrl : "", modelId: typeof request.modelId === "string" ? request.modelId : "" });
+        if (http.baseUrl.length === 0 || http.modelId.length === 0) throw new Error("This vendor needs a Base URL and model ID.");
+        const secretKey = vendorPreset(provider).secretKey;
+        if (apiKey.length > 0) persistVendorSecret(secretsPath, secretKey, apiKey);
+        else if ((readPersistedVendorSecrets(secretsPath)[secretKey] ?? "").length === 0 && (process.env[secretKey] ?? "").trim().length === 0) {
+          throw new Error(`${vendorPreset(provider).label} needs ${secretKey}. Add it on the setup page.`);
+        }
+        invoke(deps.settingsStore, "setInferenceHttp", http);
+      }
+      invoke(deps.settingsStore, "setInferenceProvider", provider);
+      if (isCursorlessProvider(provider)) {
+        invoke(deps.settingsStore, "setLocalAccountActive", true);
+        invoke(deps.settingsStore, "setHasSeenOnboarding", true);
+        invoke(deps.settingsStore, "setLocalToolPermission", "always");
+        invoke(deps.settingsStore, "setAutoReviewInstructions", { isEnabled: false, allowInstructions: [], blockInstructions: [] });
+        if (invoke(deps.settingsStore, "getBoxRuntime") !== "local-docker") invoke(deps.settingsStore, "setBoxRuntime", "local-docker");
+        void Promise.resolve(invoke(deps.onboardingSeen, "apply", true));
+        if (typeof Reflect.get(deps.cursorAccount, "syncPresentedAuth") === "function") await invoke(deps.cursorAccount, "syncPresentedAuth");
+      }
+      const settings = await deps.syncHostSettingsToBox({
+        inferenceProvider: provider,
+        inferenceHttp: invoke(deps.settingsStore, "getInferenceHttp") ?? null,
+        localAccountActive: invoke(deps.settingsStore, "getLocalAccountActive") === true,
+      }).catch(() => null);
+      return { provider, usage: settings?.inferenceRouterUsage ?? invoke(deps.settingsStore, "getInferenceRouterUsage") ?? null, local: getLocalInferenceCliStatus(), http: invoke(deps.settingsStore, "getInferenceHttp") ?? null };
+    },
     getBoxRuntime: async () => { const mode = invoke(deps.settingsStore, "getBoxRuntime"); invariant(isSandBoxRuntime(mode), "Unknown box runtime."); return { mode, status: await getLocalDockerStatus(String(Reflect.get(deps.settingsStore, "settingsPath"))) }; },
     setBoxRuntime: async (raw) => { const mode = req(raw).mode; invariant(isSandBoxRuntime(mode), "Unknown box runtime."); const settingsPath = String(Reflect.get(deps.settingsStore, "settingsPath")); invoke(deps.settingsStore, "setBoxRuntime", mode); try { if (mode === "local-docker") await startLocalDockerBox(settingsPath); else await stopLocalDockerBox(); } catch (error) { invoke(deps.settingsStore, "setBoxRuntime", mode === "local-docker" ? "remote" : "local-docker"); throw error; } invoke(deps.boxRecovery, "restartCoordinator"); return { mode, status: await getLocalDockerStatus(settingsPath) }; },
 
@@ -139,7 +175,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     resizeWindowWidth: (raw) => { const delta = req(raw).deltaWidth; return typeof delta === "number" && Number.isFinite(delta) && delta !== 0 ? invoke(deps.windowChrome, "resizeWidth", delta) : 0; },
     pickAvatarSource: () => invoke(deps.avatarImages, "pickSource"), pickAvatarFile: () => invoke(deps.avatarImages, "pickFile"), generateAgentAvatarImage: (raw) => invoke(deps.avatarImages, "generateImage", req(raw).description),
     resolveAttachmentMedia: (raw) => invoke(deps.attachments, "resolveMedia", req(raw).source), readAttachmentText: (raw) => invoke(deps.attachments, "readText", req(raw).path), readAttachmentBytes: (raw) => invoke(deps.attachments, "readBytes", req(raw).path, req(raw).maxBytes), stageAttachmentBytes: (raw) => invoke(deps.attachments, "stageBytes", req(raw).filename, req(raw).bytes), downloadAttachment: (raw) => invoke(deps.attachments, "download", req(raw).path, req(raw).suggestedName), commitStagedAttachments: (raw) => invoke(deps.attachments, "commitStaged", req(raw).paths, req(raw).filenames), discardStagedAttachment: (raw) => invoke(deps.attachments, "discardStaged", req(raw).path), getLinkMetadata: (raw) => invoke(deps.attachments, "getLinkMetadata", req(raw).url),
-    getCursorAuthStatus: () => invoke(deps.cursorAccount, "getAuthStatus"), loginCursor: () => invoke(deps.cursorAccount, "login"), cancelCursorLogin: () => invoke(deps.cursorAccount, "cancelLogin"), logoutCursor: () => invoke(deps.cursorAccount, "logout"), updateCursorAccountName: (raw) => invoke(deps.cursorAccount, "updateAccountName", req(raw).name), getCursorAvatar: () => invoke(deps.cursorAccount, "getAvatar"), getCursorWeeklyUsage: () => invoke(deps.cursorAccount, "getWeeklyUsage"), getCursorUsageSummary: () => invoke(deps.cursorAccount, "getUsageSummary"), getCursorPrReviewPreferences: () => invoke(deps.cursorAccount, "getPrReviewPreferences"), getCursorPrivacyModeEnabled: () => invoke(deps.cursorAccount, "getPrivacyModeEnabled"), getSandAccess: () => invoke(deps.cursorAccount, "getSandAccess"), getSandAccessFresh: () => invoke(deps.cursorAccount, "getSandAccessFresh"), invokeCursorDashboardAction: (raw) => invoke(deps.cursorAccount, "invokeDashboardAction", raw), cancelCursorSandTrial: () => invoke(deps.cursorAccount, "cancelTrial"),
+    getCursorAuthStatus: () => invoke(deps.cursorAccount, "getAuthStatus"), loginCursor: () => invoke(deps.cursorAccount, "login"), cancelCursorLogin: () => invoke(deps.cursorAccount, "cancelLogin"), logoutCursor: async () => { invoke(deps.settingsStore, "setLocalAccountActive", false); return await invoke(deps.cursorAccount, "logout"); }, updateCursorAccountName: (raw) => invoke(deps.cursorAccount, "updateAccountName", req(raw).name), getCursorAvatar: () => invoke(deps.cursorAccount, "getAvatar"), getCursorWeeklyUsage: () => invoke(deps.cursorAccount, "getWeeklyUsage"), getCursorUsageSummary: () => invoke(deps.cursorAccount, "getUsageSummary"), getCursorPrReviewPreferences: () => invoke(deps.cursorAccount, "getPrReviewPreferences"), getCursorPrivacyModeEnabled: () => invoke(deps.cursorAccount, "getPrivacyModeEnabled"), getSandAccess: () => invoke(deps.cursorAccount, "getSandAccess"), getSandAccessFresh: () => invoke(deps.cursorAccount, "getSandAccessFresh"), invokeCursorDashboardAction: (raw) => invoke(deps.cursorAccount, "invokeDashboardAction", raw), cancelCursorSandTrial: () => invoke(deps.cursorAccount, "cancelTrial"),
     transcribeAudio: async (raw) => { const request = req(raw); const audio = request.audio instanceof Uint8Array ? request.audio : request.audio instanceof ArrayBuffer ? new Uint8Array(request.audio) : null; invariant(audio != null && audio.length > 0, "transcribeAudio requires non-empty audio bytes."); const mimeType = typeof request.mimeType === "string" && request.mimeType.length > 0 ? request.mimeType : "audio/webm"; const language = typeof request.language === "string" && request.language.length > 0 ? request.language : undefined; const manager = await deps.ensureTranscriptionManager(); return await Promise.resolve(invoke(manager, "transcribe", { audio, mimeType, ...(language === undefined ? {} : { language }) })); },
     getExperimentsSnapshot: async () => invoke(req(await Promise.resolve(invoke(deps.experiments, "ensureService"))), "getSnapshot"),
     applyFeatureFlagOverride: async (raw) => { const service = req(await Promise.resolve(invoke(deps.experiments, "ensureService"))); invoke(service, "applyFeatureFlagOverrideCommand", req(raw).command); },

@@ -4,10 +4,12 @@ import { join } from "node:path";
 
 import { query as queryClaude, type SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createOpenAI } from "@ai-sdk/openai";
-import { jsonSchema, streamText, tool, type CoreMessage, type LanguageModelV1, type ToolSet } from "ai";
+import { streamText, tool, type CoreMessage, type LanguageModelV1, type ToolSet } from "ai";
 
 import { BasePromptBuilder, BasePromptExecutor } from "../../../packages/chat-inference/base.js";
 import type { SandInferenceProvider } from "../../../shared/inference-router.js";
+import { isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset, type HttpInferenceVendor } from "../../../shared/inference-vendor.js";
+import { resolveHttpToolParameters, withSyntheticSendMessage } from "../../../shared/http-tool-parameters.js";
 import { resolveClaudeCodeCliPath } from "../../../shared/node/inference-router-local.js";
 import { getSandRootDir } from "../../host-paths.js";
 import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
@@ -21,11 +23,13 @@ type RoutedProvider = Exclude<SandInferenceProvider, "cursor">;
 type UsageRecord = { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
 type RoutedToolExecutor = (tool: Loose, args: unknown, toolCallId: string) => Promise<unknown>;
 
-const GROK_ROUTER_SYSTEM_PROMPT = [
-  "You are Botfly, a warm, concise desktop assistant.",
+export const GROK_ROUTER_SYSTEM_PROMPT = [
+  "You are Botfly, a desktop agent with your own Linux computer: a shell, filesystem, browser, and graphical desktop.",
   "You are running inside Botfly, not inside Codex CLI or Claude Code.",
-  "The tools supplied with this request are Botfly's already-connected plugins and accounts. Use them whenever they are relevant instead of claiming that a plugin is unavailable or asking the user to reconnect it.",
-  "Never ask for an API key for an already-connected plugin. Respond directly to the user in natural language after completing any necessary tool calls.",
+  "The tools supplied with this request are how you act. They include your computer (shell, files, browser, GUI) and any connected plugins.",
+  "Use those tools to do the work. Never claim you cannot operate a computer, open files, or use the desktop when the tools are present.",
+  "Never ask for an API key for an already-connected plugin.",
+  "If a SendMessage tool is available, that is the only way the user sees your reply — do not rely on plain assistant text.",
 ].join("\n");
 
 function recordRoutedUsage(provider: RoutedProvider, usage: UsageRecord): void {
@@ -42,10 +46,17 @@ function persistedSecrets(): Record<string, string> {
   } catch { return {}; }
 }
 
-function openRouterCredential(): string {
-  const value = process.env.OPENROUTER_API_KEY?.trim() || persistedSecrets().OPENROUTER_API_KEY?.trim();
-  if (value == null || value.length === 0) throw new Error("OpenRouter needs OPENROUTER_API_KEY. Add it in Settings → Router.");
-  return value;
+function httpVendorSession(provider: HttpInferenceVendor): { readonly apiKey: string; readonly baseUrl: string; readonly modelId: string } {
+  const preset = vendorPreset(provider);
+  const settings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
+  const http = resolveVendorHttpConfig(provider, settings.getInferenceHttp());
+  const envOverride = provider === "openrouter" ? process.env.SAND_OPENROUTER_MODEL?.trim() : undefined;
+  const apiKey = process.env[preset.secretKey]?.trim() || persistedSecrets()[preset.secretKey]?.trim();
+  if (apiKey == null || apiKey.length === 0) throw new Error(`${preset.label} needs ${preset.secretKey}. Add it on the setup page.`);
+  if (http.baseUrl.length === 0 || (envOverride == null || envOverride.length === 0) && http.modelId.length === 0) {
+    throw new Error(`${preset.label} needs a Base URL and model ID.`);
+  }
+  return { apiKey, baseUrl: http.baseUrl, modelId: envOverride && envOverride.length > 0 ? envOverride : http.modelId };
 }
 
 function providerPrompt(messages: readonly ProviderMessage[]): string {
@@ -232,11 +243,11 @@ function toToolSet(definitions: readonly Loose[] | undefined, executeTool?: Rout
   const tools: ToolSet = {};
   for (const definition of definitions) {
     if (typeof definition.name !== "string" || definition.name.length === 0) continue;
-    const parameters = definition.inputSchema ?? definition.parameters;
+    const parameters = resolveHttpToolParameters(definition.inputSchema ?? definition.parameters);
     if (parameters == null) continue;
     const routedTool: any = {
       ...(typeof definition.description === "string" ? { description: definition.description } : {}),
-      parameters: jsonSchema(parameters),
+      parameters,
     };
     if (executeTool != null) routedTool.execute = async (args: unknown, options: { toolCallId: string }) => await executeTool(definition, args, options.toolCallId);
     tools[definition.name] = tool(routedTool);
@@ -244,14 +255,31 @@ function toToolSet(definitions: readonly Loose[] | undefined, executeTool?: Rout
   return Object.keys(tools).length === 0 ? undefined : tools;
 }
 
-function openRouterExecutor(messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void) {
-  const id = process.env.SAND_OPENROUTER_MODEL?.trim() || "openai/gpt-5.2";
-  const model: LanguageModelV1 = createOpenAI({ apiKey: openRouterCredential(), baseURL: "https://openrouter.ai/api/v1", compatibility: "compatible", name: "openrouter", headers: { "HTTP-Referer": "https://github.com/yongchaoyin/botfly", "X-Title": "Botfly" } }).chat(id as any);
+function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void) {
+  const session = httpVendorSession(provider);
+  const headers = provider === "openrouter" ? { "HTTP-Referer": "https://github.com/yongchaoyin/botfly", "X-Title": "Botfly" } : undefined;
+  const model: LanguageModelV1 = createOpenAI({ apiKey: session.apiKey, baseURL: session.baseUrl, compatibility: "compatible", name: provider, ...(headers == null ? {} : { headers }) }).chat(session.modelId as any);
   const tools = toToolSet(definitions, executeTool);
-  const result = streamText({ model, system: GROK_ROUTER_SYSTEM_PROMPT, messages: messages as CoreMessage[], ...(tools === undefined ? {} : { tools }), toolCallStreaming: true, maxSteps: tools === undefined ? 1 : 8 });
+  const hostSuppliedTools = definitions != null && definitions.length > 0;
+  const result = streamText({
+    model,
+    ...(hostSuppliedTools ? {} : { system: GROK_ROUTER_SYSTEM_PROMPT }),
+    messages: messages as CoreMessage[],
+    ...(tools === undefined ? {} : { tools }),
+    toolCallStreaming: true,
+    maxSteps: tools === undefined || executeTool == null ? 1 : 8,
+    abortSignal: AbortSignal.timeout(180_000),
+  });
   const extendedUsage = result.usage.then(value => ({ inputTokens: value.promptTokens, outputTokens: value.completionTokens, cacheReadTokens: 0, cacheWriteTokens: 0, maxTokens: 0 }));
   if (onUsage != null) void extendedUsage.then(onUsage);
-  return { fullStream: result.fullStream, response: result.response, usage: result.usage, extendedUsage, providerMetadata: result.providerMetadata, invocationId: Promise.resolve(invocationId) };
+  return {
+    fullStream: withSyntheticSendMessage(result.fullStream as AsyncIterable<{ type: string }>),
+    response: result.response,
+    usage: result.usage,
+    extendedUsage,
+    providerMetadata: result.providerMetadata,
+    invocationId: Promise.resolve(invocationId),
+  };
 }
 
 class ProviderPromptExecutor extends BasePromptExecutor<ProviderMessage> {
@@ -259,12 +287,13 @@ class ProviderPromptExecutor extends BasePromptExecutor<ProviderMessage> {
   stream(_ctx: unknown, invocationId = crypto.randomUUID(), definitions?: readonly Loose[]) {
     if (this.provider === "codex") return codexExecutor(this.getMessages(), invocationId, definitions, undefined, this.onUsage);
     if (this.provider === "claude-code") return claudeExecutor(this.getMessages(), invocationId, this.onUsage);
-    return openRouterExecutor(this.getMessages(), invocationId, definitions, undefined, this.onUsage);
+    return httpVendorExecutor(isHttpInferenceVendor(this.provider) ? this.provider : "openrouter", this.getMessages(), invocationId, definitions, undefined, this.onUsage);
   }
 }
 
 export function createProviderPromptSession(provider: RoutedProvider): { getModelId(): string; getExecutor(state?: unknown): PromptExecutor } {
-  const modelId = provider === "codex" ? configuredCodexModel() : provider === "claude-code" ? "claude-code" : process.env.SAND_OPENROUTER_MODEL?.trim() || "openai/gpt-5.2";
+  const httpProvider = isHttpInferenceVendor(provider) ? provider : "openrouter";
+  const modelId = provider === "codex" ? configuredCodexModel() : provider === "claude-code" ? "claude-code" : resolveVendorHttpConfig(httpProvider, new SandSettingsStore(join(getSandRootDir(), "settings.json")).getInferenceHttp()).modelId || vendorPreset(httpProvider).defaultModelId;
   return { getModelId: () => modelId, getExecutor: state => new ProviderPromptExecutor(provider, Array.isArray(state) ? state as ProviderMessage[] : undefined, usage => recordRoutedUsage(provider, usage)) };
 }
 
@@ -280,12 +309,13 @@ export async function runRoutedProviderText(provider: RoutedProvider, messages: 
     ? codexExecutor(messages, invocationId, options?.tools, options?.executeTool, onUsage)
     : provider === "claude-code"
       ? claudeExecutor(messages, invocationId, onUsage, options?.mcpServerUrl)
-      : openRouterExecutor(messages, invocationId, options?.tools, options?.executeTool, onUsage);
+      : httpVendorExecutor(isHttpInferenceVendor(provider) ? provider : "openrouter", messages, invocationId, options?.tools, options?.executeTool, onUsage);
   let text = "";
   for await (const event of result.fullStream) {
-    if (event.type === "text-delta" && typeof event.textDelta === "string") {
-      text += event.textDelta;
-      options?.onTextDelta?.(event.textDelta, text);
+    const delta = "textDelta" in event && typeof event.textDelta === "string" ? event.textDelta : null;
+    if (event.type === "text-delta" && delta != null) {
+      text += delta;
+      options?.onTextDelta?.(delta, text);
     }
   }
   await result.response;

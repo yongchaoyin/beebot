@@ -1,4 +1,6 @@
 import { createSandAccessReader, readSandAccessOnce, type SandAccess } from "./access.js";
+import { LOCAL_ACCOUNT_STATUS, mapAuthStatus } from "../../shared/inference-vendor.js";
+import { SAND_ACCESS_GRANTED } from "../../shared/sand-access.js";
 import { SandCursorAuthService, type AccessTokenReader, type SandAuthStatus, type SandCursorAuthServiceOptions } from "./cursor-auth.js";
 import { fetchCursorProfile, fetchLocalToolPermissionCeiling, fetchUserPrivacyMode, updateCursorProfileName } from "./cursor-profile.js";
 import { SandTranscriptionManager, type SandTranscriptionOptions } from "./cursor-transcribe.js";
@@ -140,6 +142,8 @@ export function createCursorAccountEdgePort(deps: {
   readonly cancelTrial: (getAccessToken: AccessTokenReader) => Promise<unknown>;
   readonly invokeDashboardAction: (getAccessToken: AccessTokenReader, request: DashboardActionRequest) => Promise<unknown>;
   readonly productDisplayName?: string;
+  readonly readLocalAccountActive?: () => boolean;
+  readonly emitPresentedStatus?: (status: SandAuthStatus) => void;
 }) {
   let sandAccessReader: Promise<ReturnType<typeof createSandAccessReader>> | undefined;
   const settledStatus = async (getStatus: () => Promise<SandAuthStatus>) => await deps.getAccountRuntime()?.whenIdle() ?? await getStatus();
@@ -153,13 +157,31 @@ export function createCursorAccountEdgePort(deps: {
   };
   const withService = async <T>(operation: (service: AuthServicePort) => Promise<T>): Promise<T> => await operation(await deps.ensureCursorAuthService());
   const tokenReader = (service: AuthServicePort): AccessTokenReader => (options) => service.getValidAccessToken(options);
+  const present = (status: SandAuthStatus): SandAuthStatus => mapAuthStatus(status, { localAccountActive: deps.readLocalAccountActive?.() === true });
+  const isLocal = (status: SandAuthStatus): boolean => status.kind === "logged-in" && status.authId === LOCAL_ACCOUNT_STATUS.authId;
   return {
-    getSandAccess: async () => await (await ensureSandAccessReader()).read(),
-    getSandAccessFresh: async () => (await readSandAccessOnce(await sandAccessDeps())).access,
-    getAuthStatus: async () => { const freshness = deps.currentAuthStatusFreshness(); const service = await deps.ensureCursorAuthService(); return { ...await settledStatus(() => service.getStatus()), freshness }; },
+    getSandAccess: async () => {
+      const status = present(await settledStatus(async () => (await deps.ensureCursorAuthService()).getStatus()));
+      return isLocal(status) ? SAND_ACCESS_GRANTED : await (await ensureSandAccessReader()).read();
+    },
+    getSandAccessFresh: async () => {
+      const status = present(await settledStatus(async () => (await deps.ensureCursorAuthService()).getStatus()));
+      return isLocal(status) ? SAND_ACCESS_GRANTED : (await readSandAccessOnce(await sandAccessDeps())).access;
+    },
+    getAuthStatus: async () => { const freshness = deps.currentAuthStatusFreshness(); const service = await deps.ensureCursorAuthService(); return { ...present(await settledStatus(() => service.getStatus())), freshness }; },
+    syncPresentedAuth: async () => {
+      const service = await deps.ensureCursorAuthService();
+      const status = present(await settledStatus(() => service.getStatus()));
+      const runtime = deps.getAccountRuntime();
+      if (runtime != null) runtime.observe(status);
+      deps.emitPresentedStatus?.(status);
+      await deps.resetMcpManager();
+      await deps.refreshHostMcp();
+      return await runtime?.whenIdle() ?? status;
+    },
     login: async () => withService(async (service) => { const result = await service.login(); const settled = await deps.getAccountRuntime()?.whenIdle(); await deps.resetMcpManager(); await deps.refreshHostMcp(); return settled ?? result; }),
     cancelLogin: async () => withService(async (service) => { const result = await service.cancelLogin(); return await deps.getAccountRuntime()?.whenIdle() ?? result; }),
-    logout: async () => withService(async (service) => { const result = await service.logout(); return await deps.getAccountRuntime()?.whenIdle() ?? result; }),
+    logout: async () => withService(async (service) => { const result = await service.logout(); return present(await deps.getAccountRuntime()?.whenIdle() ?? result); }),
     updateAccountName: async (name: unknown) => {
       if (typeof name !== "string" || name.length > 200) throw new Error("updateCursorAccountName requires a bounded name string.");
       return await withService(async (service) => { const result = await service.updateDisplayName(name); return await deps.getAccountRuntime()?.whenIdle() ?? result; });

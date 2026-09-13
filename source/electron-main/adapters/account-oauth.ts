@@ -1,4 +1,5 @@
 import { createCursorAuthWiring, type AuthServicePort } from "../account/cursor-auth-wiring.js";
+import { mapAuthStatus } from "../../shared/inference-vendor.js";
 import type { ElectronProductionAdapterBindings } from "../production-adapters.js";
 import type { ProductionAccountService, ProductionServiceContext } from "../main-production-services.js";
 import { requireFunction, requireObject } from "./provider-guards.js";
@@ -61,7 +62,9 @@ export function createProductionAccountOAuthAdapter(
       const subscriptions = new Set<() => void>();
       let disposed = false;
       return {
-        getStatus: () => service.getStatus(),
+        getStatus: async () => mapAuthStatus(await service.getStatus(), {
+          localAccountActive: context.settings.settingsStore.getLocalAccountActive(),
+        }),
         currentAuthStatusFreshness: wiring.currentAuthStatusFreshness,
         deliverCursorAuthStatus(status) {
           if (disposed) throw new Error("Electron production account adapter is disposed.");

@@ -30,7 +30,7 @@ import {
 } from "./desktop";
 import { GeneralSettingsPanel, RouterSettingsPanel, UpdatesSettingsPanel, UsageSettingsPanel } from "./panels";
 import { SettingsModalShell, type SettingsSectionId } from "./view";
-import { DEFAULT_ROUTER_PROVIDER, loadRouterProvider, saveRouterProvider, type RouterProviderId } from "./router";
+import { DEFAULT_ROUTER_PROVIDER, HTTP_ROUTER_PROVIDERS, loadRouterProvider, saveRouterProvider, type RouterProviderId } from "./router";
 import type { AutoReviewSettings } from "./auto-review";
 import type { SettingsComputerMount } from "./computer";
 import { SettingsNoticeView, settingsNoticeFromEvent, type SettingsNotice } from "./notice";
@@ -59,6 +59,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   const [cancelTrialDialogOpen, setCancelTrialDialogOpen] = useState(false);
   const [routerProvider, setRouterProvider] = useState<RouterProviderId>(DEFAULT_ROUTER_PROVIDER);
   const [routerPending, setRouterPending] = useState(false);
+  const [routerHttp, setRouterHttp] = useState({ apiKey: "", baseUrl: "", modelId: "" });
   const handleCancelTrialDialogOpen = useCallback((open: boolean) => setCancelTrialDialogOpen(open), []);
   const handleNotice = useCallback((event: SettingsNoticeEvent) => {
     setSurfaceNotice(settingsNoticeFromEvent(event));
@@ -136,10 +137,25 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
-    void loadRouterProvider(bridge.agent.clientPersistence).then((provider) => {
-      if (active) setRouterProvider(provider);
+    void bridge.agent.getInferenceRouter().then((router) => {
+      if (!active) return;
+      const provider = HTTP_ROUTER_PROVIDERS.some((item) => item.id === router.provider) || router.provider === "cursor" || router.provider === "claude-code" || router.provider === "codex"
+        ? router.provider as RouterProviderId
+        : DEFAULT_ROUTER_PROVIDER;
+      setRouterProvider(provider);
+      const http = HTTP_ROUTER_PROVIDERS.find((item) => item.id === provider);
+      setRouterHttp({
+        apiKey: "",
+        baseUrl: router.http?.baseUrl || http?.defaultBaseUrl || "",
+        modelId: router.http?.modelId || http?.defaultModelId || ""
+      });
     }).catch(() => {
-      if (active) setRouterProvider(DEFAULT_ROUTER_PROVIDER);
+      if (!active) return;
+      void loadRouterProvider(bridge.agent.clientPersistence).then((provider) => {
+        if (active) setRouterProvider(provider);
+      }).catch(() => {
+        if (active) setRouterProvider(DEFAULT_ROUTER_PROVIDER);
+      });
     });
     return () => { active = false; };
   }, [bridge, isOpen]);
@@ -251,12 +267,40 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
         );
         if (section === "router") return (
           <RouterSettingsPanel
+            http={{
+              apiKey: routerHttp.apiKey,
+              baseUrl: routerHttp.baseUrl,
+              modelId: routerHttp.modelId,
+              onApiKeyChange: (value) => setRouterHttp((current) => ({ ...current, apiKey: value })),
+              onBaseUrlChange: (value) => setRouterHttp((current) => ({ ...current, baseUrl: value })),
+              onModelIdChange: (value) => setRouterHttp((current) => ({ ...current, modelId: value })),
+              onSave: async () => {
+                setRouterPending(true);
+                try {
+                  await bridge.agent.setInferenceRouter({
+                    provider: routerProvider,
+                    apiKey: routerHttp.apiKey,
+                    baseUrl: routerHttp.baseUrl,
+                    modelId: routerHttp.modelId
+                  });
+                  await saveRouterProvider(bridge.agent.clientPersistence, routerProvider);
+                } catch (reason) {
+                  const message = reason instanceof Error ? reason.message : String(reason);
+                  publishSurfaceNotice({ kind: "error", operation: "settings-router-provider", message }, handleNotice, onStatus);
+                } finally {
+                  setRouterPending(false);
+                }
+              }
+            }}
             onChange={async (provider) => {
               if (routerPending || provider === routerProvider) return;
               const previous = routerProvider;
               setRouterProvider(provider);
+              const http = HTTP_ROUTER_PROVIDERS.find((item) => item.id === provider);
+              if (http != null) setRouterHttp((current) => ({ ...current, baseUrl: http.defaultBaseUrl, modelId: http.defaultModelId }));
               setRouterPending(true);
               try {
+                await bridge.agent.setInferenceRouter({ provider });
                 await saveRouterProvider(bridge.agent.clientPersistence, provider);
               } catch (reason) {
                 setRouterProvider(previous);

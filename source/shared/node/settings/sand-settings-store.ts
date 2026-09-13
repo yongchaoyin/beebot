@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { DEFAULT_SAND_THEME_PREFERENCE, isSandThemePreference, type SandThemePreference } from "../../desktop.js";
@@ -10,6 +10,7 @@ import { SidebarSections, type SidebarSection } from "../../sidebar-sections.js"
 import { coerceToEnabledTrack, isSandUpdateTrack, type SandUpdateTrack } from "../../update-track.js";
 import { isSandAgentModelSelection, type SandAgentModelSelection } from "../../agents/sand-agent-model.js";
 import { emptySandInferenceRouterUsage, isSandInferenceProvider, type SandInferenceProvider, type SandInferenceRouterUsage } from "../../inference-router.js";
+import { parseInferenceHttpConfig, type InferenceHttpConfig } from "../../inference-vendor.js";
 import { DEFAULT_SAND_BOX_RUNTIME, isSandBoxRuntime, type SandBoxRuntime } from "../../box-runtime.js";
 
 export const SETTINGS_VERSION = 1;
@@ -27,6 +28,7 @@ export interface SandStoredSettings {
   userTimeZone?: string; userTimeZoneOverride?: string; autoReviewInstructions?: SandAutoReviewInstructions;
   localToolPermission?: SandLocalToolPermission; localToolPermissionCeiling?: SandLocalToolPermission;
   inferenceProvider?: SandInferenceProvider; inferenceRouterUsage?: SandInferenceRouterUsage;
+  inferenceHttp?: InferenceHttpConfig; localAccountActive?: boolean;
   boxRuntime?: SandBoxRuntime;
   mcpCustomInstructionsAccountScope?: string; pinnedAgentIds?: string[]; sidebarSections?: SidebarSection[];
 }
@@ -70,6 +72,9 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   if (isSandLocalToolPermission(raw.localToolPermission)) result.localToolPermission = raw.localToolPermission;
   if (isSandLocalToolPermission(raw.localToolPermissionCeiling)) result.localToolPermissionCeiling = raw.localToolPermissionCeiling;
   if (isSandInferenceProvider(raw.inferenceProvider)) result.inferenceProvider = raw.inferenceProvider;
+  const inferenceHttp = parseInferenceHttpConfig(raw.inferenceHttp);
+  if (inferenceHttp != null) result.inferenceHttp = inferenceHttp;
+  if (raw.localAccountActive === true) result.localAccountActive = true;
   if (isSandBoxRuntime(raw.boxRuntime)) result.boxRuntime = raw.boxRuntime;
   if (typeof raw.inferenceRouterUsage === "object" && raw.inferenceRouterUsage != null && !Array.isArray(raw.inferenceRouterUsage)) {
     const usage = emptySandInferenceRouterUsage();
@@ -103,7 +108,20 @@ export class SandSettingsStore {
     try { this.persist(migrated); } catch {}
     return migrated;
   }
-  persist(settings: SandStoredSettings): void { mkdirSync(dirname(this.settingsPath), { recursive: true }); const temp = `${this.settingsPath}.${process.pid}.tmp`; writeFileSync(temp, JSON.stringify(settings, null, 2), "utf8"); renameSync(temp, this.settingsPath); }
+  persist(settings: SandStoredSettings): void {
+    mkdirSync(dirname(this.settingsPath), { recursive: true });
+    const payload = JSON.stringify(settings, null, 2);
+    const temp = `${this.settingsPath}.${process.pid}.tmp`;
+    writeFileSync(temp, payload, "utf8");
+    try {
+      renameSync(temp, this.settingsPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" && code !== "EXDEV") throw error;
+      writeFileSync(this.settingsPath, payload, "utf8");
+      try { unlinkSync(temp); } catch { /* The temp file is leftover only when the bind-mounted dest is already updated. */ }
+    }
+  }
   private update(mutator: (settings: SandStoredSettings) => SandStoredSettings): void { this.persist(mutator(this.load())); }
   getHasSeenOnboarding(): boolean | undefined { return this.load().hasSeenOnboarding; }
   setHasSeenOnboarding(value: boolean): void { this.update((current) => { const { hasSeenOnboardingAccountScope: _old, ...rest } = current; return { ...rest, hasSeenOnboarding: value, ...(rest.mcpCustomInstructionsAccountScope === undefined ? {} : { hasSeenOnboardingAccountScope: rest.mcpCustomInstructionsAccountScope }) }; }); }
@@ -112,7 +130,11 @@ export class SandSettingsStore {
   setAutoUpdateWhenIdleOptIn(value: boolean): void { this.update((s) => ({ ...s, autoUpdateWhenIdleOptIn: value })); }
   getThemePreference(): SandThemePreference { return this.load().themePreference ?? DEFAULT_SAND_THEME_PREFERENCE; }
   setThemePreference(value: SandThemePreference): void { this.update((s) => ({ ...s, themePreference: value })); }
-  getBoxRuntime(): SandBoxRuntime { return this.load().boxRuntime ?? DEFAULT_SAND_BOX_RUNTIME; }
+  getBoxRuntime(): SandBoxRuntime {
+    const loaded = this.load();
+    if (isSandBoxRuntime(loaded.boxRuntime)) return loaded.boxRuntime;
+    return loaded.localAccountActive === true ? "local-docker" : DEFAULT_SAND_BOX_RUNTIME;
+  }
   setBoxRuntime(value: SandBoxRuntime): void { this.update((s) => ({ ...s, boxRuntime: value })); }
   getEgressTunnelEnabled(): boolean { return this.load().egressTunnelEnabled; }
   setEgressTunnelEnabled(value: boolean): void { this.update((s) => ({ ...s, egressTunnelEnabled: value })); }
@@ -149,20 +171,35 @@ export class SandSettingsStore {
   deleteMcpCustomInstruction(name: string): void { const current = this.load(); if (!(name in current.mcpCustomInstructions)) return; const next = { ...current.mcpCustomInstructions }; delete next[name]; this.persist({ ...current, mcpCustomInstructions: next }); }
   getNotificationConfig() { const current = this.load(); if (current.notifications?.isEnabled !== false || Object.keys(current.notifications).length !== 1) this.persist({ ...current, notifications: { isEnabled: false } }); return SAND_DISABLED_NOTIFICATION_CONFIG; }
   setNotificationConfig(_input: unknown): void { this.update((s) => ({ ...s, notifications: { isEnabled: false } })); }
-  getAutoReviewInstructions(): SandAutoReviewInstructions { return this.load().autoReviewInstructions ?? DEFAULT_SAND_AUTO_REVIEW_INSTRUCTIONS; }
+  getAutoReviewInstructions(): SandAutoReviewInstructions {
+    const loaded = this.load().autoReviewInstructions ?? DEFAULT_SAND_AUTO_REVIEW_INSTRUCTIONS;
+    return this.getLocalAccountActive() ? { ...loaded, isEnabled: false } : loaded;
+  }
   setAutoReviewInstructions(value: SandAutoReviewInstructions): void { const normalized = normalizeSandAutoReviewInstructions(value); this.update((s) => { const { autoReviewInstructions: _old, ...rest } = s; return normalized.isEnabled && normalized.allowInstructions.length === 0 && normalized.blockInstructions.length === 0 ? rest : { ...rest, autoReviewInstructions: normalized }; }); }
-  getLocalToolPermission(): SandLocalToolPermission { const s = this.load(); return resolveSandLocalToolPermission(s.localToolPermission ?? SAND_DEFAULT_LOCAL_TOOL_PERMISSION, s.localToolPermissionCeiling); }
-  getLocalToolPermissionChoice(): SandLocalToolPermission { return this.load().localToolPermission ?? SAND_DEFAULT_LOCAL_TOOL_PERMISSION; }
+  getLocalToolPermission(): SandLocalToolPermission {
+    const s = this.load();
+    const fallback = s.localAccountActive === true ? "always" : SAND_DEFAULT_LOCAL_TOOL_PERMISSION;
+    return resolveSandLocalToolPermission(s.localToolPermission ?? fallback, s.localToolPermissionCeiling);
+  }
+  getLocalToolPermissionChoice(): SandLocalToolPermission {
+    const s = this.load();
+    return s.localToolPermission ?? (s.localAccountActive === true ? "always" : SAND_DEFAULT_LOCAL_TOOL_PERMISSION);
+  }
   getLocalToolPermissionCeiling(): SandLocalToolPermission | undefined { return this.load().localToolPermissionCeiling; }
   setLocalToolPermission(value: SandLocalToolPermission): void { this.update((s) => ({ ...s, localToolPermission: value })); }
   getInferenceProvider(): SandInferenceProvider { return this.load().inferenceProvider ?? "cursor"; }
   setInferenceProvider(value: SandInferenceProvider): void { this.update((s) => ({ ...s, inferenceProvider: value })); }
+  getInferenceHttp(): InferenceHttpConfig | undefined { return this.load().inferenceHttp; }
+  setInferenceHttp(value: InferenceHttpConfig | undefined): void { this.update((s) => { const { inferenceHttp: _old, ...rest } = s; return value == null ? rest : { ...rest, inferenceHttp: { baseUrl: value.baseUrl, modelId: value.modelId } }; }); }
+  getLocalAccountActive(): boolean { return this.load().localAccountActive === true; }
+  setLocalAccountActive(value: boolean): void { this.update((s) => { const { localAccountActive: _old, ...rest } = s; return value ? { ...rest, localAccountActive: true } : rest; }); }
   getInferenceRouterUsage(): SandInferenceRouterUsage { return this.load().inferenceRouterUsage ?? emptySandInferenceRouterUsage(); }
   recordInferenceUsage(provider: SandInferenceProvider, usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }): void {
     const safe = (value: number | undefined): number => Number.isFinite(value) && value! >= 0 ? Math.round(value!) : 0;
     this.update((settings) => {
       const current = settings.inferenceRouterUsage ?? emptySandInferenceRouterUsage();
-      const previous = current.providers[provider];
+      const empty = (): SandInferenceRouterUsage["providers"][SandInferenceProvider] => ({ requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, lastUsedAt: null });
+      const previous = current.providers[provider] ?? empty();
       return { ...settings, inferenceRouterUsage: { schemaVersion: 1, providers: { ...current.providers, [provider]: { requests: previous.requests + 1, inputTokens: previous.inputTokens + safe(usage.inputTokens), outputTokens: previous.outputTokens + safe(usage.outputTokens), cacheReadTokens: previous.cacheReadTokens + safe(usage.cacheReadTokens), cacheWriteTokens: previous.cacheWriteTokens + safe(usage.cacheWriteTokens), lastUsedAt: new Date().toISOString() } } } };
     });
   }

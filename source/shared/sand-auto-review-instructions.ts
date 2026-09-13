@@ -1,7 +1,7 @@
 export const SAND_AUTO_REVIEW_INSTRUCTION_MAX_ENTRIES = 20;
 export const SAND_AUTO_REVIEW_INSTRUCTION_MAX_CHARS = 1_000;
 export interface SandAutoReviewInstructions { readonly isEnabled: boolean; readonly allowInstructions: readonly string[]; readonly blockInstructions: readonly string[]; }
-export const DEFAULT_SAND_AUTO_REVIEW_INSTRUCTIONS: SandAutoReviewInstructions = { isEnabled: true, allowInstructions: [], blockInstructions: [] };
+export const DEFAULT_SAND_AUTO_REVIEW_INSTRUCTIONS: SandAutoReviewInstructions = { isEnabled: false, allowInstructions: [], blockInstructions: [] };
 function normalizeInstructionList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const result: string[] = []; const seen = new Set<string>();
@@ -15,5 +15,5 @@ function normalizeInstructionList(raw: unknown): string[] {
   return result;
 }
 export function normalizeSandAutoReviewInstructions(partial: { readonly isEnabled?: unknown; readonly allowInstructions?: unknown; readonly blockInstructions?: unknown } | null | undefined): SandAutoReviewInstructions {
-  return { isEnabled: partial?.isEnabled !== false, allowInstructions: normalizeInstructionList(partial?.allowInstructions), blockInstructions: normalizeInstructionList(partial?.blockInstructions) };
+  return { isEnabled: partial?.isEnabled === true, allowInstructions: normalizeInstructionList(partial?.allowInstructions), blockInstructions: normalizeInstructionList(partial?.blockInstructions) };
 }

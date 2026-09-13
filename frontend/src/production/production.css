@@ -208,6 +208,30 @@ button, textarea, input { font: inherit; }
 .sand-onboarding__landing-wait > span { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .sand-onboarding__landing-wait button { padding: 0; color: var(--cursor-text-accent); background: transparent; }
 
+.sand-vendor-setup {
+  display: grid;
+  gap: 12px;
+  width: min(360px, 100%);
+  text-align: left;
+}
+.sand-vendor-setup label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--cursor-text-secondary);
+}
+.sand-vendor-setup input,
+.sand-vendor-setup select {
+  height: 34px;
+  padding: 0 10px;
+  color: var(--sand-text-primary);
+  background: var(--cursor-bg-elevated, #202020);
+  border: 1px solid var(--cursor-stroke-secondary, #414141);
+  border-radius: 8px;
+}
+.sand-vendor-setup button { justify-self: center; }
+.sand-vendor-setup p { margin: 0; color: var(--cursor-text-red, #ef8585); }
+
 .sand-about-dialog,
 .sand-feedback-dialog,
 .sand-alert-dialog,

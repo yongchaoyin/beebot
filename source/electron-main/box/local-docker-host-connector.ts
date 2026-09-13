@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ export const LOCAL_DOCKER_BOX_IMAGE = "public.ecr.aws/k0i0n2g5/cursorenvironment
 export const LOCAL_DOCKER_BOX_CONTAINER = "grok-bot-local-vm";
 export const LOCAL_DOCKER_GATEWAY_URL = "http://127.0.0.1:1340";
 export const LOCAL_DOCKER_OWNER_LABEL = "com.grok-bot.local-vm=1";
-export const LOCAL_DOCKER_SCHEMA_VERSION = "6";
+export const LOCAL_DOCKER_SCHEMA_VERSION = "7";
 const READY_TIMEOUT_MS = 180_000;
 const OPTIONAL_CREDENTIAL_TIMEOUT_MS = 3_000;
 
@@ -182,6 +182,8 @@ async function ensureLocalDockerBox(settingsPath: string, inferenceCredential?: 
     if (!started.ok) throw new Error(`Could not start the local Docker VM: ${started.output}`);
   } else if (!current.exists) {
     const authMounts = await localAuthMountArguments();
+    const secretsPath = join(dirname(settingsPath), "box-secrets.json");
+    try { await access(secretsPath); } catch { await writeFile(secretsPath, `${JSON.stringify({ version: 1, secrets: {} })}\n`, { encoding: "utf8", mode: 0o600 }); }
     const created = await runDocker([
       "run", "--detach", "--name", LOCAL_DOCKER_BOX_CONTAINER,
       "--label", LOCAL_DOCKER_OWNER_LABEL, "--label", `com.grok-bot.local-vm.host-sha256=${hostBundle.sha256}`,
@@ -194,6 +196,8 @@ async function ensureLocalDockerBox(settingsPath: string, inferenceCredential?: 
       "--publish", "127.0.0.1:1337:1337", "--publish", "127.0.0.1:1339:1339", "--publish", "127.0.0.1:1340:1340",
       "--publish", "127.0.0.1:6080:6080", "--publish", "127.0.0.1:6081:6081", "--publish", "127.0.0.1:8790:8790",
       "--volume", "grok-bot-local-vm-workspace:/workspace", "--volume", "grok-bot-local-vm-data:/home/box/sand-data",
+      "--mount", `type=bind,src=${settingsPath},dst=/home/box/sand-data/settings.json`,
+      "--mount", `type=bind,src=${secretsPath},dst=/home/box/sand-data/box-secrets.json`,
       "--mount", `type=bind,src=${hostBundle.path},dst=/home/box/sand-host/host-main.cjs,readonly`,
       "--mount", `type=bind,src=${dirname(hostBundle.boxExecDaemonPath)},dst=/home/box/box-exec-daemon,readonly`,
       ...(inferenceFile == null ? [] : ["--mount", `type=bind,src=${dirname(inferenceFile)},dst=/run/grok-bot,readonly`]),

@@ -48,7 +48,7 @@ export const autoReviewExtension = defineHostExtension<
       awaitingSink: transcript.createAwaitingStateSink(),
       transcript,
       hostGeneration: SAND_AUTO_REVIEW_HOST_GENERATION,
-      localMode: parseLocalAutoReviewMode(process.env.SAND_AUTO_REVIEW_MODE)!,
+      localMode: parseLocalAutoReviewMode(process.env.SAND_AUTO_REVIEW_MODE) ?? "off",
       createClassifierExecutor: createSandBackendSmartModeClassifierExecutor,
     });
     context.onStop(() => service.stop());

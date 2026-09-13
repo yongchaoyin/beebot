@@ -462,9 +462,18 @@ export interface RouterSettingsPanelProps {
   provider: RouterProviderId;
   pending?: boolean;
   onChange(provider: RouterProviderId): void | Promise<unknown>;
+  http?: {
+    baseUrl: string;
+    modelId: string;
+    apiKey: string;
+    onBaseUrlChange(value: string): void;
+    onModelIdChange(value: string): void;
+    onApiKeyChange(value: string): void;
+    onSave(): void | Promise<unknown>;
+  };
 }
 
-export function RouterSettingsPanel({ provider, pending = false, onChange }: RouterSettingsPanelProps) {
+export function RouterSettingsPanel({ provider, pending = false, onChange, http }: RouterSettingsPanelProps) {
   const selectedProvider = routerProviderById(provider);
   return (
     <div className="sand-router-section">
@@ -479,13 +488,30 @@ export function RouterSettingsPanel({ provider, pending = false, onChange }: Rou
             className="ui-select-trigger"
             disabled={pending}
             menuSize="md"
-            onValueChange={(value) => void onChange(value)}
+            onValueChange={(value) => void onChange(value as RouterProviderId)}
             options={ROUTER_PROVIDERS.map((option) => ({ value: option.id, label: option.label }))}
             placement="bottom-end"
             value={provider}
           />
         </label>
       </SettingsGroup>
+      {selectedProvider.kind === "http" && http != null ? (
+        <SettingsGroup title="Account">
+          <label className="sand-settings-row">
+            <span className="sand-settings-copy"><strong>API key</strong></span>
+            <input aria-label="API key" disabled={pending} onChange={(event) => http.onApiKeyChange(event.currentTarget.value)} placeholder="Paste API key" type="password" value={http.apiKey} />
+          </label>
+          <label className="sand-settings-row">
+            <span className="sand-settings-copy"><strong>Base URL</strong></span>
+            <input aria-label="Base URL" disabled={pending} onChange={(event) => http.onBaseUrlChange(event.currentTarget.value)} value={http.baseUrl} />
+          </label>
+          <label className="sand-settings-row">
+            <span className="sand-settings-copy"><strong>Model ID</strong></span>
+            <input aria-label="Model ID" disabled={pending} onChange={(event) => http.onModelIdChange(event.currentTarget.value)} value={http.modelId} />
+          </label>
+          <SandButton disabled={pending} onClick={() => void http.onSave()} size="sm">Save vendor</SandButton>
+        </SettingsGroup>
+      ) : null}
       <SettingsGroup title="Usage">
         <div className="sand-provider-usage-card">
           <strong>{selectedProvider.label}</strong>

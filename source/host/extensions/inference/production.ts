@@ -23,6 +23,7 @@ export function createInferenceProductionExtras(
       });
     },
     createWebSearch(args) {
+      if (auth.peekAccessToken() == null) return undefined;
       const request = args as { modelId: string; onRequestId?: (requestId: string) => void };
       return createCursorWebSearchService({
         getAccessToken: auth.getAccessToken,
@@ -32,6 +33,7 @@ export function createInferenceProductionExtras(
       });
     },
     createWebFetch(args) {
+      if (auth.peekAccessToken() == null) return undefined;
       const request = args as { onRequestId?: (requestId: string) => void };
       return createCursorWebFetchService({
         getAccessToken: auth.getAccessToken,

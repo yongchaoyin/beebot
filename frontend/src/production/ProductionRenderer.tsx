@@ -77,7 +77,7 @@ import { createAgentNetworkTrigger } from "../recovered/features/org-chart/works
 import { AccountMenu } from "../recovered/features/account/session/menu";
 import { SandBadge, SandButton, SandIcon, SandIconButton } from "../recovered/ui/sand-kit-primitives";
 import { OverlayDialog } from "../recovered/ui/overlay-primitives";
-import { SignInStatus } from "../recovered/features/account/session/sign-in-status";
+import { VendorSetup } from "../recovered/features/account/session/vendor-setup";
 import { isRosterPrivacyBlockFailure, PrivacyBlockedDialog } from "../recovered/features/roster/privacy-blocked";
 import { RosterStatus } from "../recovered/features/roster/status";
 import { projectRosterFailure, selectRosterAccessReadiness } from "../recovered/features/roster/access-readiness";
@@ -592,19 +592,11 @@ function useStrictModeSafeDisposal(resource: StrictModeDisposable | null | undef
 function SignInLanding({ account, bridge, onStatus }: { account: CursorAuthStatus; bridge: DesktopBridge; onStatus(status: CursorAuthStatus): void }) {
   if (account.kind === "logged-in") return null;
   return (
-    <div aria-label={UI_TEXT.title} className="sand-onboarding" role="main">
+    <div aria-label="Botfly" className="sand-onboarding" role="main">
       <section className="sand-onboarding__landing">
-        <h1>{UI_TEXT.title}</h1>
-        <p>{UI_TEXT.signInTagline}</p>
-        <SignInStatus
-          account={account}
-          bridge={bridge}
-          cancelLabel={UI_TEXT.cancel}
-          continueLabel={UI_TEXT.continueInBrowser}
-          onStatus={onStatus}
-          reopenLabel={UI_TEXT.reopenLink}
-          signInLabel={UI_TEXT.signIn}
-        />
+        <h1>Botfly</h1>
+        <p>Choose a model vendor, paste an API key, and start.</p>
+        <VendorSetup bridge={bridge} onStatus={onStatus} />
       </section>
     </div>
   );

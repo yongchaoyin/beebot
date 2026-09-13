@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import { runRoutedProviderText } from "../host/extensions/inference/provider-session.js";
 import type { SandInferenceProvider } from "../shared/inference-router.js";
+import { isHttpInferenceVendor } from "../shared/inference-vendor.js";
 import { SandSettingsStore } from "../shared/node/settings/sand-settings-store.js";
 import { createRoutedMcpBridge } from "./routed-mcp-bridge.js";
 
@@ -34,7 +35,7 @@ export function parseInferenceRouterTranscriptStore(value: unknown): Store {
     const entries: StoredEntry[] = [];
     for (const raw of rawEntries) {
       const row = asRecord(raw);
-      if (row == null || !["codex", "claude-code", "openrouter"].includes(String(row.provider)) || !["user", "assistant"].includes(String(row.role)) || typeof row.content !== "string" || typeof row.id !== "string" || typeof row.timestampMs !== "number" || (row.clientNonce !== undefined && typeof row.clientNonce !== "string") || (row.richText !== undefined && typeof row.richText !== "string")) continue;
+      if (row == null || !["codex", "claude-code", "openrouter", "openai", "deepseek", "custom"].includes(String(row.provider)) || !["user", "assistant"].includes(String(row.role)) || typeof row.content !== "string" || typeof row.id !== "string" || typeof row.timestampMs !== "number" || (row.clientNonce !== undefined && typeof row.clientNonce !== "string") || (row.richText !== undefined && typeof row.richText !== "string")) continue;
       if (row.reactions !== undefined && (!Array.isArray(row.reactions) || row.reactions.some(reaction => asRecord(reaction) == null || typeof asRecord(reaction)!.emoji !== "string" || typeof asRecord(reaction)!.by !== "string"))) continue;
       entries.push(row as unknown as StoredEntry);
     }
@@ -209,7 +210,7 @@ export function createCoordinatorInferenceRouter(options: {
         const limit = typeof record.limit === "number" && Number.isInteger(record.limit) && record.limit > 0 ? record.limit : 500;
         return { handled: true, value: { ...result, entries: entries.slice(-limit) } };
       }
-      if (method !== "sendPrompt" || provider === "cursor") return { handled: false };
+      if (method !== "sendPrompt" || provider === "cursor" || isHttpInferenceVendor(provider)) return { handled: false };
       const record = asRecord(args) ?? {};
       const agentId = typeof record.agentId === "string" ? record.agentId : "";
       const previous = queues.get(agentId) ?? Promise.resolve();
