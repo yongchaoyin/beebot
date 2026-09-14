@@ -1,4 +1,9 @@
-import { installApplicationMenu, type ApplicationMenuElectronPort } from "./application-menu.js";
+import { parseUiLanguage } from "../shared/ui-language.js";
+import {
+  installApplicationMenu,
+  registerApplicationMenuRebuild,
+  type ApplicationMenuElectronPort,
+} from "./application-menu.js";
 import { reportDesktopEdgeFailure } from "./desktop-edge-failures.js";
 import { createDevToolsGate, createDevToolsMembershipResolver } from "./devtools-gate.js";
 import {
@@ -394,18 +399,23 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
       services.subscribeDevToolsMembership(() => void membership.refresh());
       void membership.refresh();
 
+      let uiLanguage = parseUiLanguage(undefined);
       const installMenu = (): void =>
         installApplicationMenu(
           {
             applyWindowShortcut: hostChords.applyWindowShortcut,
             canUseDevTools: devToolsGate.isAllowed,
             emitOpenAbout: () => services?.mainEdge.emit("open-about", {}),
-            emitOpenFeedback: () => services?.mainEdge.emit("open-feedback", {}),
+            uiLanguage,
             platform,
           },
           deps.menu,
         );
       installMenu();
+      registerApplicationMenuRebuild((next) => {
+        uiLanguage = next;
+        installMenu();
+      });
       services.registerImageContextMenu?.();
       devToolsGate.subscribe(installMenu);
 
