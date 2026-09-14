@@ -130,6 +130,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(createOverlay, /新建群聊/);
   assert.match(createOverlay, /Get started/);
   assert.match(createOverlay, /__sandPickCreateGroup/);
+  assert.match(createOverlay, /applyReady/);
   assert.match(createOverlay, /RBotSvg/);
   assert.match(createOverlay, /linearGradient/);
   assert.match(createOverlay, /inferenceVendorId/);
