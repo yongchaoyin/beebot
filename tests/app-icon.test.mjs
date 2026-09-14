@@ -27,4 +27,5 @@ test("macOS packaging replaces the inherited Grok Bot icns", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   assert.match(source, /branding.*beebot-app-icon\.icns/);
   assert.match(source, /icon\.icns/);
+  assert.match(source, /CFBundleIconName/);
 });

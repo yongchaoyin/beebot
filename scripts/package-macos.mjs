@@ -49,6 +49,12 @@ const infoPlist = path.join(outputApp, "Contents", "Info.plist");
 await run(SYSTEM_TOOLS.plutil, ["-remove", "ElectronAsarIntegrity", infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleIdentifier", "-string", reconstructedBundleId, infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleDisplayName", "-string", reconstructedName, infoPlist]);
+// Asset catalog `icon` (Assets.car) otherwise wins over icon.icns and keeps the Grok Bot face in Dock/Finder.
+try {
+  await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleIconName", infoPlist]);
+} catch {
+  // Some runtimes omit the key; icon.icns is still the Dock source.
+}
 // The backend currently emits only the `sand` auth/deep-link target. Make the
 // reconstructed bundle's claim explicit and remove inherited aliases such as
 // `grokbot`; the original bundle remains untouched and remains reference-only.

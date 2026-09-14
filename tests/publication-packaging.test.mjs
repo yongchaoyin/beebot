@@ -34,6 +34,7 @@ test("default packaging keeps the polished checksum-pinned renderer", async () =
   assert.match(source, /import \{ buildFidelityReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
   assert.match(source, /beebot-app-icon\.icns/);
+  assert.match(source, /CFBundleIconName/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
