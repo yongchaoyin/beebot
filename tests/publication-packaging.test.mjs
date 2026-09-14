@@ -137,6 +137,13 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(createOverlay, /sand-agent-vendor/);
   assert.match(createOverlay, /RAgentVendorId/);
   assert.match(createOverlay, /__sandRoster/);
+  const accountMenu = await readFile(path.join(repoRoot, "scripts", "lib", "sand-account-menu.snippet.js"), "utf8");
+  assert.match(accountMenu, /__sandAccountMenuBound/);
+  assert.match(accountMenu, /配置 AI/);
+  assert.match(accountMenu, /sand-open-settings/);
+  assert.match(rendererPatch, /sand-account-menu\.snippet\.js/);
+  assert.match(rendererPatch, /sand-open-settings/);
+  assert.match(rendererPatch, /sand-open-about/);
   assert.match(vendorAccounts, /Model APIs/);
   assert.match(vendorAccounts, /Add model/);
   assert.match(vendorAccounts, /Edit model/);

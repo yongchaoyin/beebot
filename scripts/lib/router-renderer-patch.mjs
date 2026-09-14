@@ -15,6 +15,24 @@ const USAGE_AFTER = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(RRouterUsage,{})}):n
 const COMPONENT_ANCHOR = 'function Sa(s){';
 const VENDOR_ACCOUNTS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-vendor-accounts.snippet.js"), "utf8");
 const COMPONENT_HEAD = String.raw`
+if(!window.__sandOpenSettingsBound){
+  window.__sandOpenSettingsBound=!0;
+  window.addEventListener("sand-open-settings",ev=>{
+    const section=ev&&ev.detail&&ev.detail.section==="router"?"router":"general";
+    const clickNav=()=>{
+      const labels=section==="router"?["Router","路由"]:["General","通用"];
+      const nodes=[...document.querySelectorAll("button, [role=tab]")];
+      const hit=nodes.find(el=>labels.includes((el.textContent||"").trim()));
+      if(hit) hit.click();
+    };
+    setTimeout(clickNav,80);
+    setTimeout(clickNav,240);
+  });
+  window.addEventListener("sand-open-about",()=>{
+    const open=window.__sandOpenAboutOverlay;
+    if(typeof open==="function") open();
+  });
+}
 const RRouterProviders=[
   {value:"claude-code",label:"Claude Code",description:"Use your existing Claude Code sign-in and Grok Bot's connected plugins.",kind:"local",localKey:"claude-code"},
   {value:"codex",label:"Codex",description:"Use your existing ChatGPT sign-in from Codex with Grok Bot's connected plugins.",kind:"local",localKey:"codex"},
@@ -50,13 +68,36 @@ const LANDING_GJN_AFTER = `function RVendorSetup(n){const t=n.headingId,s=[{valu
 function gjn(n){return p.jsx(RVendorSetup,{headingId:n.headingId,auth:n.auth,onSignIn:n.onSignIn})}`;
 
 const CREATE_AGENT_BEFORE = "function MOn(n){const e=n.roster,t=S.useCallback((r,i)=>e.createAgent({...r,origin:\"user\",...i}),[e]),s=lr(e.deleteAgents);";
-const CREATE_AGENT_AFTER = `const R_PATHS=${readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8")};\n${readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8")}`;
+const ACCOUNT_MENU_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-account-menu.snippet.js"), "utf8");
+const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8");
+const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
+const monAt = createOverlay.indexOf("function MOn(");
+if (monAt < 0) throw new Error("create overlay is missing function MOn(");
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const LANDING_ABOUT_WRAP = `;(function(){
+  function wrap(){
+    const d=window.desktop;
+    if(!d||d.__sandAboutWrapped||typeof d.onOpenAbout!=="function") return false;
+    const orig=d.onOpenAbout.bind(d);
+    d.onOpenAbout=function(listener){
+      window.__sandOpenAboutOverlay=listener;
+      return orig(listener);
+    };
+    d.__sandAboutWrapped=1;
+    return true;
+  }
+  if(!wrap()){
+    const t=setInterval(()=>{ if(wrap()) clearInterval(t); },20);
+    setTimeout(()=>clearInterval(t),8000);
+  }
+})();
+`;
 
 export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
-  return patched;
+  return `${LANDING_ABOUT_WRAP}${patched}`;
 }
 
 function sha256(bytes) {
