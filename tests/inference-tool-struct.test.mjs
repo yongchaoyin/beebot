@@ -42,6 +42,20 @@ test("tools with missing parameters still encode instead of throwing Struct JSON
   }
 });
 
+test("tools with nested undefined parameter fields still encode", async () => {
+  const loaded = await loadConverters();
+  try {
+    const request = loaded.module.buildStreamRequest({
+      messages: [],
+      requestedModel: model(),
+      tools: [{ name: "Search", description: "Search", parameters: { type: "object", extra: undefined } }],
+    });
+    assert.deepEqual(request.tools[0].parameters.toJson(), { type: "object" });
+  } finally {
+    await loaded.dispose();
+  }
+});
+
 test("tools with undefined parameters do not call fromJsonString(undefined)", async () => {
   const loaded = await loadConverters();
   try {

@@ -190,7 +190,11 @@ function getResponsesMetadataFromProviderOptions(message: Loose): { modelProvide
 
 function jsonObjectOrEmpty(value: unknown): JsonValue {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as JsonValue;
+  try {
+    return JSON.parse(JSON.stringify(value)) as JsonValue;
+  } catch {
+    return {};
+  }
 }
 
 function agentToolToProto(tool: Loose): InferenceAgentTool {

@@ -63,14 +63,14 @@ function RDecorateGroupRow(el,group){
   const copy=RGroupCopy();
   const members=RGroupMembers(group);
   el.setAttribute("data-sand-kind","group");
-  const nameEl=el.querySelector("[class*='name'], .sand-agent-item__name, strong")||el;
-  if(nameEl&&!nameEl.querySelector(".sand-beebot-group-badge")){
+  const nameEl=el.querySelector(".sand-agent-item__name, [class*='__name'], strong")||el;
+  if(!el.querySelector(".sand-beebot-group-badge")&&nameEl){
     const badge=document.createElement("span");
     badge.className="sand-beebot-group-badge";
     badge.textContent=copy.badge;
     nameEl.append(" ",badge);
   }
-  let sub=el.querySelector(".sand-beebot-group-sub");
+  let sub=el.querySelector(":scope > .sand-beebot-group-sub, .sand-agent-item__body > .sand-beebot-group-sub");
   if(!sub){
     sub=document.createElement("span");
     sub.className="sand-beebot-group-sub";
@@ -78,17 +78,22 @@ function RDecorateGroupRow(el,group){
     body.append(sub);
   }
   const names=members.map(m=>m.name).join(" · ");
-  sub.textContent=copy.bots(members.length)+(names?(" · "+names):"");
+  const label=copy.bots(members.length)+(names?(" · "+names):"");
+  if(sub.textContent!==label) sub.textContent=label;
   if(el.querySelector(".sand-group-avatar")) return;
+  const sig=members.map(m=>m.id+":"+m.shape+":"+m.color).join(",");
   let stack=el.querySelector(".sand-beebot-group-stack");
-  const avatar=el.querySelector(".sand-agent-item__avatar, [class*='avatar']");
+  const avatar=el.querySelector(".sand-agent-item__avatar");
   if(!stack){
     stack=document.createElement("span");
     stack.className="sand-beebot-group-stack";
     if(avatar){ avatar.innerHTML=""; avatar.append(stack); }
     else el.prepend(stack);
   }
-  if(members.length) RPaintStack(stack,members);
+  if(members.length&&stack.getAttribute("data-sig")!==sig){
+    stack.setAttribute("data-sig",sig);
+    RPaintStack(stack,members);
+  }
 }
 function RActiveGroup(){
   const id=document.querySelector("[data-agent-id][aria-current='true'], [data-agent-id][data-active='true'], [data-sand-kind='group'][aria-selected='true']")?.getAttribute("data-agent-id");
@@ -197,8 +202,10 @@ if(!window.__sandGroupUiBound){
   window.__sandGroupUiBound=1;
   const tick=()=>{ try{ RRefreshGroups(); }catch{} };
   if(!window.__sandGroupUiTest){
-    setInterval(tick,700);
-    const obs=new MutationObserver(()=>tick());
+    let debounce;
+    const schedule=()=>{ clearTimeout(debounce); debounce=setTimeout(tick,120); };
+    setInterval(tick,2500);
+    const obs=new MutationObserver(schedule);
     const start=()=>{ if(document.body) obs.observe(document.body,{childList:!0,subtree:!0}); tick(); };
     if(document.body) start(); else document.addEventListener("DOMContentLoaded",start);
   }
