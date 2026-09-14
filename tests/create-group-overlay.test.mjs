@@ -37,7 +37,7 @@ function visibleAgentButtons(document) {
 
 async function openGroupSheet() {
   const source = await readFile(overlayPath, "utf8");
-  const window = new Window({ url: "https://botfly.local/" });
+  const window = new Window({ url: "https://beebot.local/" });
   const { document } = window;
   window.desktop = {
     agent: {
@@ -106,7 +106,7 @@ test("Create enables after selecting bots and then typing the group name", async
 test("account menu snippet does not block group create", async () => {
   const overlay = await readFile(overlayPath, "utf8");
   const accountMenu = await readFile(path.join(repoRoot, "scripts/lib/sand-account-menu.snippet.js"), "utf8");
-  const window = new Window({ url: "https://botfly.local/" });
+  const window = new Window({ url: "https://beebot.local/" });
   const { document } = window;
   window.desktop = {
     agent: { getUiLanguage: async () => ({ language: "en" }) },

@@ -19,7 +19,7 @@ async function loadShared() {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 }
 
-test("recovered account menu copy matches shared Botfly copy", async () => {
+test("recovered account menu copy matches shared BeeBot copy", async () => {
   const copy = await loadCopy();
   const shared = await loadShared();
   assert.deepEqual(copy.accountMenuCopy("en"), shared.accountMenuCopy("en"));

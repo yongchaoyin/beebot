@@ -1,10 +1,10 @@
-# Botfly
+# BeeBot
 
 English | [中文](README.zh.md)
 
-Botfly is a local computer agent for macOS. Each bot gets its own Linux
-computer (shell, files, browser, desktop) and talks to the model vendor you
-choose. There is no Cursor account lock-in.
+BeeBot is a local computer agent for macOS. Bots work like a hive: each one
+has its own Linux computer (shell, files, browser, desktop) and talks to the
+model vendor you choose. There is no Cursor account lock-in.
 
 This repository is independent of Anysphere, Cursor, xAI, and SpaceX. It is not
 an official Grok Bot release.
@@ -44,7 +44,7 @@ different vendors on the same computer host.
 
 ### Language, groups, and the rest of the desktop
 
-- **Settings → Appearance → Language** chooses English or 中文 for Botfly UI
+- **Settings → Appearance → Language** chooses English or 中文 for BeeBot UI
   copy. It follows that setting, not the operating system.
 - **+ → New group chat** creates a group from existing bots.
 - Connected plugins, streaming, and local usage totals still work on routed
@@ -53,16 +53,16 @@ different vendors on the same computer host.
 
 ## Lineage
 
-Botfly started from an unofficial, source-oriented reconstruction of the public
+BeeBot started from an unofficial, source-oriented reconstruction of the public
 Grok Bot 0.18.0 macOS app. Readable TypeScript for the Electron, host,
 coordinator, local-execution, and protocol boundaries lives under `source/`.
 Packaged builds still use the checksum-pinned 0.18 renderer as the UI baseline
 and apply a narrow settings and create-bot patch on top.
 
-The Dock name and bundle identity are Botfly. Some in-app chrome still says
+The Dock name and bundle identity are BeeBot. Some in-app chrome still says
 Grok Bot because that shipped renderer is retained byte-for-byte.
 
-Original Botfly contributions are MIT-licensed. Reconstructed upstream material
+Original BeeBot contributions are MIT-licensed. Reconstructed upstream material
 and the preserved 0.18.0 installers are not covered by that grant. See
 [LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and [PROVENANCE.md](PROVENANCE.md).
 
@@ -78,15 +78,15 @@ and the preserved 0.18.0 installers are not covered by that grant. See
 ## Quick start
 
 ```sh
-git clone https://github.com/yongchaoyin/botfly.git
-cd botfly
+git clone https://github.com/yongchaoyin/beebot.git
+cd beebot
 git lfs install
 git lfs pull
 npm ci
 npm run bootstrap
 npm run check
 npm run package
-open dist/Botfly.app
+open dist/BeeBot.app
 ```
 
 1. Paste a vendor API key on the first-run setup page (or add more later in
@@ -101,8 +101,8 @@ verifies both the DMG and `app.asar`, caches the matching Electron runtime, and
 hydrates the ignored `src/app/dist` build input.
 
 `npm run package` compiles the runtimes, applies the renderer patches, creates
-the app bundle, assigns the Botfly bundle identity, ad-hoc signs it, and
-verifies the result. Output is written to `dist/Botfly.app`.
+the app bundle, assigns the BeeBot bundle identity, ad-hoc signs it, and
+verifies the result. Output is written to `dist/BeeBot.app`.
 
 Packaged builds disable the upstream updater at the packaging boundary and
 default upstream Sentry and telemetry emission off. Explicitly supplied
@@ -111,7 +111,7 @@ environment configuration is still respected.
 ## Architecture
 
 ```text
-polished shipped renderer + Botfly patches
+polished shipped renderer + BeeBot patches
           │
           │ desktop preload / RPC
           ▼

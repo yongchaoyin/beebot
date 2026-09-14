@@ -1,6 +1,6 @@
 # Architecture
 
-Botfly keeps two editable source roots:
+BeeBot keeps two editable source roots:
 
 - `source/` contains the Electron main, host, coordinator, local-exec, shared,
   and protocol reconstruction.

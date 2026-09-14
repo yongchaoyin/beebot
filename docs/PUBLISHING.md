@@ -40,7 +40,7 @@ Before adding a public remote:
 4. Run `git lfs ls-files` and verify both preserved 0.18.0 installers appear.
 5. Scan the exported tree and full new history for credentials and absolute
    machine paths.
-6. Review `NOTICE.md` and obtain an independent rights review. Original Botfly
+6. Review `NOTICE.md` and obtain an independent rights review. Original BeeBot
    contributions are MIT-licensed; no upstream Grok Bot license is supplied.
 7. Do not imply that the MIT license covers the upstream application,
    trademarks, or the preserved 0.18.0 installer artifacts.

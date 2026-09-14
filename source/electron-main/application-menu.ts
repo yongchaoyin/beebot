@@ -1,8 +1,8 @@
 import type { WindowShortcut } from "./window-shortcuts.js";
 import {
   accountMenuCopy,
-  botflyDocumentationUrl,
-  BOTFLY_FEEDBACK_URL,
+  beebotDocumentationUrl,
+  BEEBOT_FEEDBACK_URL,
   parseUiLanguage,
   type UiLanguage,
 } from "../shared/ui-language.js";
@@ -118,13 +118,13 @@ export function buildApplicationMenuTemplate(
       {
         label: copy.documentation,
         click: () => {
-          void electron.openExternal(botflyDocumentationUrl(language));
+          void electron.openExternal(beebotDocumentationUrl(language));
         },
       },
       {
         label: copy.feedback,
         click: () => {
-          void electron.openExternal(BOTFLY_FEEDBACK_URL);
+          void electron.openExternal(BEEBOT_FEEDBACK_URL);
         },
       },
     ],

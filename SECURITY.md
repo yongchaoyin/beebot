@@ -1,6 +1,6 @@
 # Security notes
 
-Botfly is an experimental open-source desktop agent, not a supported production
+BeeBot is an experimental open-source desktop agent, not a supported production
 distribution. Do not reuse real credentials or sensitive accounts while
 experimenting with it.
 
@@ -16,5 +16,5 @@ work rather than silently changing application behavior during publication
 cleanup.
 
 Please report issues privately to the repository owner at
-https://github.com/yongchaoyin/botfly/security rather than opening a public
+https://github.com/yongchaoyin/beebot/security rather than opening a public
 disclosure against this experimental codebase.

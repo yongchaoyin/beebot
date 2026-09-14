@@ -62,12 +62,12 @@ export function createBotCopy(language: UiLanguage): CreateBotCopy {
   };
 }
 
-export const BOTFLY_FEEDBACK_URL = "https://github.com/yongchaoyin/botfly/issues/new";
+export const BEEBOT_FEEDBACK_URL = "https://github.com/yongchaoyin/beebot/issues/new";
 
-export function botflyDocumentationUrl(language: UiLanguage): string {
+export function beebotDocumentationUrl(language: UiLanguage): string {
   return language === "zh"
-    ? "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md"
-    : "https://github.com/yongchaoyin/botfly/blob/main/README.md";
+    ? "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md"
+    : "https://github.com/yongchaoyin/beebot/blob/main/README.md";
 }
 
 export interface AccountMenuCopy {

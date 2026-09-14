@@ -1,8 +1,8 @@
-# Botfly Account Menu Implementation Plan
+# BeeBot Account Menu Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the official Grok Bot account menu and macOS Help entries with Botfly’s five items: Settings, Configure AI, About, Documentation, Feedback.
+**Goal:** Replace the official Grok Bot account menu and macOS Help entries with BeeBot’s five items: Settings, Configure AI, About, Documentation, Feedback.
 
 **Architecture:** Shared copy and GitHub URLs live in `source/shared/ui-language.ts`. The packaged renderer gets a snippet injected next to the create-bot overlay that rewrites the sidebar account dropdown. Recovered `AccountMenu` and `ProductionRenderer` expose the same five actions. `buildApplicationMenuTemplate` rebuilds Help from that copy when Settings language changes.
 
@@ -13,9 +13,9 @@
 ## Global Constraints
 
 - Copy follows Settings language (`en` / `zh`), not the OS locale.
-- Documentation English: `https://github.com/yongchaoyin/botfly/blob/main/README.md`
-- Documentation 中文: `https://github.com/yongchaoyin/botfly/blob/main/README.zh.md`
-- Feedback: `https://github.com/yongchaoyin/botfly/issues/new`
+- Documentation English: `https://github.com/yongchaoyin/beebot/blob/main/README.md`
+- Documentation 中文: `https://github.com/yongchaoyin/beebot/blob/main/README.zh.md`
+- Feedback: `https://github.com/yongchaoyin/beebot/issues/new`
 - Settings opens section `general`; Configure AI opens section `router`.
 - Remove iOS, Help Center, official Send Feedback, Log out, Sign in, Cursor usage from these menus.
 - Local identity chip stays; no sign-out path on the local account menu.
@@ -56,8 +56,8 @@
 - Consumes: existing `UiLanguage`, `createBotCopy`
 - Produces:
   - `accountMenuCopy(language: UiLanguage): { settings, configureAi, about, documentation, feedback, openFailed }`
-  - `botflyDocumentationUrl(language: UiLanguage): string`
-  - `BOTFLY_FEEDBACK_URL: string` = `https://github.com/yongchaoyin/botfly/issues/new`
+  - `beebotDocumentationUrl(language: UiLanguage): string`
+  - `BEEBOT_FEEDBACK_URL: string` = `https://github.com/yongchaoyin/beebot/issues/new`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -83,16 +83,16 @@ test("account menu copy and GitHub destinations follow Settings language", async
     openFailed: "无法打开该链接。",
   });
   assert.equal(
-    language.botflyDocumentationUrl("en"),
-    "https://github.com/yongchaoyin/botfly/blob/main/README.md",
+    language.beebotDocumentationUrl("en"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.md",
   );
   assert.equal(
-    language.botflyDocumentationUrl("zh"),
-    "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md",
+    language.beebotDocumentationUrl("zh"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md",
   );
   assert.equal(
-    language.BOTFLY_FEEDBACK_URL,
-    "https://github.com/yongchaoyin/botfly/issues/new",
+    language.BEEBOT_FEEDBACK_URL,
+    "https://github.com/yongchaoyin/beebot/issues/new",
   );
 });
 ```
@@ -108,12 +108,12 @@ Expected: FAIL — `accountMenuCopy` is not a function.
 In `source/shared/ui-language.ts` add:
 
 ```ts
-export const BOTFLY_FEEDBACK_URL = "https://github.com/yongchaoyin/botfly/issues/new";
+export const BEEBOT_FEEDBACK_URL = "https://github.com/yongchaoyin/beebot/issues/new";
 
-export function botflyDocumentationUrl(language: UiLanguage): string {
+export function beebotDocumentationUrl(language: UiLanguage): string {
   return language === "zh"
-    ? "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md"
-    : "https://github.com/yongchaoyin/botfly/blob/main/README.md";
+    ? "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md"
+    : "https://github.com/yongchaoyin/beebot/blob/main/README.md";
 }
 
 export interface AccountMenuCopy {
@@ -157,7 +157,7 @@ Expected: PASS (existing create-bot test + new test).
 
 ```bash
 git add source/shared/ui-language.ts tests/ui-language.test.mjs
-git commit -m "Add Botfly account menu copy and GitHub URLs."
+git commit -m "Add BeeBot account menu copy and GitHub URLs."
 ```
 
 ---
@@ -171,7 +171,7 @@ git commit -m "Add Botfly account menu copy and GitHub URLs."
 - Create: `tests/application-menu.test.mjs`
 
 **Interfaces:**
-- Consumes: `accountMenuCopy`, `botflyDocumentationUrl`, `BOTFLY_FEEDBACK_URL`, `parseUiLanguage`
+- Consumes: `accountMenuCopy`, `beebotDocumentationUrl`, `BEEBOT_FEEDBACK_URL`, `parseUiLanguage`
 - Produces: `buildApplicationMenuTemplate(options, electron)` Help submenu with Documentation + Feedback; `ApplicationMenuOptions.uiLanguage?: UiLanguage`; `registerApplicationMenuRebuild(hook)` / `requestApplicationMenuRebuild()`
 
 - [ ] **Step 1: Write the failing test**
@@ -204,11 +204,11 @@ function helpItems(template) {
   return help?.submenu ?? [];
 }
 
-test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () => {
+test("Help menu opens BeeBot docs and GitHub issues, not cursor.com", async () => {
   const menu = await load();
   const opened = [];
   const electron = {
-    appName: "Botfly",
+    appName: "BeeBot",
     openExternal: async (url) => { opened.push(url); },
   };
   const en = helpItems(menu.buildApplicationMenuTemplate({
@@ -224,8 +224,8 @@ test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () =
   await en[0].click();
   await en[1].click();
   assert.deepEqual(opened, [
-    "https://github.com/yongchaoyin/botfly/blob/main/README.md",
-    "https://github.com/yongchaoyin/botfly/issues/new",
+    "https://github.com/yongchaoyin/beebot/blob/main/README.md",
+    "https://github.com/yongchaoyin/beebot/issues/new",
   ]);
 
   const zh = helpItems(menu.buildApplicationMenuTemplate({
@@ -238,7 +238,7 @@ test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () =
   assert.deepEqual(zh.map((item) => item.label), ["文档", "反馈"]);
   opened.length = 0;
   await zh[0].click();
-  assert.equal(opened[0], "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md");
+  assert.equal(opened[0], "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md");
 });
 ```
 
@@ -252,7 +252,7 @@ Expected: FAIL — Help still has Help Center / Send Feedback, or `uiLanguage` i
 
 `source/electron-main/application-menu.ts`:
 
-- Import `accountMenuCopy`, `botflyDocumentationUrl`, `BOTFLY_FEEDBACK_URL`, `parseUiLanguage`, type `UiLanguage` from `../shared/ui-language.js`.
+- Import `accountMenuCopy`, `beebotDocumentationUrl`, `BEEBOT_FEEDBACK_URL`, `parseUiLanguage`, type `UiLanguage` from `../shared/ui-language.js`.
 - Add `uiLanguage?: UiLanguage` to `ApplicationMenuOptions`. Remove `emitOpenFeedback` from the options interface (nothing else should call it from Help).
 - Add:
 
@@ -276,11 +276,11 @@ template.push({
   submenu: [
     {
       label: copy.documentation,
-      click: () => { void electron.openExternal(botflyDocumentationUrl(language)); },
+      click: () => { void electron.openExternal(beebotDocumentationUrl(language)); },
     },
     {
       label: copy.feedback,
-      click: () => { void electron.openExternal(BOTFLY_FEEDBACK_URL); },
+      click: () => { void electron.openExternal(BEEBOT_FEEDBACK_URL); },
     },
   ],
 });
@@ -349,7 +349,7 @@ Expected: PASS. Also run `npm run source:typecheck` if `emitOpenFeedback` remova
 
 ```bash
 git add source/electron-main/application-menu.ts source/electron-main/main.ts source/electron-main/main-edge.ts tests/application-menu.test.mjs
-git commit -m "Point macOS Help at Botfly docs and GitHub issues."
+git commit -m "Point macOS Help at BeeBot docs and GitHub issues."
 ```
 
 ---
@@ -425,8 +425,8 @@ function RAccountCopy(){
     openFailed:"Couldn't open that link."
   };
 }
-function RAccountDocs(){return (window.__sandUiLanguage||"en")==="zh"?"https://github.com/yongchaoyin/botfly/blob/main/README.zh.md":"https://github.com/yongchaoyin/botfly/blob/main/README.md"}
-function RAccountFeedback(){return "https://github.com/yongchaoyin/botfly/issues/new"}
+function RAccountDocs(){return (window.__sandUiLanguage||"en")==="zh"?"https://github.com/yongchaoyin/beebot/blob/main/README.zh.md":"https://github.com/yongchaoyin/beebot/blob/main/README.md"}
+function RAccountFeedback(){return "https://github.com/yongchaoyin/beebot/issues/new"}
 function ROpenExternal(url,failed){
   const open=window.desktop&&window.desktop.openExternal;
   if(typeof open!=="function") return;
@@ -486,7 +486,7 @@ Expected: PASS.
 
 ```bash
 git add scripts/lib/sand-account-menu.snippet.js tests/account-menu-overlay.test.mjs
-git commit -m "Add Botfly sidebar account menu overlay snippet."
+git commit -m "Add BeeBot sidebar account menu overlay snippet."
 ```
 
 ---
@@ -603,7 +603,7 @@ if(!window.__sandOpenSettingsBound){
 })();
 ```
 
-Do not build a second About UI. Sidebar About dispatches `sand-open-about`; the wrapper calls the original listener; macOS **Botfly → About Botfly** still uses `emitOpenAbout`.
+Do not build a second About UI. Sidebar About dispatches `sand-open-about`; the wrapper calls the original listener; macOS **BeeBot → About BeeBot** still uses `emitOpenAbout`.
 
 - [ ] **Step 4: Run the tests and make sure they pass**
 
@@ -615,7 +615,7 @@ Expected: PASS.
 
 ```bash
 git add scripts/lib/router-renderer-patch.mjs tests/publication-packaging.test.mjs
-git commit -m "Patch the original renderer with the Botfly account menu."
+git commit -m "Patch the original renderer with the BeeBot account menu."
 ```
 
 ---
@@ -629,7 +629,7 @@ git commit -m "Patch the original renderer with the Botfly account menu."
 - Create: `tests/account-menu.test.mjs`
 
 **Interfaces:**
-- Consumes: `accountMenuCopy` shape from Task 1; `botflyDocumentationUrl`; `BOTFLY_FEEDBACK_URL`
+- Consumes: `accountMenuCopy` shape from Task 1; `beebotDocumentationUrl`; `BEEBOT_FEEDBACK_URL`
 - Produces: `AccountMenu` props `onOpenConfigureAi`, `onOpenDocumentation`, `onOpenFeedback` (GitHub, not overlay); no `onOpenIos`, `onOpenHelp`, `onRequestLogout`, `onOpenUsage` in the rendered menu
 
 - [ ] **Step 1: Write the failing test**
@@ -658,7 +658,7 @@ async function loadShared() {
   return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 }
 
-test("recovered account menu copy matches shared Botfly copy", async () => {
+test("recovered account menu copy matches shared BeeBot copy", async () => {
   const copy = await loadCopy();
   const shared = await loadShared();
   assert.deepEqual(copy.accountMenuCopy("en"), shared.accountMenuCopy("en"));
@@ -685,7 +685,7 @@ Expected: FAIL — `account-menu-copy.ts` missing.
 
 - [ ] **Step 3: Write minimal implementation**
 
-`frontend/src/recovered/features/account/session/account-menu-copy.ts` — duplicate the Task 1 tables (frontend tsconfig cannot import `source/`). Export `accountMenuCopy`, `botflyDocumentationUrl`, `BOTFLY_FEEDBACK_URL`, and:
+`frontend/src/recovered/features/account/session/account-menu-copy.ts` — duplicate the Task 1 tables (frontend tsconfig cannot import `source/`). Export `accountMenuCopy`, `beebotDocumentationUrl`, `BEEBOT_FEEDBACK_URL`, and:
 
 ```ts
 export const accountMenuActions = () =>
@@ -720,15 +720,15 @@ Remove unused props: `onOpenIos`, `onOpenHelp`, `onOpenUsage`, `onRequestLogout`
   onOpenAbout={() => setOverlay("about")}
   onOpenChange={setAccountMenuOpen}
   onOpenConfigureAi={() => { setSettingsSection("router"); setManageSharedRoomId(null); setOverlay("settings"); }}
-  onOpenDocumentation={() => { void bridge.openExternal(botflyDocumentationUrl(uiLanguage)).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
-  onOpenFeedback={() => { void bridge.openExternal(BOTFLY_FEEDBACK_URL).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
+  onOpenDocumentation={() => { void bridge.openExternal(beebotDocumentationUrl(uiLanguage)).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
+  onOpenFeedback={() => { void bridge.openExternal(BEEBOT_FEEDBACK_URL).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
   onOpenSettings={() => { setSettingsSection("general"); setManageSharedRoomId(null); setOverlay("settings"); }}
   onStatus={setAccount}
   updatePill={<UpdatePill bridge={bridge} labels={UPDATE_PILL_LABELS} />}
 />
 ```
 
-Import `botflyDocumentationUrl` and `BOTFLY_FEEDBACK_URL` from `../recovered/features/account/session/account-menu-copy`.
+Import `beebotDocumentationUrl` and `BEEBOT_FEEDBACK_URL` from `../recovered/features/account/session/account-menu-copy`.
 
 Also listen for packaged events if this tree is ever hosted in a window that receives them:
 
@@ -768,7 +768,7 @@ Expected: PASS. Fix any leftover AccountMenu props in `ProductionRenderer.tsx`.
 
 ```bash
 git add frontend/src/recovered/features/account/session/account-menu-copy.ts frontend/src/recovered/features/account/session/menu.tsx frontend/src/production/ProductionRenderer.tsx tests/account-menu.test.mjs
-git commit -m "Switch recovered account menu to Botfly items."
+git commit -m "Switch recovered account menu to BeeBot items."
 ```
 
 ---
@@ -807,7 +807,7 @@ If no extra diff, skip. If you had to tweak copy, commit:
 
 ```bash
 git add -u
-git commit -m "Finish Botfly account menu verification fixes."
+git commit -m "Finish BeeBot account menu verification fixes."
 ```
 
 ---
@@ -833,4 +833,4 @@ git commit -m "Finish Botfly account menu verification fixes."
 
 **Placeholders:** none.
 
-**Type names:** `accountMenuCopy`, `botflyDocumentationUrl`, `BOTFLY_FEEDBACK_URL`, `accountMenuActions`, `sand-open-settings`, `sand-open-about`, `registerApplicationMenuRebuild`, `requestApplicationMenuRebuild` — used consistently.
+**Type names:** `accountMenuCopy`, `beebotDocumentationUrl`, `BEEBOT_FEEDBACK_URL`, `accountMenuActions`, `sand-open-settings`, `sand-open-about`, `registerApplicationMenuRebuild`, `requestApplicationMenuRebuild` — used consistently.

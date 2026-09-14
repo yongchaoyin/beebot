@@ -1,13 +1,13 @@
 # Notice
 
-Botfly is an independent open-source project. Original Botfly contributions in
+BeeBot is an independent open-source project. Original BeeBot contributions in
 this repository are licensed under MIT. See `LICENSE`.
 
 This project is derived from an unofficial reconstruction of the publicly
 distributed Grok Bot 0.18.0 desktop application. It is not affiliated with or
 endorsed by Anysphere, Cursor, xAI, or SpaceX.
 
-The MIT license applies to material the Botfly authors have authority to
+The MIT license applies to material the BeeBot authors have authority to
 license. It does **not**:
 
 - grant rights in Grok Bot, Cursor, or other upstream trademarks;

@@ -23,7 +23,7 @@ async function loadStore(directory) {
 }
 
 test("local vendor accounts skip Cursor review and allow the computer without asking", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-box-runtime-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-box-runtime-"));
   try {
     const { SandSettingsStore } = await loadStore(directory);
     const store = new SandSettingsStore(path.join(directory, "settings.json"));
@@ -36,7 +36,7 @@ test("local vendor accounts skip Cursor review and allow the computer without as
 });
 
 test("settings keep multiple vendor APIs and resolve the one a bot selected", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-vendors-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-vendors-"));
   try {
     const { SandSettingsStore } = await loadStore(directory);
     const store = new SandSettingsStore(path.join(directory, "settings.json"));
@@ -63,7 +63,7 @@ test("settings keep multiple vendor APIs and resolve the one a bot selected", as
 });
 
 test("local vendor accounts default to the local Docker computer", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-box-runtime-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-box-runtime-"));
   try {
     const { SandSettingsStore } = await loadStore(directory);
     const store = new SandSettingsStore(path.join(directory, "settings.json"));

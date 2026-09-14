@@ -8,8 +8,8 @@ function RAccountCopy(){
     openFailed:"Couldn't open that link."
   };
 }
-function RAccountDocs(){return (window.__sandUiLanguage||"en")==="zh"?"https://github.com/yongchaoyin/botfly/blob/main/README.zh.md":"https://github.com/yongchaoyin/botfly/blob/main/README.md"}
-function RAccountFeedback(){return "https://github.com/yongchaoyin/botfly/issues/new"}
+function RAccountDocs(){return (window.__sandUiLanguage||"en")==="zh"?"https://github.com/yongchaoyin/beebot/blob/main/README.zh.md":"https://github.com/yongchaoyin/beebot/blob/main/README.md"}
+function RAccountFeedback(){return "https://github.com/yongchaoyin/beebot/issues/new"}
 async function RLang(){try{const st=await window.desktop.agent.getUiLanguage();window.__sandUiLanguage=st?.language==="zh"?"zh":"en"}catch{window.__sandUiLanguage=window.__sandUiLanguage||"en"}}
 function ROpenExternal(url,failed){
   const open=window.desktop&&window.desktop.openExternal;

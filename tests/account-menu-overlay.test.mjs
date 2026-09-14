@@ -10,14 +10,14 @@ const snippetPath = path.join(repoRoot, "scripts/lib/sand-account-menu.snippet.j
 
 const EN_LABELS = ["Settings", "Configure AI", "About", "Documentation", "Feedback"];
 const ZH_LABELS = ["设置", "配置 AI", "关于", "文档", "反馈"];
-const DOCS_EN = "https://github.com/yongchaoyin/botfly/blob/main/README.md";
-const DOCS_ZH = "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md";
-const FEEDBACK = "https://github.com/yongchaoyin/botfly/issues/new";
+const DOCS_EN = "https://github.com/yongchaoyin/beebot/blob/main/README.md";
+const DOCS_ZH = "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md";
+const FEEDBACK = "https://github.com/yongchaoyin/beebot/issues/new";
 const OFFICIAL_LABELS = ["Get Grok Bot for iOS", "Help Center", "Log out", "Send Feedback"];
 
 async function boot(language = "en", options = {}) {
   const source = await readFile(snippetPath, "utf8");
-  const window = new Window({ url: "https://botfly.local/" });
+  const window = new Window({ url: "https://beebot.local/" });
   const { document } = window;
   const opened = [];
   const settingsEvents = [];
@@ -94,7 +94,7 @@ function clickMenuRow(document, label) {
   button.click();
 }
 
-test("account button shows Botfly rows and hides official Grok rows", async () => {
+test("account button shows BeeBot rows and hides official Grok rows", async () => {
   const { window, document, accountButton } = await boot("en");
   try {
     await openAccountMenu(accountButton, document);
@@ -163,7 +163,7 @@ test("About dispatches sand-open-about and calls __sandOpenAboutOverlay", async 
   }
 });
 
-test("Documentation and Feedback open Botfly GitHub URLs", async () => {
+test("Documentation and Feedback open BeeBot GitHub URLs", async () => {
   const { window, document, accountButton, opened } = await boot("en");
   try {
     await openAccountMenu(accountButton, document);

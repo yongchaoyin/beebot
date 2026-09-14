@@ -9,7 +9,7 @@ import { build } from "esbuild";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function load() {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-application-menu-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-application-menu-"));
   const output = path.join(directory, "application-menu.mjs");
   await build({
     entryPoints: [path.join(repoRoot, "source/electron-main/application-menu.ts")],
@@ -29,11 +29,11 @@ function helpItems(template) {
   return help?.submenu ?? [];
 }
 
-test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () => {
+test("Help menu opens BeeBot docs and GitHub issues, not cursor.com", async () => {
   const menu = await load();
   const opened = [];
   const electron = {
-    appName: "Botfly",
+    appName: "BeeBot",
     openExternal: async (url) => { opened.push(url); },
   };
   const en = helpItems(menu.buildApplicationMenuTemplate({
@@ -49,8 +49,8 @@ test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () =
   await en[0].click();
   await en[1].click();
   assert.deepEqual(opened, [
-    "https://github.com/yongchaoyin/botfly/blob/main/README.md",
-    "https://github.com/yongchaoyin/botfly/issues/new",
+    "https://github.com/yongchaoyin/beebot/blob/main/README.md",
+    "https://github.com/yongchaoyin/beebot/issues/new",
   ]);
 
   const zh = helpItems(menu.buildApplicationMenuTemplate({
@@ -63,7 +63,7 @@ test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () =
   assert.deepEqual(zh.map((item) => item.label), ["文档", "反馈"]);
   opened.length = 0;
   await zh[0].click();
-  assert.equal(opened[0], "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md");
+  assert.equal(opened[0], "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md");
 });
 
 test("Help language is seeded from settingsStore before the first installMenu", async () => {

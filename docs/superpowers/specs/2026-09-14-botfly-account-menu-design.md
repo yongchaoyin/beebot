@@ -1,4 +1,4 @@
-# Botfly account menu
+# BeeBot account menu
 
 Date: 2026-09-14
 Branch: `feature/optimization`
@@ -6,13 +6,13 @@ Status: draft for review
 
 ## Problem
 
-The packaged app still shows the upstream Grok Bot account menu: Get Grok Bot for iOS, Help Center (`cursor.com/help`), official Send Feedback, Log out, and Cursor usage. Botfly is a local Mac agent with a Local account and no Cursor login. Those rows are the wrong product.
+The packaged app still shows the upstream Grok Bot account menu: Get Grok Bot for iOS, Help Center (`cursor.com/help`), official Send Feedback, Log out, and Cursor usage. BeeBot is a local Mac agent with a Local account and no Cursor login. Those rows are the wrong product.
 
 The same official Help Center / Send Feedback pair is in the macOS Help menu.
 
 ## Goal
 
-Replace the account and Help surfaces with Botfly-owned items. Same five actions everywhere they appear, same destinations, copy following Settings language.
+Replace the account and Help surfaces with BeeBot-owned items. Same five actions everywhere they appear, same destinations, copy following Settings language.
 
 ## Out of scope
 
@@ -27,7 +27,7 @@ Three places must match.
 
 ### 1. Sidebar account menu (packaged original renderer)
 
-This is the menu in the screenshot (footer under Plugins, trigger labeled Local). It is the checksum-pinned renderer plus Botfly patches, not the recovered React tree.
+This is the menu in the screenshot (footer under Plugins, trigger labeled Local). It is the checksum-pinned renderer plus BeeBot patches, not the recovered React tree.
 
 Items, in order:
 
@@ -49,7 +49,7 @@ The Local identity chip stays. Do not add a sign-out path for the local account.
 
 ### 3. macOS application menu
 
-- **Botfly** menu: keep `About Botfly` (existing `emitOpenAbout`).
+- **BeeBot** menu: keep `About BeeBot` (existing `emitOpenAbout`).
 - **Help** menu: drop Help Center (`https://cursor.com/help`) and in-app Send Feedback. Replace with Documentation and Feedback using the same URLs as the sidebar.
 - Settings remains `Cmd+,` (existing shortcut). Do not duplicate Settings or Configure AI under Help.
 
@@ -71,9 +71,9 @@ Put this copy next to the existing create-bot strings in `source/shared/ui-langu
 
 | Action | Destination |
 | --- | --- |
-| Documentation, English | `https://github.com/yongchaoyin/botfly/blob/main/README.md` |
-| Documentation, 中文 | `https://github.com/yongchaoyin/botfly/blob/main/README.zh.md` |
-| Feedback | `https://github.com/yongchaoyin/botfly/issues/new` |
+| Documentation, English | `https://github.com/yongchaoyin/beebot/blob/main/README.md` |
+| Documentation, 中文 | `https://github.com/yongchaoyin/beebot/blob/main/README.zh.md` |
+| Feedback | `https://github.com/yongchaoyin/beebot/issues/new` |
 | Settings | Existing settings overlay, section `general` |
 | Configure AI | Existing settings overlay, section `router` |
 | About | Existing About overlay |
@@ -89,7 +89,7 @@ Do not edit the immutable 0.18 bundle by hand. Inject a snippet through `scripts
 Use a snippet, not a minified JSX rewrite of the upstream account menu:
 
 - New file `scripts/lib/sand-account-menu.snippet.js`, injected from `scripts/lib/router-renderer-patch.mjs` (same `patchOriginalLanding` path as the create-bot overlay).
-- On the sidebar account trigger (`.sand-agents-sidebar__account` / footer account button), prevent the upstream dropdown and render the five Botfly rows. Official rows must not remain in the DOM.
+- On the sidebar account trigger (`.sand-agents-sidebar__account` / footer account button), prevent the upstream dropdown and render the five BeeBot rows. Official rows must not remain in the DOM.
 - Settings / Configure AI open the already-patched settings overlay. Configure AI lands on Router (`wDn` already includes `{id:"router",...}`).
 - About uses the existing About overlay.
 - Documentation / Feedback call `window.desktop` `openExternal` with the URLs above.

@@ -49,15 +49,15 @@ test("account menu copy and GitHub destinations follow Settings language", async
     openFailed: "无法打开该链接。",
   });
   assert.equal(
-    language.botflyDocumentationUrl("en"),
-    "https://github.com/yongchaoyin/botfly/blob/main/README.md",
+    language.beebotDocumentationUrl("en"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.md",
   );
   assert.equal(
-    language.botflyDocumentationUrl("zh"),
-    "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md",
+    language.beebotDocumentationUrl("zh"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md",
   );
   assert.equal(
-    language.BOTFLY_FEEDBACK_URL,
-    "https://github.com/yongchaoyin/botfly/issues/new",
+    language.BEEBOT_FEEDBACK_URL,
+    "https://github.com/yongchaoyin/beebot/issues/new",
   );
 });

@@ -21,28 +21,28 @@ export const fidelityCandidateManifest = path.join(fidelityBuildDir, "release-ca
 export const fidelityE2ECandidateManifest = path.join(fidelityBuildDir, "e2e-candidate.json");
 export const fidelityReleaseEvidenceDir = path.join(fidelityBuildDir, "release-evidence");
 export const outputDir = path.join(repoRoot, "dist");
-const configuredOutputName = process.env.BOTFLY_OUTPUT_APP_NAME?.trim() || process.env.GROK_BOT_OUTPUT_APP_NAME?.trim();
+const configuredOutputName = process.env.BEEBOT_OUTPUT_APP_NAME?.trim() || process.env.GROK_BOT_OUTPUT_APP_NAME?.trim();
 export const outputApp = path.join(
   outputDir,
-  configuredOutputName ? path.basename(configuredOutputName) : "Botfly.app"
+  configuredOutputName ? path.basename(configuredOutputName) : "BeeBot.app"
 );
-export const fidelityOutputApp = path.join(outputDir, "Botfly Fidelity.app");
+export const fidelityOutputApp = path.join(outputDir, "BeeBot Fidelity.app");
 export const fidelityOutputAppForAsarHash = asarHash => {
   if (!/^[0-9a-f]{64}$/.test(asarHash)) throw new TypeError("A full lowercase ASAR SHA-256 is required");
-  return path.join(outputDir, `Botfly Fidelity-${asarHash.slice(0, 12)}.app`);
+  return path.join(outputDir, `BeeBot Fidelity-${asarHash.slice(0, 12)}.app`);
 };
 export const fidelityInstalledAppForAsarHash = asarHash => path.join("/Applications", path.basename(fidelityOutputAppForAsarHash(asarHash)));
 export const recoveredFrontendDir = path.join(repoRoot, "recovered", "frontend");
 export const recoveredRendererDir = path.join(recoveredFrontendDir, "app");
 export const frontendDir = path.join(repoRoot, "frontend");
-export const devOutputApp = path.join(outputDir, "Botfly Dev.app");
+export const devOutputApp = path.join(outputDir, "BeeBot Dev.app");
 export const devProfileDir = path.join(cacheDir, "dev-profile");
 
 export const upstreamVersion = "0.18.0";
-export const reconstructedBundleId = "com.yongchaoyin.botfly";
-export const reconstructedName = "Botfly";
-export const fidelityBundleId = "com.yongchaoyin.botfly.fidelity";
-export const fidelityName = "Botfly Fidelity";
+export const reconstructedBundleId = "com.yongchaoyin.beebot";
+export const reconstructedName = "BeeBot";
+export const fidelityBundleId = "com.yongchaoyin.beebot.fidelity";
+export const fidelityName = "BeeBot Fidelity";
 export const dmgUrl = "https://downloads.cursor.com/grokbot/stable/darwin-arm64/0.18.0/Grok_Bot_0.18.0.dmg";
 export const dmgSha256 = "a253ccd8aab01e083f9812a0264354c5034d8ba7f0610bbb557e82ae77d203eb";
 export const upstreamAsarSha256 = "6665408168466f9cacc6087e917890c17f59d2e2e9c2404a5c4a59ad79c1de58";

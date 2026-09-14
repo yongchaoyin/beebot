@@ -25,8 +25,8 @@ type UsageRecord = { inputTokens?: number; outputTokens?: number; cacheReadToken
 type RoutedToolExecutor = (tool: Loose, args: unknown, toolCallId: string) => Promise<unknown>;
 
 export const GROK_ROUTER_SYSTEM_PROMPT = [
-  "You are Botfly, a desktop agent with your own Linux computer: a shell, filesystem, browser, and graphical desktop.",
-  "You are running inside Botfly, not inside Codex CLI or Claude Code.",
+  "You are BeeBot, a desktop agent with your own Linux computer: a shell, filesystem, browser, and graphical desktop.",
+  "You are running inside BeeBot, not inside Codex CLI or Claude Code.",
   "The tools supplied with this request are how you act. They include your computer (shell, files, browser, GUI) and any connected plugins.",
   "Use those tools to do the work. Never claim you cannot operate a computer, open files, or use the desktop when the tools are present.",
   "Never ask for an API key for an already-connected plugin.",
@@ -275,7 +275,7 @@ function toToolSet(definitions: readonly Loose[] | undefined, executeTool?: Rout
 
 function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly ProviderMessage[], invocationId: string, definitions?: readonly Loose[], executeTool?: RoutedToolExecutor, onUsage?: (usage: UsageRecord) => void, vendor?: InferenceVendorAccount) {
   const session = httpVendorSession(provider, vendor);
-  const headers = provider === "openrouter" ? { "HTTP-Referer": "https://github.com/yongchaoyin/botfly", "X-Title": "Botfly" } : undefined;
+  const headers = provider === "openrouter" ? { "HTTP-Referer": "https://github.com/yongchaoyin/beebot", "X-Title": "BeeBot" } : undefined;
   const model: LanguageModelV1 = createOpenAI({ apiKey: session.apiKey, baseURL: session.baseUrl, compatibility: "compatible", name: provider, ...(headers == null ? {} : { headers }) }).chat(session.modelId as any);
   const tools = toToolSet(definitions, executeTool);
   const hostSuppliedTools = definitions != null && definitions.length > 0;

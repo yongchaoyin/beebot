@@ -1,5 +1,5 @@
 {
-  "name": "botfly",
+  "name": "beebot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,12 +8,12 @@
   "author": "yongchaoyin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yongchaoyin/botfly.git"
+    "url": "git+https://github.com/yongchaoyin/beebot.git"
   },
   "bugs": {
-    "url": "https://github.com/yongchaoyin/botfly/issues"
+    "url": "https://github.com/yongchaoyin/beebot/issues"
   },
-  "homepage": "https://github.com/yongchaoyin/botfly",
+  "homepage": "https://github.com/yongchaoyin/beebot",
   "engines": {
     "node": ">=26.5.0 <27"
   },
