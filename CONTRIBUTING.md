@@ -1,6 +1,6 @@
 # Contributing
 
-Botfly is an open-source project. Keep changes reviewable and do not commit
+BeeBot is an open-source project. Keep changes reviewable and do not commit
 generated application payloads or local evidence.
 
 Before sharing a change, run:

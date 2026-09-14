@@ -1,10 +1,10 @@
-# Botfly
+# BeeBot
 
 [English](README.md) | 中文
 
-Botfly 是一个跑在 macOS 上的本地电脑 Agent。每个 Bot 都有自己的 Linux 电脑
-（终端、文件、浏览器、桌面），并使用你为它选择的模型厂商。不需要 Cursor
-账号，也不绑定 Cursor 云端。
+BeeBot 是一个跑在 macOS 上的本地电脑 Agent。Bot 像蜂群一样协作：每个 Bot
+都有自己的 Linux 电脑（终端、文件、浏览器、桌面），并使用你为它选择的模型厂商。
+不需要 Cursor 账号，也不绑定 Cursor 云端。
 
 本仓库与 Anysphere、Cursor、xAI、SpaceX 无关，也不是官方 Grok Bot 发行版。
 
@@ -48,15 +48,15 @@ Botfly 是一个跑在 macOS 上的本地电脑 Agent。每个 Bot 都有自己�
 
 ## 来源
 
-Botfly 起步于对公开 Grok Bot 0.18.0 macOS 应用的非官方、面向源码的重建。
+BeeBot 起步于对公开 Grok Bot 0.18.0 macOS 应用的非官方、面向源码的重建。
 Electron、host、coordinator、本地执行和协议边界的可读 TypeScript 在
 `source/` 下。打包后的应用仍以校验和钉死的 0.18 渲染器为 UI 基线，再叠一层
 设置页和新建 Bot 的补丁。
 
-Dock 名称和 bundle 标识是 Botfly。界面里仍有部分文案写着 Grok Bot，因为那份
+Dock 名称和 bundle 标识是 BeeBot。界面里仍有部分文案写着 Grok Bot，因为那份
 官方渲染器是按字节保留的。
 
-Botfly 原创部分使用 MIT 许可。重建得到的上游材料和保留的 0.18.0 安装包不在
+BeeBot 原创部分使用 MIT 许可。重建得到的上游材料和保留的 0.18.0 安装包不在
 该授权范围内。详见 [LICENSE](LICENSE)、[NOTICE.md](NOTICE.md) 和
 [PROVENANCE.md](PROVENANCE.md)。
 
@@ -72,15 +72,15 @@ Botfly 原创部分使用 MIT 许可。重建得到的上游材料和保留的 0
 ## 快速开始
 
 ```sh
-git clone https://github.com/yongchaoyin/botfly.git
-cd botfly
+git clone https://github.com/yongchaoyin/beebot.git
+cd beebot
 git lfs install
 git lfs pull
 npm ci
 npm run bootstrap
 npm run check
 npm run package
-open dist/Botfly.app
+open dist/BeeBot.app
 ```
 
 1. 在首次配置页粘贴厂商 API key（之后也可以在 **设置 → Router → 模型 API**
@@ -93,8 +93,8 @@ open dist/Botfly.app
 应用副本。Bootstrap 会校验 DMG 和 `app.asar`，缓存对应的 Electron 运行时，
 并填充被忽略的 `src/app/dist` 构建输入。
 
-`npm run package` 会编译运行时、打上渲染器补丁、生成应用包、写入 Botfly
-bundle 标识、做 ad-hoc 签名并校验。产物在 `dist/Botfly.app`。
+`npm run package` 会编译运行时、打上渲染器补丁、生成应用包、写入 BeeBot
+bundle 标识、做 ad-hoc 签名并校验。产物在 `dist/BeeBot.app`。
 
 打包构建会在打包边界关掉上游更新器，并默认关闭上游 Sentry 和遥测。显式提供
 的环境配置仍然生效。
@@ -102,7 +102,7 @@ bundle 标识、做 ad-hoc 签名并校验。产物在 `dist/Botfly.app`。
 ## 架构
 
 ```text
-官方渲染器 + Botfly 补丁
+官方渲染器 + BeeBot 补丁
           │
           │ desktop preload / RPC
           ▼

@@ -15,6 +15,30 @@ const USAGE_AFTER = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(RRouterUsage,{})}):n
 const COMPONENT_ANCHOR = 'function Sa(s){';
 const VENDOR_ACCOUNTS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-vendor-accounts.snippet.js"), "utf8");
 const COMPONENT_HEAD = String.raw`
+if(!window.__sandOpenSettingsBound){
+  window.__sandOpenSettingsBound=!0;
+  window.addEventListener("sand-open-settings",ev=>{
+    const section=ev&&ev.detail&&ev.detail.section==="router"?"router":"general";
+    const clickNav=()=>{
+      const labels=section==="router"?["Router","路由"]:["General","通用"];
+      const nodes=[...document.querySelectorAll('.sand-settings-nav__item, nav[aria-label="Settings sections"] button')];
+      const hit=nodes.find(el=>labels.some(label=>(el.textContent||"").includes(label)));
+      if(hit) hit.click();
+      return!!hit;
+    };
+    const start=Date.now();
+    const tick=()=>{
+      if(clickNav()) return;
+      if(Date.now()-start>8000) return;
+      setTimeout(tick,80);
+    };
+    tick();
+  });
+  window.addEventListener("sand-open-about",()=>{
+    const open=window.__sandOpenAboutOverlay;
+    if(typeof open==="function") open();
+  });
+}
 const RRouterProviders=[
   {value:"claude-code",label:"Claude Code",description:"Use your existing Claude Code sign-in and Grok Bot's connected plugins.",kind:"local",localKey:"claude-code"},
   {value:"codex",label:"Codex",description:"Use your existing ChatGPT sign-in from Codex with Grok Bot's connected plugins.",kind:"local",localKey:"codex"},
@@ -44,19 +68,52 @@ function RRouterUsage(){const[s]=RRouterState(),e=RRouterProviders.find(t=>t.val
 const COMPONENT_SOURCE = `${COMPONENT_HEAD}\n${VENDOR_ACCOUNTS_SNIPPET}\n${COMPONENT_TAIL}`;
 
 const LANDING_TITLE_BEFORE = 'id:t,style:k.style,children:"Grok Bot"';
-const LANDING_TITLE_AFTER = 'id:t,style:k.style,children:"Botfly"';
+const LANDING_TITLE_AFTER = 'id:t,style:k.style,children:"BeeBot"';
 const LANDING_GJN_BEFORE = 'function gjn(n){const e=he.c(7),{headingId:t,auth:s,onSignIn:r}=n,i=s.status.kind==="logging-in"||s.isPending&&s.status.kind!=="logged-in";let o;e[0]!==s||e[1]!==i||e[2]!==r?(o=i?p.jsx(kjn,{auth:s}):p.jsxs(p.Fragment,{children:[p.jsx(p0t,{autoFocus:!0,disabled:!s.isLoaded,onClick:r,trailingIcon:"arrow-right",children:"Sign in"}),s.error!=null?p.jsx(yjn,{message:s.error}):null]}),e[0]=s,e[1]=i,e[2]=r,e[3]=o):o=e[3];let l;return e[4]!==t||e[5]!==o?(l=p.jsx(h0t,{headingId:t,opticalDropPx:cjn,tagline:"Your team of always-on agents that you can give real work to.",children:o}),e[4]=t,e[5]=o,e[6]=l):l=e[6],l}';
-const LANDING_GJN_AFTER = `function RVendorSetup(n){const t=n.headingId,s=[{value:"openrouter",label:"OpenRouter",base:"https://openrouter.ai/api/v1",model:"openai/gpt-4.1-mini",secret:"OPENROUTER_API_KEY"},{value:"openai",label:"OpenAI",base:"https://api.openai.com/v1",model:"gpt-4.1-mini",secret:"OPENAI_API_KEY"},{value:"deepseek",label:"DeepSeek",base:"https://api.deepseek.com",model:"deepseek-chat",secret:"DEEPSEEK_API_KEY"},{value:"custom",label:"Custom",base:"",model:"",secret:"CUSTOM_API_KEY"}],[r,i]=S.useState({provider:"openrouter",apiKey:"",baseUrl:s[0].base,modelId:s[0].model,busy:!1,error:null,keys:[]});S.useEffect(()=>{let e=!0;window.desktop.secrets.list().then(o=>{e&&i(l=>({...l,keys:Array.isArray(o?.keys)?o.keys:[]}))}).catch(()=>{});window.desktop.agent.getInferenceRouter().then(o=>{if(!e||o==null)return;const l=s.find(c=>c.value===o.provider)??s[0];i(c=>({...c,provider:l.value,baseUrl:o.http?.baseUrl||l.base,modelId:o.http?.modelId||l.model}))}).catch(()=>{});return()=>{e=!1}},[]);const o=s.find(e=>e.value===r.provider)??s[0],l=e=>{const u=s.find(d=>d.value===e)??o;i(d=>({...d,provider:u.value,baseUrl:u.base,modelId:u.model,error:null}))},c=async()=>{i(e=>({...e,busy:!0,error:null}));try{await window.desktop.agent.setInferenceRouter({provider:r.provider,apiKey:r.apiKey.trim(),baseUrl:r.baseUrl.trim(),modelId:r.modelId.trim()})}catch(e){i(u=>({...u,busy:!1,error:String(e?.message??e)}));return}i(e=>({...e,busy:!1}))},u={fontSize:13,height:34,width:"100%",padding:"0 10px",borderRadius:8,border:"1px solid rgba(255,255,255,.12)",background:"rgba(255,255,255,.06)",color:"inherit",boxSizing:"border-box"},g={display:"grid",gap:6,textAlign:"left",fontSize:12,color:"rgba(255,255,255,.62)"};return p.jsx(h0t,{headingId:t,opticalDropPx:cjn,tagline:"Choose a model vendor, paste an API key, and start.",children:p.jsxs("div",{style:{display:"grid",gap:12,justifyItems:"stretch",width:320},children:[p.jsxs("label",{style:g,children:["Vendor",p.jsxs("select",{"aria-label":"Vendor",value:r.provider,onChange:e=>l(e.target.value),style:u,children:s.map(e=>p.jsx("option",{value:e.value,children:e.label},e.value))})]}),p.jsxs("label",{style:g,children:["API key",p.jsx("input",{"aria-label":"API key",type:"password",value:r.apiKey,placeholder:r.keys.includes(o.secret)?"Key saved — paste to replace":"Paste API key",onChange:e=>i(d=>({...d,apiKey:e.target.value})),style:u})]}),p.jsxs("label",{style:g,children:["Base URL",p.jsx("input",{"aria-label":"Base URL",value:r.baseUrl,onChange:e=>i(d=>({...d,baseUrl:e.target.value})),style:u})]}),p.jsxs("label",{style:g,children:["Model ID",p.jsx("input",{"aria-label":"Model ID",value:r.modelId,onChange:e=>i(d=>({...d,modelId:e.target.value})),style:u})]}),p.jsx(p0t,{disabled:r.busy||r.apiKey.trim().length===0,onClick:()=>void c(),children:r.busy?"Saving…":"Start using"}),r.error?p.jsx(yjn,{message:r.error}):null]})})}
+const LANDING_GJN_AFTER = `function RVendorSetup(n){const t=n.headingId,s=[{value:"openrouter",label:"OpenRouter",base:"https://openrouter.ai/api/v1",model:"openai/gpt-4.1-mini",secret:"OPENROUTER_API_KEY"},{value:"openai",label:"OpenAI",base:"https://api.openai.com/v1",model:"gpt-4.1-mini",secret:"OPENAI_API_KEY"},{value:"deepseek",label:"DeepSeek",base:"https://api.deepseek.com",model:"deepseek-chat",secret:"DEEPSEEK_API_KEY"},{value:"custom",label:"Custom",base:"",model:"",secret:"CUSTOM_API_KEY"}],[r,i]=S.useState({provider:"openrouter",apiKey:"",baseUrl:s[0].base,modelId:s[0].model,busy:!1,error:null,keys:[]});S.useEffect(()=>{let e=!0;window.desktop.secrets.list().then(o=>{e&&i(l=>({...l,keys:Array.isArray(o?.keys)?o.keys:[]}))}).catch(()=>{});window.desktop.agent.getInferenceRouter().then(o=>{if(!e||o==null)return;const l=s.find(c=>c.value===o.provider)??s[0];i(c=>({...c,provider:l.value,baseUrl:o.http?.baseUrl||l.base,modelId:o.http?.modelId||l.model}))}).catch(()=>{});return()=>{e=!1}},[]);const o=s.find(e=>e.value===r.provider)??s[0],l=e=>{const u=s.find(d=>d.value===e)??o;i(d=>({...d,provider:u.value,baseUrl:u.base,modelId:u.model,error:null}))},c=async()=>{i(e=>({...e,busy:!0,error:null}));try{await window.desktop.agent.setInferenceRouter({provider:r.provider,apiKey:r.apiKey.trim(),baseUrl:r.baseUrl.trim(),modelId:r.modelId.trim()})}catch(e){i(u=>({...u,busy:!1,error:String(e?.message??e)}));return}i(e=>({...e,busy:!1}))},u={fontSize:13,height:34,width:"100%",padding:"0 10px",borderRadius:8,border:"1px solid #c8c8c8",background:"#fff",color:"#111",boxSizing:"border-box"},g={display:"grid",gap:6,textAlign:"left",fontSize:12,fontWeight:600,color:"#333"};return p.jsx(h0t,{headingId:t,opticalDropPx:cjn,tagline:"Choose a model vendor, paste an API key, and start.",children:p.jsxs("div",{style:{display:"grid",gap:12,justifyItems:"stretch",width:320},children:[p.jsxs("label",{style:g,children:["Vendor",p.jsxs("select",{"aria-label":"Vendor",value:r.provider,onChange:e=>l(e.target.value),style:u,children:s.map(e=>p.jsx("option",{value:e.value,children:e.label},e.value))})]}),p.jsxs("label",{style:g,children:["API key",p.jsx("input",{"aria-label":"API key",type:"password",value:r.apiKey,placeholder:r.keys.includes(o.secret)?"Key saved — paste to replace":"Paste API key",onChange:e=>i(d=>({...d,apiKey:e.target.value})),style:u})]}),p.jsxs("label",{style:g,children:["Base URL",p.jsx("input",{"aria-label":"Base URL",value:r.baseUrl,onChange:e=>i(d=>({...d,baseUrl:e.target.value})),style:u})]}),p.jsxs("label",{style:g,children:["Model ID",p.jsx("input",{"aria-label":"Model ID",value:r.modelId,onChange:e=>i(d=>({...d,modelId:e.target.value})),style:u})]}),p.jsx(p0t,{disabled:r.busy||r.apiKey.trim().length===0,onClick:()=>void c(),children:r.busy?"Saving…":"Start using"}),r.error?p.jsx(yjn,{message:r.error}):null]})})}
 function gjn(n){return p.jsx(RVendorSetup,{headingId:n.headingId,auth:n.auth,onSignIn:n.onSignIn})}`;
 
 const CREATE_AGENT_BEFORE = "function MOn(n){const e=n.roster,t=S.useCallback((r,i)=>e.createAgent({...r,origin:\"user\",...i}),[e]),s=lr(e.deleteAgents);";
-const CREATE_AGENT_AFTER = `const R_PATHS=${readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8")};\n${readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8")}`;
+const ACCOUNT_MENU_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-account-menu.snippet.js"), "utf8");
+const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8");
+const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
+const monAt = createOverlay.indexOf("function MOn(");
+if (monAt < 0) throw new Error("create overlay is missing function MOn(");
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${createOverlay.slice(monAt)}`;
+export const LANDING_ABOUT_WRAP = `;(function(){
+  function wrap(){
+    if(window.__sandAboutWrapped) return true;
+    const d=window.desktop;
+    if(!d||typeof d.onOpenAbout!=="function") return false;
+    try{
+      const orig=d.onOpenAbout.bind(d);
+      const wrapped=function(listener){
+        window.__sandOpenAboutOverlay=listener;
+        return orig(listener);
+      };
+      try{ d.onOpenAbout=wrapped; }
+      catch{
+        try{ Object.defineProperty(d,"onOpenAbout",{configurable:!0,writable:!0,value:wrapped}); }
+        catch{ window.__sandAboutWrapFailed=1; }
+      }
+    }catch{
+      window.__sandAboutWrapFailed=1;
+    }
+    window.__sandAboutWrapped=1;
+    return true;
+  }
+  if(!wrap()){
+    const t=setInterval(()=>{ if(wrap()) clearInterval(t); },20);
+    setTimeout(()=>clearInterval(t),8000);
+  }
+})();
+`;
 
 export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
-  return patched;
+  return `${LANDING_ABOUT_WRAP}${patched}`;
 }
 
 function sha256(bytes) {

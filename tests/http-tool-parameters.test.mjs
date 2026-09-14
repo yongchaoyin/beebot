@@ -11,7 +11,7 @@ import { z } from "zod";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 async function loadModule() {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-http-tools-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-http-tools-"));
   const output = path.join(directory, "http-tool-parameters.mjs");
   await build({
     entryPoints: [path.join(repoRoot, "source/shared/http-tool-parameters.ts")],

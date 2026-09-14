@@ -859,6 +859,7 @@ export function createElectronMainProductionComposition(bindings: ElectronMainPr
         getDevToolsMembershipStatus: () => account!.getStatus(),
         subscribeDevToolsMembership: (listener) => account!.subscribe(listener),
         getThemeBackgroundColor: () => settings!.getThemeBackgroundColor(),
+        settingsStore: requireValue(settings, "settings").settingsStore,
         openExternalUrl: async (value) => { const url = bindings.parseAllowedExternalUrl(value); if (url != null) await mcp!.openExternalUrl(url); },
         registerImageContextMenu: () => bindings.services.registerImageContextMenu?.({
           openExternalUrl: async (value) => { const url = bindings.parseAllowedExternalUrl(value); if (url != null) await mcp!.openExternalUrl(url); },

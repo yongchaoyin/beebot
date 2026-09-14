@@ -29,3 +29,35 @@ test("UI copy follows Settings language, not the operating system", async () => 
   assert.equal(language.createBotCopy("en").newGroup, "New group chat");
   assert.equal(language.createBotCopy("en").vendor, "API");
 });
+
+test("account menu copy and GitHub destinations follow Settings language", async () => {
+  const language = await load();
+  assert.deepEqual(language.accountMenuCopy("en"), {
+    settings: "Settings",
+    configureAi: "Configure AI",
+    about: "About",
+    documentation: "Documentation",
+    feedback: "Feedback",
+    openFailed: "Couldn't open that link.",
+  });
+  assert.deepEqual(language.accountMenuCopy("zh"), {
+    settings: "设置",
+    configureAi: "配置 AI",
+    about: "关于",
+    documentation: "文档",
+    feedback: "反馈",
+    openFailed: "无法打开该链接。",
+  });
+  assert.equal(
+    language.beebotDocumentationUrl("en"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.md",
+  );
+  assert.equal(
+    language.beebotDocumentationUrl("zh"),
+    "https://github.com/yongchaoyin/beebot/blob/main/README.zh.md",
+  );
+  assert.equal(
+    language.BEEBOT_FEEDBACK_URL,
+    "https://github.com/yongchaoyin/beebot/issues/new",
+  );
+});

@@ -4,7 +4,8 @@ import {
   outputApp,
   outputDir,
   reconstructedBundleId,
-  reconstructedName
+  reconstructedName,
+  repoRoot
 } from "./lib/config.mjs";
 import { buildFidelityReconstructedAsar } from "./clean-build.mjs";
 import { signAppBundleAdHoc } from "./lib/codesign.mjs";
@@ -42,19 +43,26 @@ await cp(builtAsarUnpacked, packagedUnpacked, {
   dereference: false,
   preserveTimestamps: true
 });
+await cp(path.join(repoRoot, "branding", "beebot-app-icon.icns"), path.join(resources, "icon.icns"));
 
 const infoPlist = path.join(outputApp, "Contents", "Info.plist");
 await run(SYSTEM_TOOLS.plutil, ["-remove", "ElectronAsarIntegrity", infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleIdentifier", "-string", reconstructedBundleId, infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-replace", "CFBundleDisplayName", "-string", reconstructedName, infoPlist]);
+// Asset catalog `icon` (Assets.car) otherwise wins over icon.icns and keeps the Grok Bot face in Dock/Finder.
+try {
+  await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleIconName", infoPlist]);
+} catch {
+  // Some runtimes omit the key; icon.icns is still the Dock source.
+}
 // The backend currently emits only the `sand` auth/deep-link target. Make the
 // reconstructed bundle's claim explicit and remove inherited aliases such as
 // `grokbot`; the original bundle remains untouched and remains reference-only.
 await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleURLTypes", infoPlist]);
-await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>Botfly auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
+await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>BeeBot auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
 // Keep CFBundleName/CFBundleExecutable as "Grok Bot": Electron derives the
 // expected nested helper names from it, and this build intentionally reuses the
-// exact ABI-matched 0.18 runtime. CFBundleDisplayName provides the Botfly name.
+// exact ABI-matched 0.18 runtime. CFBundleDisplayName provides the BeeBot name.
 
 await rm(path.join(outputApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 try {

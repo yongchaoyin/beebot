@@ -1,5 +1,5 @@
 {
-  "name": "botfly",
+  "name": "beebot",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,12 +8,12 @@
   "author": "yongchaoyin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yongchaoyin/botfly.git"
+    "url": "git+https://github.com/yongchaoyin/beebot.git"
   },
   "bugs": {
-    "url": "https://github.com/yongchaoyin/botfly/issues"
+    "url": "https://github.com/yongchaoyin/beebot/issues"
   },
-  "homepage": "https://github.com/yongchaoyin/botfly",
+  "homepage": "https://github.com/yongchaoyin/beebot",
   "engines": {
     "node": ">=26.5.0 <27"
   },
@@ -21,6 +21,7 @@
     "bootstrap": "node scripts/bootstrap-runtime.mjs",
     "build": "node scripts/build.mjs",
     "check": "npm run typecheck && npm run source:typecheck && npm test",
+    "icon:generate": "node scripts/generate-app-icon.mjs",
     "frontend:build": "vite build --config frontend/vite.config.ts",
     "frontend:recover": "node scripts/recover-frontend.mjs",
     "native:patch": "node scripts/apply-third-party-patches.mjs",

@@ -13,6 +13,7 @@ import { persistVendorSecret, readPersistedVendorSecrets } from "../shared/node/
 import { getLocalInferenceCliStatus } from "../shared/node/inference-router-local.js";
 import { isSandBoxRuntime } from "../shared/box-runtime.js";
 import { getLocalDockerStatus, startLocalDockerBox, stopLocalDockerBox } from "./box/local-docker-host-connector.js";
+import { requestApplicationMenuRebuild } from "./application-menu.js";
 import { dirname, join } from "node:path";
 
 export const MAIN_EDGE_UNSERVED = "main/unserved-method";
@@ -117,7 +118,12 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
     setHostSidebarSections: (raw) => echo(deps, "sidebarSections", req(raw).sections, "sidebar sections"),
     getAvailableModels: () => deps.fetchAvailableModels(),
     getUiLanguage: () => ({ language: invoke(deps.settingsStore, "getUiLanguage") }),
-    setUiLanguage: (raw) => { const language = parseUiLanguage(req(raw).language); invoke(deps.settingsStore, "setUiLanguage", language); return { language }; },
+    setUiLanguage: (raw) => {
+      const language = parseUiLanguage(req(raw).language);
+      invoke(deps.settingsStore, "setUiLanguage", language);
+      requestApplicationMenuRebuild(language);
+      return { language };
+    },
     getInferenceVendors: () => {
       const vendors = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors"));
       const defaultVendorId = invoke(deps.settingsStore, "getDefaultInferenceVendorId");

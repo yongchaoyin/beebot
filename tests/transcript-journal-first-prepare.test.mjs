@@ -23,7 +23,7 @@ async function loadMirror(directory) {
 }
 
 test("first journal checkpoint initializes instead of demanding a prior recover", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "botfly-journal-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "beebot-journal-"));
   try {
     const { FileTranscriptMirror } = await loadMirror(directory);
     const deriver = {

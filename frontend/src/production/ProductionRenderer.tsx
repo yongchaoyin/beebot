@@ -74,6 +74,7 @@ import { isOnboardingAccountOnboarded, resolveOnboardingRoute } from "../recover
 import { SignedInOnboarding } from "../recovered/features/onboarding/signed-in/view";
 import { ORG_CHART_GATE, orgChartAvailability } from "../recovered/features/org-chart/workspace/entrypoint";
 import { createAgentNetworkTrigger } from "../recovered/features/org-chart/workspace/network-trigger";
+import { BEEBOT_FEEDBACK_URL, beebotDocumentationUrl } from "../recovered/features/account/session/account-menu-copy";
 import { AccountMenu } from "../recovered/features/account/session/menu";
 import { SandBadge, SandButton, SandIcon, SandIconButton } from "../recovered/ui/sand-kit-primitives";
 import { OverlayDialog } from "../recovered/ui/overlay-primitives";
@@ -593,9 +594,9 @@ function useStrictModeSafeDisposal(resource: StrictModeDisposable | null | undef
 function SignInLanding({ account, bridge, onStatus }: { account: CursorAuthStatus; bridge: DesktopBridge; onStatus(status: CursorAuthStatus): void }) {
   if (account.kind === "logged-in") return null;
   return (
-    <div aria-label="Botfly" className="sand-onboarding" role="main">
+    <div aria-label="BeeBot" className="sand-onboarding" role="main">
       <section className="sand-onboarding__landing">
-        <h1>Botfly</h1>
+        <h1>BeeBot</h1>
         <p>Choose a model vendor, paste an API key, and start.</p>
         <VendorSetup bridge={bridge} onStatus={onStatus} />
       </section>
@@ -2813,6 +2814,22 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     }).catch(() => undefined);
   }, [bridge, createBotOpen]);
 
+  useEffect(() => {
+    const onAbout = () => setOverlay("about");
+    const onSettings = (event: Event) => {
+      const section = (event as CustomEvent<{ section?: string }>).detail?.section === "router" ? "router" : "general";
+      setSettingsSection(section);
+      setManageSharedRoomId(null);
+      setOverlay("settings");
+    };
+    window.addEventListener("sand-open-about", onAbout);
+    window.addEventListener("sand-open-settings", onSettings as EventListener);
+    return () => {
+      window.removeEventListener("sand-open-about", onAbout);
+      window.removeEventListener("sand-open-settings", onSettings as EventListener);
+    };
+  }, []);
+
   const createAgent = async () => {
     setCreateBotOpen(true);
   };
@@ -3467,18 +3484,15 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
             accountLabel={UI_TEXT.account}
             bridge={bridge}
             displayName={accountName(account)}
-            experimentsSnapshot={bridge.experiments.initialSnapshot}
             isOpen={accountMenuOpen}
-            labels={{ about: UI_TEXT.about, changeLimit: "Change limit", helpCenter: UI_TEXT.helpCenter, included: "Included", ios: "Get Grok Bot for iOS", logOut: UI_TEXT.logOut, onDemand: "On-demand", sendFeedback: UI_TEXT.sendFeedback, settings: UI_TEXT.settings, signIn: UI_TEXT.signIn, spendThisCycle: "Spend this cycle", weeklyUsage: "Weekly usage" }}
+            language={uiLanguage}
             onError={setNotice}
             onOpenAbout={() => setOverlay("about")}
             onOpenChange={setAccountMenuOpen}
-            onOpenFeedback={() => setOverlay("feedback")}
-            onOpenHelp={() => void bridge.openExternal("https://cursor.com/help")}
-            onOpenIos={() => void bridge.openExternal("https://apps.apple.com/us/app/grok-bot/id6794501026")}
+            onOpenConfigureAi={() => { setSettingsSection("router"); setManageSharedRoomId(null); setOverlay("settings"); }}
+            onOpenDocumentation={() => { void bridge.openExternal(beebotDocumentationUrl(uiLanguage)).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
+            onOpenFeedback={() => { void bridge.openExternal(BEEBOT_FEEDBACK_URL).catch((reason) => setNotice(reason instanceof Error ? reason.message : String(reason))); }}
             onOpenSettings={() => { setSettingsSection("general"); setManageSharedRoomId(null); setOverlay("settings"); }}
-            onOpenUsage={() => void bridge.openExternal("https://cursor.com/dashboard/spending")}
-            onRequestLogout={() => { setOverlay("confirm-logout"); setAccountMenuOpen(false); }}
             onStatus={setAccount}
             updatePill={<UpdatePill bridge={bridge} labels={UPDATE_PILL_LABELS} />}
           />

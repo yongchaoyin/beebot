@@ -110,7 +110,6 @@ window.__sandPickCreateGroup=function(){return new Promise(async resolve=>{
     head.append(title,close);
     const nameLabel=document.createElement("label"); nameLabel.textContent=copy.groupName; nameLabel.style.cssText="display:block;font-size:13px;color:#666;margin-bottom:6px";
     const nameInput=document.createElement("input"); nameInput.type="text"; nameInput.value=name; nameInput.placeholder=copy.groupName; nameInput.style.cssText="width:100%;height:40px;border:0;border-radius:10px;background:#f4f4f2;padding:0 12px;font-size:14px;margin-bottom:14px;box-sizing:border-box";
-    nameInput.oninput=()=>{name=nameInput.value};
     const to=document.createElement("div"); to.style.cssText="min-height:44px;border-radius:12px;background:#f7f7f5;padding:8px 10px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center";
     const toLabel=document.createElement("span"); toLabel.textContent=copy.to; toLabel.style.cssText="color:#888;font-size:13px"; to.append(toLabel);
     for(const id of selected){const a=agents.find(x=>x.id===id); const chip=document.createElement("button"); chip.type="button"; chip.textContent=(a?.name||id)+" ×"; chip.style.cssText="border:0;border-radius:14px;background:#ecece8;padding:4px 10px;cursor:pointer;font-size:13px"; chip.onclick=()=>{const i=selected.indexOf(id); if(i>=0)selected.splice(i,1); name=nameInput.value; paint()}; to.append(chip)}
@@ -118,8 +117,11 @@ window.__sandPickCreateGroup=function(){return new Promise(async resolve=>{
     search.oninput=()=>{query=search.value; name=nameInput.value; paint(); const n=card.querySelector("input[placeholder='"+copy.search+"']"); n?.focus()};
     const list=document.createElement("div");
     for(const a of filtered){if(selected.includes(a.id)) continue; const row=document.createElement("button"); row.type="button"; row.textContent=a.name; row.style.cssText="display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 8px;border-radius:8px;cursor:pointer;font-size:14px"; row.onclick=()=>{selected.push(a.id); name=nameInput.value; query=""; paint()}; list.append(row)}
-    const submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.create; const ready=name.trim().length>0&&selected.length>0; submit.disabled=!ready; submit.style.cssText="margin-top:14px;width:100%;height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+(ready?"#111":"#bbb")+";cursor:"+(ready?"pointer":"default");
-    submit.onclick=()=>{if(ready)finish({name:name.trim(),memberAgentIds:[...selected]})};
+    const submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.create;
+    const applyReady=()=>{name=nameInput.value; const ready=name.trim().length>0&&selected.length>0; submit.disabled=!ready; submit.style.cssText="margin-top:14px;width:100%;height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+(ready?"#111":"#bbb")+";cursor:"+(ready?"pointer":"default"); return ready};
+    nameInput.oninput=()=>{applyReady()};
+    applyReady();
+    submit.onclick=()=>{if(applyReady())finish({name:name.trim(),memberAgentIds:[...selected]})};
     card.append(head,nameLabel,nameInput,to,search,list,submit);
     nameInput.focus();
   };

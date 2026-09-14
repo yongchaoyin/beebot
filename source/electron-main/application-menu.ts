@@ -1,4 +1,11 @@
 import type { WindowShortcut } from "./window-shortcuts.js";
+import {
+  accountMenuCopy,
+  beebotDocumentationUrl,
+  BEEBOT_FEEDBACK_URL,
+  parseUiLanguage,
+  type UiLanguage,
+} from "../shared/ui-language.js";
 
 export type ApplicationMenuRole =
   | "close"
@@ -32,8 +39,19 @@ export interface ApplicationMenuOptions {
   readonly applyWindowShortcut: (shortcut: WindowShortcut) => void;
   readonly canUseDevTools: () => boolean;
   readonly emitOpenAbout: () => void;
-  readonly emitOpenFeedback: () => void;
+  readonly uiLanguage?: UiLanguage;
   readonly platform?: NodeJS.Platform;
+}
+
+type RebuildFn = (language: UiLanguage) => void;
+let rebuildHook: RebuildFn | null = null;
+
+export function registerApplicationMenuRebuild(hook: RebuildFn): void {
+  rebuildHook = hook;
+}
+
+export function requestApplicationMenuRebuild(language: UiLanguage): void {
+  rebuildHook?.(language);
 }
 
 export function buildApplicationMenuTemplate(
@@ -92,17 +110,23 @@ export function buildApplicationMenuTemplate(
   );
   template.push({ label: "View", submenu: viewSubmenu });
   template.push({ role: "windowMenu" });
+  const language = parseUiLanguage(options.uiLanguage);
+  const copy = accountMenuCopy(language);
   template.push({
     role: "help",
     submenu: [
       {
-        label: "Help Center",
+        label: copy.documentation,
         click: () => {
-          void electron.openExternal("https://cursor.com/help");
+          void electron.openExternal(beebotDocumentationUrl(language));
         },
       },
-      { type: "separator" },
-      { label: "Send Feedback", click: () => options.emitOpenFeedback() },
+      {
+        label: copy.feedback,
+        click: () => {
+          void electron.openExternal(BEEBOT_FEEDBACK_URL);
+        },
+      },
     ],
   });
   return template;

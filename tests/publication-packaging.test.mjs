@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import vm from "node:vm";
+import * as acorn from "acorn";
 import createIgnore from "ignore";
 
 import { resolvePackagedAppArtifacts } from "../scripts/lib/packaged-app.mjs";
@@ -29,10 +31,46 @@ test("publication ignore rules retain reconstructed frontend source", async () =
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
 });
 
+test("landing about wrap does not throw on a frozen desktop bridge", async () => {
+  const { LANDING_ABOUT_WRAP } = await import(pathToFileURL(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs")).href);
+  const window = {
+    desktop: Object.freeze({
+      onOpenAbout() {
+        return () => {};
+      },
+    }),
+  };
+  assert.doesNotThrow(() => {
+    vm.runInNewContext(LANDING_ABOUT_WRAP, {
+      window,
+      Object,
+      setInterval,
+      setTimeout,
+      clearInterval,
+    });
+  });
+  assert.equal(window.__sandAboutWrapped, 1);
+});
+
+test("landing create-overlay and account-menu snippets parse together", async () => {
+  const createOverlay = await readFile(path.join(repoRoot, "scripts", "lib", "sand-create-overlay.snippet.js"), "utf8");
+  const accountMenu = await readFile(path.join(repoRoot, "scripts", "lib", "sand-account-menu.snippet.js"), "utf8");
+  const monAt = createOverlay.indexOf("function MOn(");
+  assert.ok(monAt > 0);
+  const combined = `${createOverlay.slice(0, monAt)}\n${accountMenu}\n`;
+  try {
+    acorn.parse(combined, { ecmaVersion: 2022, sourceType: "module" });
+  } catch (error) {
+    assert.fail(String(error));
+  }
+});
+
 test("default packaging keeps the polished checksum-pinned renderer", async () => {
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   assert.match(source, /import \{ buildFidelityReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
+  assert.match(source, /beebot-app-icon\.icns/);
+  assert.match(source, /CFBundleIconName/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
@@ -126,10 +164,15 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /OPENAI_API_KEY/);
   assert.match(rendererPatch, /Choose a model vendor, paste an API key, and start/);
   assert.match(rendererPatch, /Start using/);
+  assert.match(rendererPatch, /border:"1px solid #c8c8c8"/);
+  assert.match(rendererPatch, /color:"#111"/);
+  assert.match(rendererPatch, /color:"#333"/);
+  assert.doesNotMatch(rendererPatch, /border:"1px solid rgba\(255,255,255/);
   assert.match(createOverlay, /__sandPickCreateBot/);
   assert.match(createOverlay, /新建群聊/);
   assert.match(createOverlay, /Get started/);
   assert.match(createOverlay, /__sandPickCreateGroup/);
+  assert.match(createOverlay, /applyReady/);
   assert.match(createOverlay, /RBotSvg/);
   assert.match(createOverlay, /linearGradient/);
   assert.match(createOverlay, /inferenceVendorId/);
@@ -137,6 +180,24 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(createOverlay, /sand-agent-vendor/);
   assert.match(createOverlay, /RAgentVendorId/);
   assert.match(createOverlay, /__sandRoster/);
+  const accountMenu = await readFile(path.join(repoRoot, "scripts", "lib", "sand-account-menu.snippet.js"), "utf8");
+  const main = await readFile(path.join(repoRoot, "source", "electron-main", "main.ts"), "utf8");
+  assert.match(accountMenu, /__sandAccountMenuBound/);
+  assert.match(accountMenu, /配置 AI/);
+  assert.match(accountMenu, /sand-open-settings/);
+  assert.match(accountMenu, /document\.dispatchEvent\(new KeyboardEvent\("keydown"/);
+  assert.match(accountMenu, /getUiLanguage/);
+  assert.match(accountMenu, /__sandOpenAboutOverlay/);
+  assert.match(accountMenu, /sand-settings-nav__item/);
+  assert.match(accountMenu, /\["Router","路由"\]/);
+  assert.match(accountMenu, /\["General","通用"\]/);
+  assert.match(accountMenu, /includes\(label\)/);
+  assert.match(rendererPatch, /sand-account-menu\.snippet\.js/);
+  assert.match(rendererPatch, /sand-open-settings/);
+  assert.match(rendererPatch, /sand-open-about/);
+  assert.match(rendererPatch, /sand-settings-nav__item/);
+  assert.match(rendererPatch, /includes\(label\)/);
+  assert.match(main, /settingsStore\?\.getUiLanguage/);
   assert.match(vendorAccounts, /Model APIs/);
   assert.match(vendorAccounts, /Add model/);
   assert.match(vendorAccounts, /Edit model/);
