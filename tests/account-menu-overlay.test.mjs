@@ -48,7 +48,7 @@ async function boot(language = "en", options = {}) {
 
   const account = document.createElement("div");
   account.className = "sand-agents-sidebar__account";
-  account.innerHTML = `<button aria-haspopup="menu" aria-label="Account">Local</button>`;
+  account.innerHTML = `<button aria-haspopup="menu" aria-label="Account">Local</button><button class="sand-agents-sidebar__account-name" type="button">Enter your name</button>`;
   document.body.append(account);
 
   window.eval(source);
@@ -62,7 +62,8 @@ async function boot(language = "en", options = {}) {
     get aboutCount() {
       return aboutCount;
     },
-    accountButton: account.querySelector("button"),
+    accountButton: account.querySelector("[aria-haspopup='menu']"),
+    nameButton: account.querySelector(".sand-agents-sidebar__account-name"),
   };
 }
 
@@ -206,6 +207,17 @@ test("Chinese language opens ZH documentation URL", async () => {
     clickMenuRow(document, "文档");
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(opened, [DOCS_ZH]);
+  } finally {
+    await closeWindow(window);
+  }
+});
+
+test("name editor button does not open the account menu", async () => {
+  const { window, document, nameButton } = await boot("en");
+  try {
+    nameButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(document.getElementById("sand-account-menu"), null);
   } finally {
     await closeWindow(window);
   }

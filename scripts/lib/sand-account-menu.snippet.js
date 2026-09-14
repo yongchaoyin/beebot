@@ -76,7 +76,7 @@ async function RShowAccountMenu(anchor){
 if(!window.__sandAccountMenuBound){
   window.__sandAccountMenuBound=!0;
   document.addEventListener("click",ev=>{
-    const btn=ev.target&&ev.target.closest&&ev.target.closest(".sand-agents-sidebar__account [aria-haspopup='menu'], .sand-agents-sidebar__account button");
+    const btn=ev.target&&ev.target.closest&&ev.target.closest(".sand-agents-sidebar__account [aria-haspopup='menu'], .sand-agents-sidebar__account > button:not(.sand-agents-sidebar__account-name)");
     if(!btn) return;
     ev.preventDefault(); ev.stopPropagation();
     void RShowAccountMenu(btn);
