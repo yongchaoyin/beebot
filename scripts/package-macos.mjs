@@ -4,7 +4,8 @@ import {
   outputApp,
   outputDir,
   reconstructedBundleId,
-  reconstructedName
+  reconstructedName,
+  repoRoot
 } from "./lib/config.mjs";
 import { buildFidelityReconstructedAsar } from "./clean-build.mjs";
 import { signAppBundleAdHoc } from "./lib/codesign.mjs";
@@ -42,6 +43,7 @@ await cp(builtAsarUnpacked, packagedUnpacked, {
   dereference: false,
   preserveTimestamps: true
 });
+await cp(path.join(repoRoot, "branding", "beebot-app-icon.icns"), path.join(resources, "icon.icns"));
 
 const infoPlist = path.join(outputApp, "Contents", "Info.plist");
 await run(SYSTEM_TOOLS.plutil, ["-remove", "ElectronAsarIntegrity", infoPlist]);

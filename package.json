@@ -21,6 +21,7 @@
     "bootstrap": "node scripts/bootstrap-runtime.mjs",
     "build": "node scripts/build.mjs",
     "check": "npm run typecheck && npm run source:typecheck && npm test",
+    "icon:generate": "node scripts/generate-app-icon.mjs",
     "frontend:build": "vite build --config frontend/vite.config.ts",
     "frontend:recover": "node scripts/recover-frontend.mjs",
     "native:patch": "node scripts/apply-third-party-patches.mjs",

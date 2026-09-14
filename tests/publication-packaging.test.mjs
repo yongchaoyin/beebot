@@ -33,6 +33,7 @@ test("default packaging keeps the polished checksum-pinned renderer", async () =
   const source = await readFile(path.join(repoRoot, "scripts", "package-macos.mjs"), "utf8");
   assert.match(source, /import \{ buildFidelityReconstructedAsar \} from "\.\/clean-build\.mjs"/);
   assert.match(source, /await buildFidelityReconstructedAsar\(\)/);
+  assert.match(source, /beebot-app-icon\.icns/);
 });
 
 test("Router settings use the trusted backend and display recorded inference usage", async () => {
