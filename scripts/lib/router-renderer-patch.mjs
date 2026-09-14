@@ -75,11 +75,12 @@ function gjn(n){return p.jsx(RVendorSetup,{headingId:n.headingId,auth:n.auth,onS
 
 const CREATE_AGENT_BEFORE = "function MOn(n){const e=n.roster,t=S.useCallback((r,i)=>e.createAgent({...r,origin:\"user\",...i}),[e]),s=lr(e.deleteAgents);";
 const ACCOUNT_MENU_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-account-menu.snippet.js"), "utf8");
+const GROUP_UI_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-group-ui.snippet.js"), "utf8");
 const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8");
 const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
-const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 export const LANDING_ABOUT_WRAP = `;(function(){
   function wrap(){
     if(window.__sandAboutWrapped) return true;
