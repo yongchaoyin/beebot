@@ -10,7 +10,7 @@ function RAccountCopy(){
 }
 function RAccountDocs(){return (window.__sandUiLanguage||"en")==="zh"?"https://github.com/yongchaoyin/beebot/blob/main/README.zh.md":"https://github.com/yongchaoyin/beebot/blob/main/README.md"}
 function RAccountFeedback(){return "https://github.com/yongchaoyin/beebot/issues/new"}
-async function RLang(){try{const st=await window.desktop.agent.getUiLanguage();window.__sandUiLanguage=st?.language==="zh"?"zh":"en"}catch{window.__sandUiLanguage=window.__sandUiLanguage||"en"}}
+async function RAccountLang(){try{const st=await window.desktop.agent.getUiLanguage();window.__sandUiLanguage=st?.language==="zh"?"zh":"en"}catch{window.__sandUiLanguage=window.__sandUiLanguage||"en"}}
 function ROpenExternal(url,failed){
   const open=window.desktop&&window.desktop.openExternal;
   if(typeof open!=="function") return;
@@ -54,7 +54,7 @@ function ROpenAbout(){
 }
 function RHideAccountMenu(){document.getElementById("sand-account-menu")?.remove()}
 async function RShowAccountMenu(anchor){
-  await RLang();
+  await RAccountLang();
   RHideAccountMenu();
   const copy=RAccountCopy();
   const menu=document.createElement("div");

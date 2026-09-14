@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import * as acorn from "acorn";
 import createIgnore from "ignore";
 
 import { resolvePackagedAppArtifacts } from "../scripts/lib/packaged-app.mjs";
@@ -27,6 +28,19 @@ test("publication ignore rules retain reconstructed frontend source", async () =
   const matcher = createIgnore().add(ignoreRules);
   assert.equal(matcher.ignores(retained), false, `${retained} must remain addable in a fresh repository`);
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
+});
+
+test("landing create-overlay and account-menu snippets parse together", async () => {
+  const createOverlay = await readFile(path.join(repoRoot, "scripts", "lib", "sand-create-overlay.snippet.js"), "utf8");
+  const accountMenu = await readFile(path.join(repoRoot, "scripts", "lib", "sand-account-menu.snippet.js"), "utf8");
+  const monAt = createOverlay.indexOf("function MOn(");
+  assert.ok(monAt > 0);
+  const combined = `${createOverlay.slice(0, monAt)}\n${accountMenu}\n`;
+  try {
+    acorn.parse(combined, { ecmaVersion: 2022, sourceType: "module" });
+  } catch (error) {
+    assert.fail(String(error));
+  }
 });
 
 test("default packaging keeps the polished checksum-pinned renderer", async () => {
