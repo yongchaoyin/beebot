@@ -164,6 +164,10 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /OPENAI_API_KEY/);
   assert.match(rendererPatch, /Choose a model vendor, paste an API key, and start/);
   assert.match(rendererPatch, /Start using/);
+  assert.match(rendererPatch, /border:"1px solid #c8c8c8"/);
+  assert.match(rendererPatch, /color:"#111"/);
+  assert.match(rendererPatch, /color:"#333"/);
+  assert.doesNotMatch(rendererPatch, /border:"1px solid rgba\(255,255,255/);
   assert.match(createOverlay, /__sandPickCreateBot/);
   assert.match(createOverlay, /新建群聊/);
   assert.match(createOverlay, /Get started/);
