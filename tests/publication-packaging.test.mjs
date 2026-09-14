@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import vm from "node:vm";
 import * as acorn from "acorn";
 import createIgnore from "ignore";
 
@@ -28,6 +29,27 @@ test("publication ignore rules retain reconstructed frontend source", async () =
   const matcher = createIgnore().add(ignoreRules);
   assert.equal(matcher.ignores(retained), false, `${retained} must remain addable in a fresh repository`);
   assert.equal(matcher.ignores("recovered/generated-output.txt"), true, "root recovery output must remain ignored");
+});
+
+test("landing about wrap does not throw on a frozen desktop bridge", async () => {
+  const { LANDING_ABOUT_WRAP } = await import(pathToFileURL(path.join(repoRoot, "scripts/lib/router-renderer-patch.mjs")).href);
+  const window = {
+    desktop: Object.freeze({
+      onOpenAbout() {
+        return () => {};
+      },
+    }),
+  };
+  assert.doesNotThrow(() => {
+    vm.runInNewContext(LANDING_ABOUT_WRAP, {
+      window,
+      Object,
+      setInterval,
+      setTimeout,
+      clearInterval,
+    });
+  });
+  assert.equal(window.__sandAboutWrapped, 1);
 });
 
 test("landing create-overlay and account-menu snippets parse together", async () => {

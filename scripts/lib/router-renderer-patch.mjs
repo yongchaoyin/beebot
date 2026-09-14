@@ -80,16 +80,26 @@ const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
 const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${createOverlay.slice(monAt)}`;
-const LANDING_ABOUT_WRAP = `;(function(){
+export const LANDING_ABOUT_WRAP = `;(function(){
   function wrap(){
+    if(window.__sandAboutWrapped) return true;
     const d=window.desktop;
-    if(!d||d.__sandAboutWrapped||typeof d.onOpenAbout!=="function") return false;
-    const orig=d.onOpenAbout.bind(d);
-    d.onOpenAbout=function(listener){
-      window.__sandOpenAboutOverlay=listener;
-      return orig(listener);
-    };
-    d.__sandAboutWrapped=1;
+    if(!d||typeof d.onOpenAbout!=="function") return false;
+    try{
+      const orig=d.onOpenAbout.bind(d);
+      const wrapped=function(listener){
+        window.__sandOpenAboutOverlay=listener;
+        return orig(listener);
+      };
+      try{ d.onOpenAbout=wrapped; }
+      catch{
+        try{ Object.defineProperty(d,"onOpenAbout",{configurable:!0,writable:!0,value:wrapped}); }
+        catch{ window.__sandAboutWrapFailed=1; }
+      }
+    }catch{
+      window.__sandAboutWrapFailed=1;
+    }
+    window.__sandAboutWrapped=1;
     return true;
   }
   if(!wrap()){
