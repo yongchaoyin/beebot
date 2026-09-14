@@ -10,18 +10,18 @@ const pngPath = path.join(branding, "beebot-app-icon.png");
 const icnsPath = path.join(branding, "beebot-app-icon.icns");
 
 const paths = JSON.parse(await readFile(path.join(repoRoot, "scripts/lib/persona-shape-paths.json"), "utf8"));
-const hex = paths.hex;
-if (typeof hex !== "string" || !hex.includes("M217.73")) {
-  throw new Error("persona-shape-paths.json is missing the hex bot path.");
+const blob = paths.blob;
+if (typeof blob !== "string" || !blob.includes("M228.541")) {
+  throw new Error("persona-shape-paths.json is missing the original blob bot path.");
 }
 
 const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <rect width="1024" height="1024" fill="#FFFFFF"/>
-  <g transform="translate(512 512) scale(2.55) translate(-114.27 -114.27)">
-    <path fill="${WECHAT_GREEN}" d="${hex}"/>
-    <ellipse fill="#FFFFFF" cx="85.27" cy="106.27" rx="10" ry="7"/>
-    <ellipse fill="#FFFFFF" cx="143.27" cy="106.27" rx="10" ry="7"/>
+  <g transform="translate(512 512) scale(2.7) translate(-114.27 -114.228)">
+    <path fill="${WECHAT_GREEN}" d="${blob}"/>
+    <ellipse fill="#FFFFFF" cx="85.27" cy="106.27" rx="18" ry="13"/>
+    <ellipse fill="#FFFFFF" cx="143.27" cy="106.27" rx="18" ry="13"/>
   </g>
 </svg>
 `;

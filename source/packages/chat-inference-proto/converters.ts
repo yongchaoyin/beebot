@@ -188,11 +188,20 @@ function getResponsesMetadataFromProviderOptions(message: Loose): { modelProvide
   };
 }
 
+function jsonObjectOrEmpty(value: unknown): JsonValue {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
+  try {
+    return JSON.parse(JSON.stringify(value)) as JsonValue;
+  } catch {
+    return {};
+  }
+}
+
 function agentToolToProto(tool: Loose): InferenceAgentTool {
   const proto = new InferenceAgentTool({
     name: tool.name,
-    description: tool.description,
-    parameters: Struct.fromJsonString(JSON.stringify(tool.parameters)),
+    description: tool.description ?? "",
+    parameters: Struct.fromJson(jsonObjectOrEmpty(tool.parameters)),
   });
   if (tool.customToolFormat) proto.customToolFormat = new InferenceCustomToolFormat(tool.customToolFormat);
   return proto;

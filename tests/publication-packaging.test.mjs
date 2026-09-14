@@ -55,9 +55,10 @@ test("landing about wrap does not throw on a frozen desktop bridge", async () =>
 test("landing create-overlay and account-menu snippets parse together", async () => {
   const createOverlay = await readFile(path.join(repoRoot, "scripts", "lib", "sand-create-overlay.snippet.js"), "utf8");
   const accountMenu = await readFile(path.join(repoRoot, "scripts", "lib", "sand-account-menu.snippet.js"), "utf8");
+  const groupUi = await readFile(path.join(repoRoot, "scripts", "lib", "sand-group-ui.snippet.js"), "utf8");
   const monAt = createOverlay.indexOf("function MOn(");
   assert.ok(monAt > 0);
-  const combined = `${createOverlay.slice(0, monAt)}\n${accountMenu}\n`;
+  const combined = `${createOverlay.slice(0, monAt)}\n${accountMenu}\n${groupUi}\n`;
   try {
     acorn.parse(combined, { ecmaVersion: 2022, sourceType: "module" });
   } catch (error) {
@@ -193,6 +194,7 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(accountMenu, /\["General","通用"\]/);
   assert.match(accountMenu, /includes\(label\)/);
   assert.match(rendererPatch, /sand-account-menu\.snippet\.js/);
+  assert.match(rendererPatch, /sand-group-ui\.snippet\.js/);
   assert.match(rendererPatch, /sand-open-settings/);
   assert.match(rendererPatch, /sand-open-about/);
   assert.match(rendererPatch, /sand-settings-nav__item/);

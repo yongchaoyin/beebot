@@ -6,15 +6,15 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("BeeBot Dock icon is a white canvas with the WeChat-green hex bot", async () => {
+test("BeeBot Dock icon is a white canvas with the original WeChat-green blob bot", async () => {
   const svg = await readFile(path.join(repoRoot, "branding", "beebot-app-icon.svg"), "utf8");
   const shapes = JSON.parse(await readFile(path.join(repoRoot, "scripts", "lib", "persona-shape-paths.json"), "utf8"));
   assert.match(svg, /fill="#FFFFFF"/);
   assert.match(svg, /fill="#07C160"/);
-  assert.ok(svg.includes(shapes.hex), "app icon must use the project hex bot path");
+  assert.ok(svg.includes(shapes.blob), "app icon must use the original blob bot path");
   assert.match(svg, /<ellipse fill="#FFFFFF" cx="85.27"/);
   assert.match(svg, /<ellipse fill="#FFFFFF" cx="143.27"/);
-  assert.doesNotMatch(svg, /blob|pebble|teardrop/);
+  assert.doesNotMatch(svg, /M217\.73 153\.04/);
 });
 
 test("BeeBot icns is present for the packaged Dock icon", async () => {

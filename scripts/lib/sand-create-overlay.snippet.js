@@ -44,10 +44,24 @@ function RAgentVendorId(agentId){
   }
   return "";
 }
+function RRosterRows(){
+  const roster=window.__sandRoster; const pools=[];
+  try{pools.push(roster?.snapshots?.get?.()?.agents?.rows)}catch{}
+  try{pools.push(roster?.snapshots?.get?.()?.rows)}catch{}
+  try{pools.push(roster?.snapshots?.view?.()?.value?.rows)}catch{}
+  try{pools.push(roster?.snapshots?.view?.()?.value?.agents?.rows)}catch{}
+  try{pools.push(roster?.getSnapshot?.()?.agents)}catch{}
+  for(const rows of pools){ if(Array.isArray(rows)&&rows.length) return rows; }
+  return [];
+}
+function RIsGroupId(id){
+  const row=RRosterRows().find(r=>r&&r.id===id);
+  return !!(row&&(row.isGroup===true||row.kind==="group"));
+}
 function RListAgents(){
   const seen=new Set(); const out=[];
   for(const el of document.querySelectorAll("[data-agent-id]")){
-    const id=el.getAttribute("data-agent-id"); if(!id||seen.has(id)) continue; seen.add(id);
+    const id=el.getAttribute("data-agent-id"); if(!id||seen.has(id)||RIsGroupId(id)) continue; seen.add(id);
     const name=(el.querySelector("[class*='name']")||el).textContent.trim().split("\n")[0]||id;
     out.push({id,name});
   }
