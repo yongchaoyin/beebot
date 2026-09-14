@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,4 +64,13 @@ test("Help menu opens Botfly docs and GitHub issues, not cursor.com", async () =
   opened.length = 0;
   await zh[0].click();
   assert.equal(opened[0], "https://github.com/yongchaoyin/botfly/blob/main/README.zh.md");
+});
+
+test("Help language is seeded from settingsStore before the first installMenu", async () => {
+  const source = await readFile(path.join(repoRoot, "source/electron-main/main.ts"), "utf8");
+  const seedAt = source.indexOf("settingsStore?.getUiLanguage");
+  const installAt = source.indexOf("installMenu();");
+  assert.ok(seedAt >= 0, "expected settingsStore.getUiLanguage seed");
+  assert.ok(installAt > seedAt, "expected ui language seed before first installMenu()");
+  assert.match(source, /registerApplicationMenuRebuild/);
 });

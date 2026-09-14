@@ -125,6 +125,9 @@ export interface ElectronMainServices {
   readonly onWindowCreated?: (window: MainBrowserWindow) => void;
   /** Process-lifetime image context-menu listener installed after the application menu. */
   readonly registerImageContextMenu?: () => void;
+  readonly settingsStore?: {
+    getUiLanguage(): unknown;
+  };
   readonly dispose?: () => void | Promise<void>;
 }
 
@@ -400,6 +403,11 @@ export function startElectronMain(deps: ElectronMainDependencies): ElectronMainR
       void membership.refresh();
 
       let uiLanguage = parseUiLanguage(undefined);
+      try {
+        uiLanguage = parseUiLanguage(services.settingsStore?.getUiLanguage?.());
+      } catch {
+        uiLanguage = parseUiLanguage(undefined);
+      }
       const installMenu = (): void =>
         installApplicationMenu(
           {

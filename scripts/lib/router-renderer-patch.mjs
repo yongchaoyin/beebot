@@ -21,12 +21,18 @@ if(!window.__sandOpenSettingsBound){
     const section=ev&&ev.detail&&ev.detail.section==="router"?"router":"general";
     const clickNav=()=>{
       const labels=section==="router"?["Router","路由"]:["General","通用"];
-      const nodes=[...document.querySelectorAll("button, [role=tab]")];
-      const hit=nodes.find(el=>labels.includes((el.textContent||"").trim()));
+      const nodes=[...document.querySelectorAll('.sand-settings-nav__item, nav[aria-label="Settings sections"] button')];
+      const hit=nodes.find(el=>labels.some(label=>(el.textContent||"").includes(label)));
       if(hit) hit.click();
+      return!!hit;
     };
-    setTimeout(clickNav,80);
-    setTimeout(clickNav,240);
+    const start=Date.now();
+    const tick=()=>{
+      if(clickNav()) return;
+      if(Date.now()-start>8000) return;
+      setTimeout(tick,80);
+    };
+    tick();
   });
   window.addEventListener("sand-open-about",()=>{
     const open=window.__sandOpenAboutOverlay;
