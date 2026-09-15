@@ -92,6 +92,34 @@ test("after seeing others speak, members can add a follow-up", async () => {
   }
 });
 
+test("one member throwing does not silence the others", async () => {
+  const loaded = await loadOrchestrator();
+  try {
+    const history = [{ speaker: { kind: "user" }, content: "hi" }];
+    const posted = [];
+    const spoken = new Set();
+    const orchestrator = new loaded.module.GroupChatOrchestrator({
+      resolveMembers: async () => members(),
+      readHistory: () => history,
+      isCurrent: () => true,
+      runMemberTurn: async ({ member }) => {
+        if (member.id === "a") throw new Error("Alice crashed");
+        if (spoken.has(member.id)) return ["(pass)"];
+        spoken.add(member.id);
+        return ["Bob made it"];
+      },
+      postMemberMessage: (member, content) => {
+        posted.push(content);
+        history.push({ speaker: { kind: "member", id: member.id, name: member.name }, content });
+      },
+    });
+    await orchestrator.run({ group: { name: "Room", description: "" }, memberIds: ["a", "b"] });
+    assert.deepEqual(posted, ["Bob made it"]);
+  } finally {
+    await loaded.dispose();
+  }
+});
+
 test("the room goes quiet when nobody has more to add", async () => {
   const loaded = await loadOrchestrator();
   try {

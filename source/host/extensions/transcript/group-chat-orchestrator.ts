@@ -48,10 +48,13 @@ export class GroupChatOrchestrator {
     speakers: readonly GroupMember[],
   ): Promise<number> {
     if (!this.deps.isCurrent() || speakers.length === 0) return 0;
-    const results = await Promise.all(
+    const results = await Promise.allSettled(
       speakers.map((member) => this.speak(group, member, members)),
     );
-    return results.reduce((sum, count) => sum + count, 0);
+    return results.reduce(
+      (sum, result) => sum + (result.status === "fulfilled" ? result.value : 0),
+      0,
+    );
   }
 
   private async speak(
@@ -60,15 +63,18 @@ export class GroupChatOrchestrator {
     members: readonly GroupMember[],
   ): Promise<number> {
     if (!this.deps.isCurrent()) return 0;
-    const sent = await this.runOneTurn(group, member, members);
-    let posted = 0;
-    for (const content of sent) {
-      if (!this.deps.isCurrent()) break;
-      this.deps.postMemberMessage(member, content);
-      posted += 1;
+    try {
+      const sent = await this.runOneTurn(group, member, members);
+      let posted = 0;
+      for (const content of sent) {
+        if (!this.deps.isCurrent()) break;
+        this.deps.postMemberMessage(member, content);
+        posted += 1;
+      }
+      return posted;
+    } finally {
+      this.deps.finalizeMemberTurn?.(member);
     }
-    this.deps.finalizeMemberTurn?.(member);
-    return posted;
   }
 
   async runOneTurn(
