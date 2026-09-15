@@ -1,9 +1,9 @@
 function RGroupCopy(){
   const zh=(window.__sandUiLanguage||"en")==="zh";
   return zh?{
-    badge:"群",bots:(n)=>n+" 个 Bot",direct:"指定谁回复",hint:"输入 @ 指定 Bot；不 @ 则成员轮流发言。"
+    badge:"群",bots:(n)=>n+" 个 Bot",direct:"指定谁回复",hint:"有话说就说；看到别人还能再补一句。@ 可点名。"
   }:{
-    badge:"Group",bots:(n)=>n===1?"1 bot":n+" bots",direct:"Direct a Bot",hint:"Type @ to pick a Bot. Otherwise they take turns."
+    badge:"Group",bots:(n)=>n===1?"1 bot":n+" bots",direct:"Direct a Bot",hint:"Speak if you have something to add. You can jump in after others. @ to address someone."
   };
 }
 function REnsureGroupStyle(){
