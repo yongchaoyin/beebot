@@ -1,14 +1,11 @@
 import {
-  GROUP_MAX_MEMBER_TURNS,
   GROUP_MAX_MESSAGES_PER_TURN,
-  GROUP_MAX_ROUNDS,
   SHARED_ROOM_HISTORY_LIMIT,
   buildGroupMemberSystemPrompt,
   buildGroupTurnPrompt,
   isPassContent,
   messagesSinceMemberLastSpoke,
-  orderRoundSpeakers,
-  resolveResponders,
+  parseGroupMentions,
   type GroupDescription,
   type GroupMember,
   type GroupMessage,
@@ -28,7 +25,7 @@ export interface GroupOrchestratorDeps {
   isSharedRoom?: boolean;
 }
 
-/** Drives a bounded, epoch-cancellable round robin for one room turn. */
+/** Concurrent room: everyone who has something to say speaks; others can jump in after. */
 export class GroupChatOrchestrator {
   constructor(readonly deps: GroupOrchestratorDeps) {}
 
@@ -39,39 +36,44 @@ export class GroupChatOrchestrator {
     const members = await this.deps.resolveMembers(args.memberIds);
     if (members.length === 0) return;
 
-    const memberById = new Map(members.map((member) => [member.id, member]));
-    let totalMessages = 0;
+    let posted = await this.wake(args.group, members, members);
+    while (posted > 0 && this.deps.isCurrent()) {
+      posted = await this.wake(args.group, members, members);
+    }
+  }
 
-    for (let round = 0; round < GROUP_MAX_ROUNDS; round += 1) {
-      if (!this.deps.isCurrent()) return;
-      const responderIds = resolveResponders(
-        members,
-        this.deps.readHistory(),
-      ).map((member) => member.id);
-      let messagesThisRound = 0;
+  private async wake(
+    group: GroupDescription,
+    members: readonly GroupMember[],
+    speakers: readonly GroupMember[],
+  ): Promise<number> {
+    if (!this.deps.isCurrent() || speakers.length === 0) return 0;
+    const results = await Promise.allSettled(
+      speakers.map((member) => this.speak(group, member, members)),
+    );
+    return results.reduce(
+      (sum, result) => sum + (result.status === "fulfilled" ? result.value : 0),
+      0,
+    );
+  }
 
-      for (const memberId of orderRoundSpeakers(responderIds, round)) {
-        if (totalMessages >= GROUP_MAX_MEMBER_TURNS || !this.deps.isCurrent())
-          return;
-        const member = memberById.get(memberId);
-        if (member == null) continue;
-
-        const sent = await this.runOneTurn(args.group, member, members);
-        let hitCap = false;
-        for (const content of sent) {
-          this.deps.postMemberMessage(member, content);
-          totalMessages += 1;
-          messagesThisRound += 1;
-          if (totalMessages >= GROUP_MAX_MEMBER_TURNS) {
-            hitCap = true;
-            break;
-          }
-        }
-        this.deps.finalizeMemberTurn?.(member);
-        if (hitCap) return;
+  private async speak(
+    group: GroupDescription,
+    member: GroupMember,
+    members: readonly GroupMember[],
+  ): Promise<number> {
+    if (!this.deps.isCurrent()) return 0;
+    try {
+      const sent = await this.runOneTurn(group, member, members);
+      let posted = 0;
+      for (const content of sent) {
+        if (!this.deps.isCurrent()) break;
+        this.deps.postMemberMessage(member, content);
+        posted += 1;
       }
-
-      if (messagesThisRound === 0) return;
+      return posted;
+    } finally {
+      this.deps.finalizeMemberTurn?.(member);
     }
   }
 
@@ -82,6 +84,10 @@ export class GroupChatOrchestrator {
   ): Promise<string[]> {
     const peers = members.filter((other) => other.id !== member.id);
     const history = this.deps.readHistory();
+    const mentioned = parseGroupMentions(
+      [...history].reverse().find((message) => message.speaker.kind === "user")?.content ?? "",
+      members,
+    ).memberIds.includes(member.id);
     const newMessages =
       this.deps.isSharedRoom === true
         ? history.slice(-SHARED_ROOM_HISTORY_LIMIT)
@@ -91,7 +97,13 @@ export class GroupChatOrchestrator {
       systemPrompt: buildGroupMemberSystemPrompt(member, group, peers, {
         isSharedRoom: this.deps.isSharedRoom === true,
       }),
-      prompt: buildGroupTurnPrompt({ member, group, peers, newMessages }),
+      prompt: buildGroupTurnPrompt({
+        member,
+        group,
+        peers,
+        newMessages,
+        mentioned,
+      }),
     });
 
     const spoken: string[] = [];

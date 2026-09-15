@@ -255,7 +255,14 @@ export class GroupChatGlue {
     lane = "background",
     requestSource?: string,
   ): GroupOrchestratorDeps {
-    const live = createGroupMemberStream();
+    const streams = new Map<string, GroupMemberStream>();
+    const streamFor = (member: GroupMember): GroupMemberStream => {
+      const existing = streams.get(member.id);
+      if (existing != null) return existing;
+      const created = createGroupMemberStream();
+      streams.set(member.id, created);
+      return created;
+    };
     const config = readSandGroupConfig(dirname(session.dbPath));
     const remoteMembers = config?.remoteMembers ?? [];
     return {
@@ -266,16 +273,17 @@ export class GroupChatGlue {
         this.runGroupMemberTurn(
           session,
           request,
-          live,
+          streamFor(request.member),
           () => this.tm.sendPipeline.currentTurnEpoch(session) === epoch,
           traceCtx,
           lane,
           requestSource,
         ),
       postMemberMessage: (member, content) => {
-        this.postGroupMemberMessage(session, member, content, live);
+        this.postGroupMemberMessage(session, member, content, streamFor(member));
       },
-      finalizeMemberTurn: () => this.finalizeGroupMemberStream(session, live),
+      finalizeMemberTurn: (member) =>
+        this.finalizeGroupMemberStream(session, streamFor(member)),
       isCurrent: () => this.tm.sendPipeline.currentTurnEpoch(session) === epoch,
     };
   }

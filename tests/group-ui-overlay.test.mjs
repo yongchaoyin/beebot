@@ -77,7 +77,7 @@ test("open group paints a member bar and @ mention menu", async () => {
   const bar = document.getElementById("sand-beebot-group-bar");
   assert.ok(bar);
   assert.match(bar.textContent ?? "", /Writer/);
-  assert.match(bar.textContent ?? "", /take turns/);
+  assert.match(bar.textContent ?? "", /jump in/);
   const area = document.createElement("textarea");
   document.body.append(area);
   area.value = "@Wr";
