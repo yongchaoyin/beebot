@@ -156,19 +156,24 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     throw new Error(`Expected one original Settings registry, panel, and landing chunk, found ${registryCandidates.length}/${panelCandidates.length}/${landingCandidates.length}.`);
   }
   const changes = [];
+  const currentByTarget = new Map();
   for (const [role, candidate, transform] of [
     ["registry", registryCandidates[0], patchOriginalSettingsRegistry],
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
     ["landing", landingCandidates[0], patchOriginalLanding],
   ]) {
-    const patched = transform(candidate.source);
-    await writeFile(candidate.target, patched);
+    const current = currentByTarget.get(candidate.target) ?? candidate.source;
+    const patched = transform(current);
+    currentByTarget.set(candidate.target, patched);
     changes.push({
       role,
       path: `dist/renderer/assets/${candidate.name}`,
       original: { bytes: Buffer.byteLength(candidate.source), sha256: sha256(candidate.source) },
       patched: { bytes: Buffer.byteLength(patched), sha256: sha256(patched) },
     });
+  }
+  for (const [target, patched] of currentByTarget) {
+    await writeFile(target, patched);
   }
   const record = {
     schemaVersion: 1,

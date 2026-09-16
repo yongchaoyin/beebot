@@ -19,9 +19,6 @@ function REnsureGroupStyle(){
     #sand-beebot-group-bar button{border:0;border-radius:999px;background:#ecece8;padding:4px 10px;cursor:pointer;font-size:12px;color:#111}
     #sand-beebot-group-bar button:hover{background:#e0e0dc}
     #sand-beebot-group-bar .sand-beebot-group-hint{color:var(--cursor-text-tertiary,#888);margin-left:4px}
-    #sand-beebot-mention{position:fixed;z-index:99994;min-width:200px;max-height:220px;overflow:auto;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;font:13px system-ui}
-    #sand-beebot-mention button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:8px;cursor:pointer}
-    #sand-beebot-mention button:hover,#sand-beebot-mention button[data-active="true"]{background:#f4f4f2}
   `;
   document.head.append(s);
 }
@@ -136,52 +133,6 @@ function RPaintGroupBar(){
   hint.textContent=copy.hint;
   bar.append(hint);
 }
-function RHideMention(){document.getElementById("sand-beebot-mention")?.remove()}
-function RShowMention(anchor,members,query,insert){
-  RHideMention();
-  const q=query.toLowerCase();
-  const hits=members.filter(m=>!q||m.name.toLowerCase().includes(q)||m.id.toLowerCase().includes(q));
-  if(!hits.length) return;
-  const menu=document.createElement("div");
-  menu.id="sand-beebot-mention";
-  const r=anchor.getBoundingClientRect();
-  menu.style.left=Math.max(12,r.left)+"px";
-  menu.style.bottom=Math.max(12,window.innerHeight-r.top+8)+"px";
-  hits.slice(0,8).forEach((m,i)=>{
-    const b=document.createElement("button");
-    b.type="button";
-    b.textContent="@"+m.name;
-    if(i===0) b.setAttribute("data-active","true");
-    b.onclick=()=>insert(m);
-    menu.append(b);
-  });
-  document.body.append(menu);
-}
-function RBindMentions(){
-  if(window.__sandGroupMentionBound) return;
-  window.__sandGroupMentionBound=1;
-  const onInput=ev=>{
-    const el=ev.target;
-    if(!el||(el.tagName!=="TEXTAREA"&&el.getAttribute?.("contenteditable")!=="true")) { RHideMention(); return; }
-    const group=RActiveGroup();
-    if(!group){ RHideMention(); return; }
-    const members=RGroupMembers(group);
-    const value=el.value??el.textContent??"";
-    const at=value.lastIndexOf("@");
-    if(at<0){ RHideMention(); return; }
-    const q=value.slice(at+1);
-    if(/\s/.test(q)){ RHideMention(); return; }
-    RShowMention(el,members,q,m=>{
-      const next=value.slice(0,at)+"@"+m.name+" ";
-      if("value" in el){ el.value=next; el.dispatchEvent(new Event("input",{bubbles:!0})); }
-      else { el.textContent=next; }
-      RHideMention();
-      el.focus();
-    });
-  };
-  document.addEventListener("input",onInput,true);
-  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape") RHideMention(); },true);
-}
 function RRefreshGroups(){
   REnsureGroupStyle();
   const rows=RRosterRows();
@@ -196,7 +147,6 @@ function RRefreshGroups(){
     RDecorateGroupRow(el,group);
   }
   RPaintGroupBar();
-  RBindMentions();
 }
 if(!window.__sandGroupUiBound){
   window.__sandGroupUiBound=1;

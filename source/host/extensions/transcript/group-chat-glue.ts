@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -22,6 +23,7 @@ import {
 import {
   assertMembersAreNotGroups,
   buildGroupRedriveNote,
+  groupSendMessageStreamPlan,
   isPassContent,
   isPotentialPassPrefix,
   isSameMemberSet,
@@ -45,6 +47,7 @@ import {
   type GroupOrchestratorDeps,
 } from "./group-chat-orchestrator.js";
 import { describeAgentRunError } from "./agent-run-error.js";
+import { recordGroupTurnFailure } from "./group-turn-failure.js";
 import { AgentGoneError } from "./session-runtime.js";
 import { nextEntryId } from "./transcript-entry-ids.js";
 import {
@@ -75,6 +78,7 @@ type LiveSession = any;
 export class GroupChatGlue {
   readonly dmPreemptedGroupMemberIds = new Set<string>();
   readonly remoteTurnMemberIdsByRoom = new Map<string, string>();
+  readonly groupTurnFailureKeys = new Set<string>();
 
   constructor(readonly tm: TranscriptManagerLike) {}
 
@@ -449,8 +453,16 @@ export class GroupChatGlue {
                 memberTurnTrace?.span.end();
               } catch {}
             }
-          } catch {
-            // A failed member turn is a pass, not a room-wide failure.
+          } catch (error) {
+            recordGroupTurnFailure({
+              roomId: roomSession.id,
+              epoch: this.tm.sendPipeline.currentTurnEpoch(roomSession) ?? 0,
+              memberName: effective.member.name,
+              error,
+              seen: this.groupTurnFailureKeys,
+              appendNotice: (text) => this.appendRoomNotice(roomSession, text),
+              pushError: (tray) => this.tm.trayErrors.pushError(tray),
+            });
           } finally {
             if (
               this.tm.runnerRegistry.activeGroupMemberRunners.get(
@@ -560,6 +572,22 @@ export class GroupChatGlue {
     );
   }
 
+  appendRoomNotice(session: LiveSession, text: string): void {
+    const notice: TranscriptEntry = {
+      kind: "notice",
+      id: `notice-${randomUUID()}`,
+      text,
+      timestampMs: Date.now(),
+    };
+    if (this.tm.sessions.activeSession?.id === session.id)
+      this.tm.appendEntry(notice);
+    else {
+      session.db.appendTranscriptEntry(notice);
+      this.tm.sessionStore.markSessionActivity?.(session);
+      void this.tm.roster.emitAgentUpdate(session.id);
+    }
+  }
+
   postGroupMemberMessage(
     session: LiveSession,
     member: GroupMember,
@@ -630,10 +658,25 @@ export class GroupChatGlue {
           if (isPotentialPassPrefix(live.currentText)) return;
           this.openGroupStreamEntry(member, live);
         } else this.updateGroupStreamEntry(live.currentId, live.currentText);
-      } else if (update.type === "send-message" && live.currentId != null) {
-        live.sealed.push(live.currentId);
-        live.currentId = undefined;
-        live.currentText = "";
+      } else if (update.type === "send-message") {
+        const content =
+          update.message?.type === "text" &&
+          typeof update.message.content === "string"
+            ? update.message.content
+            : "";
+        const plan = groupSendMessageStreamPlan(live, content);
+        if (plan === "skip") return;
+        if (plan === "open-and-seal") {
+          live.currentText = content;
+          this.openGroupStreamEntry(member, live);
+        } else if (live.currentId != null) {
+          this.updateGroupStreamEntry(live.currentId, content);
+        }
+        if (live.currentId != null) {
+          live.sealed.push(live.currentId);
+          live.currentId = undefined;
+          live.currentText = "";
+        }
       }
     } catch {
       // Streaming preview failures must not fail the member turn.

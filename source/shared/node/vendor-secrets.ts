@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { writeFileReplaceSync } from "./atomic-write.js";
 
 export function readPersistedVendorSecrets(storePath: string): Record<string, string> {
   try {
@@ -15,8 +15,5 @@ export function readPersistedVendorSecrets(storePath: string): Record<string, st
 
 export function persistVendorSecret(storePath: string, key: string, value: string): void {
   const secrets = { ...readPersistedVendorSecrets(storePath), [key]: value };
-  mkdirSync(dirname(storePath), { recursive: true });
-  const temporary = `${storePath}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify({ version: 1, secrets })}\n`, { encoding: "utf8", mode: 0o600 });
-  renameSync(temporary, storePath);
+  writeFileReplaceSync(storePath, `${JSON.stringify({ version: 1, secrets })}\n`, { mode: 0o600 });
 }

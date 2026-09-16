@@ -59,7 +59,7 @@ test("group member picker skips other groups", async () => {
   await window.happyDOM.close();
 });
 
-test("open group paints a member bar and @ mention menu", async () => {
+test("open group paints a member bar and does not overlay a second @ menu", async () => {
   const { window, document } = await boot([
     { id: "g1", name: "Launch room", isGroup: true, memberIds: ["a", "b"] },
     { id: "a", name: "Writer", isGroup: false },
@@ -82,8 +82,6 @@ test("open group paints a member bar and @ mention menu", async () => {
   document.body.append(area);
   area.value = "@Wr";
   area.dispatchEvent(new window.Event("input", { bubbles: true }));
-  const mention = document.getElementById("sand-beebot-mention");
-  assert.ok(mention);
-  assert.match(mention.textContent ?? "", /@Writer/);
+  assert.equal(document.getElementById("sand-beebot-mention"), null);
   await window.happyDOM.close();
 });
