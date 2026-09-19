@@ -1,3 +1,5 @@
+import { ErrorDetails } from "../../../packages/proto/generated/aiserver/v1/utils_pb.js";
+
 export const PROVIDER_OVERLOAD_ERROR_TITLE = "Model provider is overloaded";
 export const PROVIDER_OVERLOAD_ERROR_DETAIL =
   "The model provider is under heavy load right now. This is usually temporary — retry, or switch to another model.";
@@ -16,7 +18,7 @@ export interface BackendDetail {
   additionalInfo?: { rateLimitReason?: string; nextResetAt?: string };
 }
 export interface BackendConnectError extends Error {
-  findDetails(type?: unknown): Array<{ details?: BackendDetail }>;
+  findDetails(type: typeof ErrorDetails): Array<{ details?: BackendDetail }>;
   code?: number;
 }
 function isConnectError(value: unknown): value is BackendConnectError {
@@ -24,6 +26,17 @@ function isConnectError(value: unknown): value is BackendConnectError {
     value instanceof Error &&
     typeof (value as Partial<BackendConnectError>).findDetails === "function"
   );
+}
+function backendErrorDetails(
+  error: BackendConnectError,
+): Array<{ details?: BackendDetail }> {
+  try {
+    return error.findDetails(ErrorDetails);
+  } catch {
+    // Error reporting must preserve the original failure if its optional
+    // backend details cannot be decoded.
+    return [];
+  }
 }
 export function walkForBackendConnectError(
   error: unknown,
@@ -34,8 +47,8 @@ export function walkForBackendConnectError(
     return null;
   seen.add(error);
   if (isConnectError(error)) {
-    if (error.findDetails().length > 0) return error;
     first.value ??= error;
+    if (backendErrorDetails(error).length > 0) return error;
   }
   const cause = (error as { cause?: unknown }).cause,
     fromCause = walkForBackendConnectError(cause, seen, first);
@@ -57,7 +70,10 @@ export function findBackendConnectError(
   return detailed ?? (requireDetails ? null : first.value);
 }
 export function getBackendErrorDetailMessage(error: unknown): string | null {
-  const detail = findBackendConnectError(error)?.findDetails()[0]?.details,
+  const connectError = findBackendConnectError(error),
+    detail = connectError == null
+      ? undefined
+      : backendErrorDetails(connectError)[0]?.details,
     title = detail?.title?.trim(),
     message = detail?.detail?.trim();
   return !title
@@ -178,7 +194,10 @@ export function mapErrorDetailButtons(
 export function describeAgentRunError(error: unknown): Record<string, unknown> {
   const formatted =
       error instanceof Error ? formatAgentRunError(error) : String(error),
-    detail = findBackendConnectError(error)?.findDetails()[0]?.details,
+    connectError = findBackendConnectError(error),
+    detail = connectError == null
+      ? undefined
+      : backendErrorDetails(connectError)[0]?.details,
     title = detail?.title?.trim() ?? "",
     actions = mapErrorDetailButtons(detail?.buttons);
   let shown = title ? (detail?.detail?.trim() ?? "") : formatted;
