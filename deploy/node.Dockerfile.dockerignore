@@ -1,0 +1,8 @@
+# Keep user data, credentials, caches and desktop payloads out of build context.
+**
+!package.json
+!package-lock.json
+!scripts/
+!scripts/**
+!source/
+!source/**

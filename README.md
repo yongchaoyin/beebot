@@ -10,6 +10,15 @@ There is no Cursor account lock-in.
 This repository is independent of Anysphere, Cursor, xAI, and SpaceX. It is not
 an official Grok Bot release.
 
+The first Mac client + self-hosted server iteration is available. Build the
+server with `npm run node:build`, initialize with `npm run node:init`, configure
+its model, and run `npm run node:start`. In the Mac app, open **Settings → Servers**
+to connect and sign in. Then use the main sidebar **+ → New bot** and choose its
+deployment server. Remote Bots appear in the same sidebar. See the [server guide](docs/node-server.md) and
+[implementation status](docs/distributed-hive-implementation.md) for the current
+scope. Automatic cross-server Bot delegation and multi-tenant hosting are later
+stages; the existing local hive remains available.
+
 ## Design philosophy
 
 BeeBot's core is: you give a goal and a boundary, and bots work like a hive.

@@ -214,6 +214,8 @@ function entrySource(bindings) {
   const adapterKeys = requiredElectronMainProductionBindings.filter(key => key.startsWith("adapters.")).map(key => key.slice("adapters.".length));
   return `${imports.join("\n")}
 import { app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen } from "electron";
+import { join as joinNodePath } from "node:path";
+import { installNodeConnectionIpc } from "./source/electron-main/beebot-node/connection-ipc.ts";
 import { startElectronMainProduction } from "./source/electron-main/main.ts";
 import { createElectronProductionNativeBindings } from "./source/electron-main/main-production-services.ts";
 import { createElectronProductionAvatarImagesBinding } from "./source/electron-main/adapters/avatar-images.ts";
@@ -237,6 +239,7 @@ ${adapterKeys.filter(key => key !== "coordinator" && key !== "ipc").map(key => `
 };
 
 try {
+  void app.whenReady().then(() => installNodeConnectionIpc({ app, safeStorage, ipcMain, BrowserWindow, shell }, joinNodePath(__dirname, "../renderer/index.html"))).catch(error => console.error("[beebot-client] server connections unavailable:", error));
   startElectronMainProduction({
     native: createElectronProductionNativeBindings({ app, safeStorage, ipcMain, BrowserWindow, Menu, shell, screen }),
     moduleDir: __dirname,

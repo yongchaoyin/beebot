@@ -1,5 +1,13 @@
 # Architecture
 
+The proposed client/server and cross-node hive architecture is described in
+[Distributed Hive Architecture](distributed-hive-architecture.md). This is a design
+proposal, refined by the [Implementation Decisions v2](distributed-hive-decisions.md).
+Concrete application boundaries, native login, and failover are specified in
+[Clients, Connectivity, and Recovery](client-connectivity-and-recovery.md).
+The early prototype is paused and isolated from the active source tree; the
+runtime described below is the current implementation.
+
 BeeBot keeps two editable source roots:
 
 - `source/` contains the Electron main, host, coordinator, local-exec, shared,

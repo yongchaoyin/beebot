@@ -44,6 +44,9 @@ export interface ConversationComposerProps {
   editorProviders?: PromptEditorProviders;
   scopeKey?: string;
   acceptedSendGeneration?: number;
+  /** Capability gates: hide unsupported controls without changing local defaults. */
+  enableAttachments?: boolean;
+  enableVoice?: boolean;
 }
 
 export function extractClipboardFiles(items: DataTransferItemList | null | undefined): File[] {
@@ -68,7 +71,7 @@ export function selectComposerFiles(files: readonly File[], existingCount: numbe
   return files.slice(0, remaining);
 }
 
-export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabled = false, notice, placeholder = "Ask anything, or drop a file.", transcribeAudio, onChange, onClearReplyTarget, onRemoveAttachment, onStageFiles, onSubmit, replyTarget, editorProviders, scopeKey }: ConversationComposerProps) {
+export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabled = false, notice, placeholder = "Ask anything, or drop a file.", transcribeAudio, onChange, onClearReplyTarget, onRemoveAttachment, onStageFiles, onSubmit, replyTarget, editorProviders, scopeKey, enableAttachments = true, enableVoice = true }: ConversationComposerProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const editorControls = useRef<PromptEditorControls | null>(null);
   const dragDepth = useRef(0);
@@ -90,8 +93,8 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
   }), [voice.controller]);
 
   useEffect(() => {
-    if (disabled && voiceBusy) voice.handleCancelClick();
-  }, [disabled, voiceBusy, voice.handleCancelClick]);
+    if ((disabled || !enableVoice) && voiceBusy) voice.handleCancelClick();
+  }, [disabled, enableVoice, voiceBusy, voice.handleCancelClick]);
 
   useEffect(() => {
     if (acceptedSendGeneration > 0) editorControls.current?.clear();
@@ -117,9 +120,10 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
   }, [onChange]);
 
   const stageFiles = useCallback((files: readonly File[]) => {
+    if (!enableAttachments) return;
     const accepted = selectComposerFiles(files, draft.attachments.length);
     if (accepted.length > 0) void onStageFiles(accepted);
-  }, [draft.attachments.length, onStageFiles]);
+  }, [draft.attachments.length, enableAttachments, onStageFiles]);
 
   const stageSelectedFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
@@ -127,7 +131,7 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
     stageFiles(files);
   };
 
-  const hasDraggedFiles = useCallback((event: DragEvent<HTMLDivElement>) => hasFileDragData(event.dataTransfer?.types), []);
+  const hasDraggedFiles = useCallback((event: DragEvent<HTMLDivElement>) => enableAttachments && hasFileDragData(event.dataTransfer?.types), [enableAttachments]);
   const onDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
@@ -197,7 +201,7 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
         />
         {voice.isRecording || voice.isActivating ? <span aria-live="polite" className="sand-prompt-voice-status" role="status">Listening…</span> : null}
         <div className="sand-prompt-actions-row">
-          <SandIconButton aria-label="Attach file" className={PROMPT_ATTACH_CLASS} disabled={disabled || atLimit || voiceBusy} icon="plus" onClick={() => fileInput.current?.click()} shape="circle" size="lg" type="button" variant="default" />
+          {enableAttachments ? <SandIconButton aria-label="Attach file" className={PROMPT_ATTACH_CLASS} disabled={disabled || atLimit || voiceBusy} icon="plus" onClick={() => fileInput.current?.click()} shape="circle" size="lg" type="button" variant="default" /> : <span />}
           <span className="sand-prompt-actions-trailing sand-prompt-cta-cluster sand-78zum5 sand-6s0dn4 sand-2lah0s">
             {voice.isRecording ? <button aria-label="Stop dictation" className={RECORDING_CHIP_CLASS} onClick={() => voice.handleStopClick()} onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -209,13 +213,13 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
               <span aria-hidden="true" className="sand-recording-chip__timer sand-2lah0s sand-fc7y3v sand-1yxxptd sand-1bignsj sand-ss6m8b">{voice.recordingDuration}</span>
               <span className="sand-recording-chip__waveform sand-1xp8n7a sand-18gnavp sand-2lah0s sand-78zum5 sand-6s0dn4"><VoiceWaveform stream={voice.stream} /></span>
             </button> : voice.isProcessing ? <span aria-label="Transcribing voice input…" className="sand-prompt-voice-processing sand-2lah0s sand-16w9d4f sand-1th6cxs sand-78zum5 sand-6s0dn4 sand-l56j7k" role="status"><SandSpinner ariaLabel="Transcribing voice input…" size={18} />Transcribing…</span> : <>
-              {hasPayload ? <SandIconButton aria-label="Start voice input" className={PROMPT_MIC_PAYLOAD_CLASS} disabled={disabled || voiceBusy} icon="mic" onClick={() => voice.handleMicClick()} shape="circle" size="lg" type="button" variant="default" /> : null}
-              {hasPayload ? <button aria-label="Send message" className={PROMPT_SEND_CLASS} disabled={!canSend} type="submit"><span className="sand-1n2onr6 sand-1kky2od sand-lup9mm"><ComposerGlyph hidden={hasPayload} name="mic" /><ComposerGlyph hidden={!hasPayload} name="arrow-up" /></span></button> : <SandIconButton aria-label="Start voice input" className={PROMPT_MIC_EMPTY_CLASS} disabled={disabled} icon="mic" onClick={() => voice.handleMicClick()} shape="circle" size="lg" type="button" variant="default" />}
+              {hasPayload && enableVoice ? <SandIconButton aria-label="Start voice input" className={PROMPT_MIC_PAYLOAD_CLASS} disabled={disabled || voiceBusy} icon="mic" onClick={() => voice.handleMicClick()} shape="circle" size="lg" type="button" variant="default" /> : null}
+              {hasPayload || !enableVoice ? <button aria-label="Send message" className={PROMPT_SEND_CLASS} disabled={!canSend} type="submit"><span className="sand-1n2onr6 sand-1kky2od sand-lup9mm"><ComposerGlyph hidden={true} name="mic" /><ComposerGlyph name="arrow-up" /></span></button> : <SandIconButton aria-label="Start voice input" className={PROMPT_MIC_EMPTY_CLASS} disabled={disabled} icon="mic" onClick={() => voice.handleMicClick()} shape="circle" size="lg" type="button" variant="default" />}
             </>}
           </span>
         </div>
         {voice.error ? <p aria-live="polite" className="sand-prompt-voice-error" role="status">{voice.error.message}</p> : null}
-        <input aria-hidden="true" className="sand-prompt-file-input" multiple onChange={stageSelectedFiles} ref={fileInput} tabIndex={-1} type="file" />
+        {enableAttachments ? <input aria-hidden="true" className="sand-prompt-file-input" multiple onChange={stageSelectedFiles} ref={fileInput} tabIndex={-1} type="file" /> : null}
       </div>
     </form>
   );

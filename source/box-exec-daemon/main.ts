@@ -12,10 +12,11 @@ export async function runBoxExecDaemonEntrypoint(): Promise<void> {
     ...(process.env.SAND_BOX_EXEC_DAEMON_AUTH_TOKEN == null ? {} : { authToken: process.env.SAND_BOX_EXEC_DAEMON_AUTH_TOKEN }),
   });
   process.stdout.write(`${JSON.stringify({ event: "box-exec-daemon-ready", url: handle.url, workspaceRoot: handle.workspaceRoot, terminalsDirectory: handle.terminalsDirectory })}\n`);
-  const shutdown = async () => {
-    await handle.stop();
-    process.exitCode = 0;
-  };
-  process.once("SIGINT", () => { void shutdown(); });
-  process.once("SIGTERM", () => { void shutdown(); });
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = () => shutdownPromise ??= handle.stop().then(() => { process.exitCode = 0; });
+  // The Host and its supervisor may signal the same group during shutdown.
+  // Keep handlers installed until detached Shell groups have been reaped;
+  // a second signal must not apply the default exit action halfway through.
+  process.on("SIGINT", () => { void shutdown(); });
+  process.on("SIGTERM", () => { void shutdown(); });
 }

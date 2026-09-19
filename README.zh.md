@@ -8,6 +8,13 @@ BeeBot 是一个跑在 macOS 上的本地电脑 Agent。你给出目标和边界
 
 本仓库与 Anysphere、Cursor、xAI、SpaceX 无关，也不是官方 Grok Bot 发行版。
 
+现已增加第一轮 **Mac 客户端 + 独立服务端**。运行 `npm run node:build` 构建，
+`npm run node:init` 初始化，配置模型后执行 `npm run node:start`；在 Mac 的
+**设置 → 服务器（Settings → Servers）** 添加地址并登录，再从主 Bot 列表上方 **+ → 新建 Bot** 选择部署服务器。
+远端 Bot 会出现在左侧主列表中。详见[运行说明](docs/node-server.md)和
+[实施进度](docs/distributed-hive-implementation.md)。跨服务器自动委派与多用户托管
+属于后续阶段，现有本地蜂群能力继续保留。
+
 ## 设计哲学
 
 BeeBot 的核心是：你给出目标和边界，Bot 像蜂群一样自主分工、交换信息、

@@ -1,0 +1,33 @@
+@import "../recovered/features/conversation/workspace/view.css";
+
+/* The build helper scopes this complete stylesheet, including imported rules,
+   to #beebot-node-chat. Local conversations keep their original CSS. */
+:scope { color: var(--cursor-text-primary); background: var(--cursor-bg-editor, var(--cursor-editor)); font: inherit; }
+.beebot-node-conversation { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; width: 100%; height: 100%; overflow: hidden; }
+.beebot-node-conversation *, .beebot-node-conversation *::before, .beebot-node-conversation *::after { box-sizing: border-box; }
+.beebot-node-conversation > .sand-chat-header { flex: 0 0 auto; min-height: 52px; -webkit-app-region: drag; }
+.beebot-node-conversation .sand-chat-header button, .beebot-node-server-label { -webkit-app-region: no-drag; }
+.beebot-node-server-label { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cursor-text-tertiary); font-size: 12px; }
+.beebot-node-conversation .sand-chat-stage { position: relative; }
+.beebot-node-conversation .sand-chat-input-dock { box-sizing: border-box; }
+.beebot-node-conversation .sand-virtual-transcript__row { position: relative; inset: auto; width: 100%; transform: none; }
+.beebot-node-conversation .sand-virtual-transcript__row[data-role="user"] > .sand-message-action-anchor { margin-left: auto; }
+.beebot-node-conversation .sand-message-action-anchor { width: fit-content; max-width: min(88%, 640px); }
+.beebot-node-conversation .sand-message { max-width: 100%; }
+.beebot-node-conversation .sand-prompt-actions-trailing .sand-prompt-send { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; color: var(--cursor-bg-editor, #fff); background: var(--cursor-text-primary); cursor: pointer; }
+.beebot-node-conversation .sand-prompt-send:disabled { opacity: .35; cursor: default; }
+.beebot-node-conversation .sand-prompt-field p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--cursor-input-placeholder-foreground, var(--cursor-text-tertiary)); }
+.beebot-message-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 2px 0; color: var(--cursor-text-tertiary); font-size: 11px; }
+.beebot-message-footer button, .beebot-chat-status button, .beebot-chat-recovery button { padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--cursor-text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.beebot-message-footer button:hover, .beebot-chat-status button:hover, .beebot-chat-recovery button:hover { background: var(--cursor-bg-secondary); color: var(--cursor-text-primary); }
+.beebot-message-footer button:disabled, .beebot-chat-status button:disabled, .beebot-chat-recovery button:disabled { opacity: .4; cursor: default; }
+.beebot-chat-status { display: flex; align-items: center; gap: 8px; margin: 0 8px 8px; color: var(--cursor-text-tertiary); font-size: 12px; }
+.beebot-chat-status > span { flex: 1; }
+.beebot-chat-error { margin: 0 8px 8px; color: var(--cursor-error, #ca4d42); font-size: 12px; overflow-wrap: anywhere; }
+.beebot-chat-loading { position: absolute; top: 32px; align-self: center; color: var(--cursor-text-tertiary); font-size: 13px; }
+.beebot-chat-recovery form { display: grid; gap: 8px; margin: 0 8px 12px; font-size: 12px; color: var(--cursor-text-secondary); }
+.beebot-chat-recovery label { display: flex; gap: 6px; align-items: center; }
+.beebot-chat-recovery label:has(textarea) { display: grid; }
+.beebot-chat-recovery textarea { width: 100%; min-height: 58px; padding: 8px; font: inherit; color: var(--cursor-text-primary); background: var(--cursor-bg-input-surface, var(--cursor-bg-secondary)); border: 1px solid var(--cursor-stroke-secondary); border-radius: 8px; resize: vertical; }
+.beebot-chat-recovery button { justify-self: start; }
+@media (max-width: 720px) { .beebot-node-server-label { max-width: 110px; } .beebot-node-conversation .sand-chat-input-dock { padding-inline: 14px; } .beebot-node-conversation .sand-virtual-transcript { padding-inline: 16px; } }

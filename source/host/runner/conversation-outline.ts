@@ -160,7 +160,12 @@ export function getOutlineToolCallStatus(
   toolCall: OutlineToolCall,
 ): "pending" | "failed" | "done" {
   if (event !== "toolCallCompleted") return "pending";
-  return isFailedTaskToolCall(toolCall) ? "failed" : "done";
+  const tool = toolCall.tool.value as { readonly result?: { readonly result?: { readonly case?: string } } } | undefined;
+  const outcome = tool?.result?.result?.case;
+  // Most generated tools use the same nested result oneof. The former Task-only
+  // check incorrectly displayed nonzero shell exits and denied actions as done.
+  return outcome != null && ["error", "failure", "timeout", "rejected", "spawnError", "permissionDenied", "sandboxUnsupported"].includes(outcome)
+    ? "failed" : "done";
 }
 
 export function sendMessageFromToolCall(toolCall: SendMessageToolCall): OutlineMessage | null {

@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Window } from "happy-dom";
+import { patchOriginalSettingsPanel } from "../scripts/lib/router-renderer-patch.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const snippetPath = path.join(repoRoot, "scripts/lib/sand-account-menu.snippet.js");
@@ -244,5 +245,31 @@ test("landing snippet retries settings nav by includes, not exact textContent", 
     assert.equal(clicked, 1);
   } finally {
     await closeWindow(window);
+  }
+});
+
+test("both shipped Settings event listeners select Servers without falling back to General", async () => {
+  const panel = patchOriginalSettingsPanel(await readFile(path.join(repoRoot, "src/app/dist/renderer/assets/index-BlqerJhg.js"), "utf8"));
+  const start = panel.indexOf("if(!window.__sandOpenSettingsBound)");
+  const listener = panel.slice(start, panel.indexOf("const RRouterProviders=", start));
+  for (const language of ["en", "zh"]) {
+    const { window, document } = await boot(language);
+    try {
+      const clicks = [];
+      const nav = document.createElement("nav");
+      nav.setAttribute("aria-label", "Settings sections");
+      for (const [id, label] of [["general", language === "zh" ? "通用" : "General"], ["servers", language === "zh" ? "服务器" : "Servers"], ["router", language === "zh" ? "路由" : "Router"]]) {
+        const button = document.createElement("button");
+        button.textContent = `\u{e123}${label}`;
+        button.onclick = () => clicks.push(id);
+        nav.append(button);
+      }
+      document.body.append(nav);
+      window.eval(listener);
+      window.dispatchEvent(new window.CustomEvent("sand-open-settings", { detail: { section: "servers" } }));
+      assert.deepEqual(clicks, ["servers", "servers"]);
+    } finally {
+      await closeWindow(window);
+    }
   }
 });

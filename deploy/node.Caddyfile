@@ -1,0 +1,9 @@
+{
+	admin off
+}
+
+{$BEEBOT_DOMAIN} {
+	# No access log: setup links and OAuth authorization codes must not be logged.
+	# reverse_proxy supports the authenticated WebSocket event channel as well.
+	reverse_proxy node:7331
+}

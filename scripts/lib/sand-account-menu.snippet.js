@@ -23,7 +23,7 @@ function ROpenExternal(url,failed){
   });
 }
 function RClickSettingsNav(section){
-  const labels=section==="router"?["Router","路由"]:["General","通用"];
+  const labels=section==="servers"?["Servers","服务器"]:section==="router"?["Router","路由"]:["General","通用"];
   const nodes=[...document.querySelectorAll('.sand-settings-nav__item, nav[aria-label="Settings sections"] button')];
   const hit=nodes.find(el=>{
     const text=el.textContent||"";
@@ -85,7 +85,7 @@ if(!window.__sandAccountMenuBound){
 if(!window.__sandAccountOpenBound){
   window.__sandAccountOpenBound=!0;
   window.addEventListener("sand-open-settings",ev=>{
-    const section=ev&&ev.detail&&ev.detail.section==="router"?"router":"general";
+    const requested=ev&&ev.detail&&ev.detail.section,section=requested==="router"||requested==="servers"?requested:"general";
     RSelectSettingsSection(section);
   });
   window.addEventListener("sand-open-about",()=>{

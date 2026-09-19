@@ -3,11 +3,15 @@ function RUiCopy(){
   return zh?{
     title:"新建 Bot",nameLabel:"名称",ph:"New Bot",start:"开始使用",close:"关闭",vendor:"使用的 API",
     newBot:"新建 Bot",newGroup:"新建群聊",groupTitle:"新建群聊",groupName:"群名称",
-    to:"收件人：",search:"搜索 Bot",create:"创建"
+    to:"收件人：",search:"搜索 Bot",create:"创建",deployment:"部署服务器",local:"本机",responsibilities:"职责",
+    serverHint:"这个 Bot 使用所选服务器的模型和工作环境。",offline:"未连接",creating:"正在创建…",
+    unavailable:"请选择已连接的服务器，或等待所选服务器恢复连接。",missing:"服务器连接功能暂不可用。",invalid:"服务器未返回新建的 Bot。"
   }:{
     title:"New Bot",nameLabel:"Name",ph:"New Bot",start:"Get started",close:"Close",vendor:"API",
     newBot:"New Bot",newGroup:"New group chat",groupTitle:"New group chat",groupName:"Group name",
-    to:"To:",search:"Search Bot",create:"Create"
+    to:"To:",search:"Search Bot",create:"Create",deployment:"Deployment server",local:"This Mac",responsibilities:"Responsibilities",
+    serverHint:"This Bot uses the selected server's model and working environment.",offline:"Not connected",creating:"Creating…",
+    unavailable:"Choose a connected server, or wait for the selected server to reconnect.",missing:"Server connections are unavailable.",invalid:"The server did not return the new Bot."
   };
 }
 const R_COLORS=[{id:"black",hex:"#000"},{id:"brown",hex:"#936439"},{id:"red",hex:"#FF263C"},{id:"orange",hex:"#FF6700"},{id:"yellow",hex:"#FF9800"},{id:"green",hex:"#00C972"},{id:"cyan",hex:"#00BCA6"},{id:"blue",hex:"#1084FE"},{id:"violet",hex:"#9159FE"},{id:"magenta",hex:"#FF309B"},{id:"gray",hex:"#777"}];
@@ -61,6 +65,7 @@ function RIsGroupId(id){
 function RListAgents(){
   const seen=new Set(); const out=[];
   for(const el of document.querySelectorAll("[data-agent-id]")){
+    if(el.closest("[data-node-bot-id], [data-node-connection-id]"))continue;
     const id=el.getAttribute("data-agent-id"); if(!id||seen.has(id)||RIsGroupId(id)) continue; seen.add(id);
     const name=(el.querySelector("[class*='name']")||el).textContent.trim().split("\n")[0]||id;
     out.push({id,name});
@@ -68,44 +73,97 @@ function RListAgents(){
   return out;
 }
 
-window.__sandPickCreateBot=function(preset){return new Promise(async resolve=>{
-  await RLang(); const copy=RUiCopy(); document.getElementById("sand-create-bot-sheet")?.remove();
+window.__sandPickCreateBot=async function(preset){
+  await RLang(); const copy=RUiCopy(); const previous=document.getElementById("sand-create-bot-sheet");
+  if(previous?.__sandDismiss){if(previous.__sandDismiss()===false)return null}else previous?.remove();
+  return new Promise(resolve=>{
   const root=document.createElement("div"); root.id="sand-create-bot-sheet";
   const left=RSidebarLeft();
   root.style.cssText="position:fixed;top:0;right:0;bottom:0;left:"+left+"px;z-index:99990;background:#fff;display:flex;flex-direction:column;align-items:center;padding:28px 24px;font-family:system-ui,-apple-system,sans-serif;color:#111;overflow:auto";
   let color=R_COLORS.some(c=>c.id===preset?.avatarColor)?preset.avatarColor:"green";
   let shape=R_SHAPES.includes(preset?.avatarShape)?preset.avatarShape:"blob";
   let name=typeof preset?.name==="string"?preset.name:"";
+  let description=typeof preset?.description==="string"?preset.description:"";
+  let deploymentServerId=typeof preset?.deploymentServerId==="string"?preset.deploymentServerId:"";
+  let servers=[],busy=false,alive=true,refreshSerial=0,unsubscribe;
+  const operationKeys=new Map();
   let vendors=[]; let vendorId=typeof preset?.inferenceVendorId==="string"?preset.inferenceVendorId:"";
-  try{const listed=await window.desktop.agent.getInferenceVendors(); vendors=Array.isArray(listed?.vendors)?listed.vendors:[]; if(!vendorId) vendorId=listed?.defaultVendorId||vendors[0]?.id||""}catch{}
-  const finish=v=>{root.remove();resolve(v)};
+  const finish=v=>{if(!alive)return;alive=false;refreshSerial++;unsubscribe?.();root.remove();resolve(v)};
+  root.__sandDismiss=()=>{if(busy)return false;finish(null);return true};
+  const status=document.createElement("div");status.setAttribute("role","status");status.style.cssText="width:min(420px,100%);font-size:13px;color:#b3261e;white-space:pre-wrap;margin-top:12px";
+  const setError=error=>{status.textContent=error?String(error.message||error):""};
+  let deployment,submit,input,responsibilities,close,vendorSelect;
+  const online=()=>servers.some(server=>server.id===deploymentServerId&&server.status==="online");
+  const updateReady=()=>{
+    if(!submit)return;
+    submit.disabled=busy||!!deploymentServerId&&!online();submit.textContent=busy?copy.creating:copy.start;submit.style.opacity=submit.disabled?".5":"1";
+    for(const field of root.querySelectorAll("input,textarea,select,button"))field.disabled=busy;
+    submit.disabled=busy||!!deploymentServerId&&!online();
+  };
+  const renderServers=()=>{
+    if(!deployment)return;
+    deployment.replaceChildren();
+    const local=document.createElement("option");local.value="";local.textContent=copy.local;deployment.append(local);
+    for(const server of servers){const option=document.createElement("option");option.value=server.id;option.textContent=[server.name||server.baseUrl,server.baseUrl,server.status==="online"?"":copy.offline].filter(Boolean).join(" · ");deployment.append(option)}
+    if(deploymentServerId&&!servers.some(server=>server.id===deploymentServerId)){const missing=document.createElement("option");missing.value=deploymentServerId;missing.textContent=copy.offline;deployment.append(missing)}
+    deployment.value=deploymentServerId;updateReady();
+  };
+  const refreshServers=async()=>{
+    const serial=++refreshSerial;
+    try{const listed=await window.__beebotServerBots?.listServers?.();if(!alive||serial!==refreshSerial)return;servers=Array.isArray(listed)?listed:[];renderServers()}
+    catch(error){if(!alive||serial!==refreshSerial)return;servers=[];renderServers();if(deploymentServerId)setError(error)}
+  };
   const paint=()=>{
     const hex=R_COLORS.find(c=>c.id===color)?.hex||"#00C972";
     root.innerHTML="";
     const bar=document.createElement("div"); bar.style.cssText="width:min(420px,100%);display:flex;align-items:center;gap:12px;margin-bottom:20px";
-    const close=document.createElement("button"); close.type="button"; close.textContent="×"; close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:#f2f2f0;font-size:22px;cursor:pointer"; close.onclick=()=>finish(null);
+    close=document.createElement("button"); close.type="button"; close.textContent="×";close.setAttribute("aria-label",copy.close); close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:#f2f2f0;font-size:22px;cursor:pointer"; close.onclick=()=>{if(!busy)finish(null)};
     const title=document.createElement("div"); title.textContent=copy.title; title.style.cssText="font-size:18px;font-weight:600";
     bar.append(close,title);
     const preview=document.createElement("div"); preview.style.cssText="width:120px;height:120px;margin:12px 0 24px"; preview.append(RBotSvg(shape,color,120));
     const colors=document.createElement("div"); colors.style.cssText="width:min(420px,100%);display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:12px";
-    for(const item of R_COLORS){const b=document.createElement("button"); b.type="button"; b.style.cssText="width:26px;height:26px;border-radius:13px;border:"+(item.id===color?"2px solid #111":"2px solid transparent")+";background:"+item.hex+";cursor:pointer"; b.onclick=()=>{color=item.id;paint()}; colors.append(b)}
+    for(const item of R_COLORS){const b=document.createElement("button"); b.type="button";b.setAttribute("aria-label",item.id); b.style.cssText="width:26px;height:26px;border-radius:13px;border:"+(item.id===color?"2px solid #111":"2px solid transparent")+";background:"+item.hex+";cursor:pointer"; b.onclick=()=>{if(!busy){color=item.id;paint()}}; colors.append(b)}
     const shapes=document.createElement("div"); shapes.style.cssText="width:min(420px,100%);display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:20px";
-    for(const item of R_SHAPES){const b=document.createElement("button"); b.type="button"; b.title=item; b.style.cssText="width:36px;height:36px;border:0;padding:0;background:transparent;cursor:pointer;border-radius:8px;outline:"+(item===shape?"2px solid #111":"none")+";outline-offset:2px"; b.append(RBotSvg(item,item===shape?color:"gray",32)); b.onclick=()=>{shape=item;paint()}; shapes.append(b)}
+    for(const item of R_SHAPES){const b=document.createElement("button"); b.type="button"; b.title=item; b.style.cssText="width:36px;height:36px;border:0;padding:0;background:transparent;cursor:pointer;border-radius:8px;outline:"+(item===shape?"2px solid #111":"none")+";outline-offset:2px"; b.append(RBotSvg(item,item===shape?color:"gray",32)); b.onclick=()=>{if(!busy){shape=item;paint()}}; shapes.append(b)}
+    const deploymentLabel=document.createElement("label");deploymentLabel.textContent=copy.deployment;deploymentLabel.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin-bottom:6px";
+    deployment=document.createElement("select");deployment.setAttribute("aria-label",copy.deployment);deployment.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:12px";
+    deployment.onchange=()=>{if(!busy){deploymentServerId=deployment.value;setError(null);paint();if(deploymentServerId&&!online())setError(copy.unavailable)}};
     const label=document.createElement("label"); label.textContent=copy.nameLabel; label.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin-bottom:6px";
-    const input=document.createElement("input"); input.type="text"; input.placeholder=copy.ph; input.value=name; input.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:12px";
+    input=document.createElement("input"); input.type="text";input.maxLength=100;input.setAttribute("aria-label",copy.nameLabel); input.placeholder=copy.ph; input.value=name; input.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:12px";
     input.oninput=()=>{name=input.value};
     const vendorLabel=document.createElement("label"); vendorLabel.textContent=copy.vendor; vendorLabel.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin:8px 0 6px";
-    const vendorSelect=document.createElement("select"); vendorSelect.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:20px;appearance:none;-webkit-appearance:none;box-sizing:border-box";
+    vendorSelect=document.createElement("select");vendorSelect.setAttribute("aria-label",copy.vendor); vendorSelect.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:20px;appearance:none;-webkit-appearance:none;box-sizing:border-box";
     if(vendors.length===0){const opt=document.createElement("option"); opt.textContent=copy.vendor; opt.value=""; vendorSelect.append(opt)}
     for(const item of vendors){const opt=document.createElement("option"); opt.value=item.id; opt.textContent=item.label+(item.modelId?" · "+item.modelId:""); if(item.id===vendorId) opt.selected=true; vendorSelect.append(opt)}
     vendorSelect.onchange=()=>{vendorId=vendorSelect.value};
-    const submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.start; submit.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+hex+";cursor:pointer";
-    submit.onclick=()=>finish({name:name.trim()||copy.ph,avatarColor:color,avatarShape:shape,inferenceVendorId:vendorId||vendorSelect.value,isKickstartRequested:!0});
+    const descriptionLabel=document.createElement("label");descriptionLabel.textContent=copy.responsibilities;descriptionLabel.style.cssText=vendorLabel.style.cssText;
+    responsibilities=document.createElement("textarea");responsibilities.value=description;responsibilities.maxLength=8000;responsibilities.setAttribute("aria-label",copy.responsibilities);responsibilities.style.cssText="width:min(420px,100%);min-height:80px;border:0;border-radius:12px;background:#f4f4f2;padding:12px 14px;font:15px system-ui;margin-bottom:12px;box-sizing:border-box;resize:vertical";responsibilities.oninput=()=>{description=responsibilities.value};
+    const hint=document.createElement("p");hint.textContent=copy.serverHint;hint.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin:0 0 16px";
+    submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.start; submit.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+hex+";cursor:pointer";
+    submit.onclick=async()=>{
+      if(busy||!alive)return;
+      const draft={name:name.trim()||copy.ph,avatarColor:color,avatarShape:shape,inferenceVendorId:vendorId||vendorSelect.value,isKickstartRequested:!0,deploymentServerId:""};
+      if(!deploymentServerId){finish(draft);return}
+      if(!online()){setError(copy.unavailable);return}
+      const remote={deploymentServerId,name:draft.name,description,avatarColor:color,avatarShape:shape};
+      const signature=JSON.stringify(remote);if(!operationKeys.has(signature))operationKeys.set(signature,crypto.randomUUID());
+      busy=true;setError(null);updateReady();
+      try{
+        if(typeof window.__sandCreateAgent!=="function")throw new Error(copy.missing);
+        await window.__sandCreateAgent({...remote,key:operationKeys.get(signature)});
+        finish(null);
+      }catch(error){if(alive)setError(error)}finally{busy=false;if(alive)updateReady()}
+    };
     input.addEventListener("keydown",ev=>{if(ev.key==="Enter")submit.click()});
-    root.append(bar,preview,colors,shapes,label,input,vendorLabel,vendorSelect,submit); input.focus();
+    root.append(bar,preview,colors,shapes,deploymentLabel,deployment,label,input);
+    if(deploymentServerId)root.append(descriptionLabel,responsibilities,hint);else root.append(vendorLabel,vendorSelect);
+    root.append(submit,status);renderServers();input.focus();
   };
-  document.body.append(root); paint();
-})};
+  document.body.append(root);paint();void refreshServers();
+  try{unsubscribe=window.desktop?.nodes?.onChanged?.(()=>void refreshServers())}catch{}
+  Promise.resolve().then(()=>window.desktop.agent.getInferenceVendors()).then(listed=>{if(!alive)return;vendors=Array.isArray(listed?.vendors)?listed.vendors:[];if(!vendorId)vendorId=listed?.defaultVendorId||vendors[0]?.id||"";paint()}).catch(()=>{});
+  });
+};
 window.__sandPickCreateGroup=function(){return new Promise(async resolve=>{
   await RLang(); const copy=RUiCopy(); document.getElementById("sand-create-group-sheet")?.remove();
   const agents=RListAgents();
@@ -190,4 +248,18 @@ if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(as
   };
   wrap.append(text,sel); pane.append(wrap);
 },1200)}
-function MOn(n){const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{const created=await e.createAgent({...r,origin:"user",...i});const id=created?.agent?.id||created?.id;if(id&&r&&typeof r.inferenceVendorId==="string"&&r.inferenceVendorId.length>0){window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[id]=r.inferenceVendorId}return created};window.__sandCreateGroup=(r)=>e.createGroup(r);window.__sandUpdateAgent=(id,profile)=>e.updateAgent({id,profile});const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);
+function MOn(n){const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
+  const {deploymentServerId,connectionId,key,...local}={...r,origin:"user",...i};
+  if(deploymentServerId!==undefined&&deploymentServerId!==""){
+    const copy=RUiCopy(),api=window.__beebotServerBots;
+    if(typeof deploymentServerId!=="string"||!api||typeof api.listServers!=="function"||typeof api.create!=="function"||typeof api.open!=="function")throw new Error(copy.missing);
+    const servers=await api.listServers();
+    if(!Array.isArray(servers)||!servers.some(server=>server.id===deploymentServerId&&server.status==="online"))throw new Error(copy.unavailable);
+    const created=await api.create({connectionId:deploymentServerId,name:local.name,description:typeof local.description==="string"?local.description:"",avatarColor:local.avatarColor,avatarShape:local.avatarShape,key:key||crypto.randomUUID()});
+    if(!created?.bot||typeof created.bot.id!=="string")throw new Error(copy.invalid);
+    await api.open(deploymentServerId,created.bot);
+    return;
+  }
+  window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();
+  const created=await e.createAgent(local);const id=created?.agent?.id||created?.id;if(id&&r&&typeof r.inferenceVendorId==="string"&&r.inferenceVendorId.length>0){window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[id]=r.inferenceVendorId}return created
+};window.__sandCreateGroup=(r)=>{window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();return e.createGroup(r)};window.__sandUpdateAgent=(id,profile)=>e.updateAgent({id,profile});const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);

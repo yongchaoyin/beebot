@@ -94,7 +94,9 @@ test("create overlay remembers the vendor chosen for a new bot", async () => {
 test("changing a bot vendor does not blank its description", async () => {
   const overlay = await readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8");
   assert.match(overlay, /inferenceVendorId:sel\.value/);
-  assert.doesNotMatch(overlay, /description:""/);
+  const vendorUpdate = overlay.match(/sel\.onchange=\(\)=>\{([\s\S]*?)\n  \};/);
+  assert.ok(vendorUpdate, "the existing Bot vendor update handler must exist");
+  assert.doesNotMatch(vendorUpdate[1], /description\s*:/);
   const lifecycle = await readFile(path.join(repoRoot, "source/host/extensions/transcript/agent-lifecycle.ts"), "utf8");
   assert.match(lifecycle, /typeof profile\.description === "string"/);
 });

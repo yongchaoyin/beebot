@@ -1,4 +1,5 @@
 import { errorLogTag } from "../../shared/errors.js";
+import { standaloneExecEndpoint } from "./exec-daemon-endpoint.js";
 import { reportHostDiagnostic } from "../host-diagnostics.js";
 import type { HostBoxInner } from "../extensions/forever-box/host-box.js";
 import {
@@ -160,6 +161,7 @@ export function createProductionBoxInner<
     createBoxTransport(endpoint, generated.createTransport);
 
   const loopback = createSandBox<Accessor>({
+    ...(options.sharedDesktop === false ? standaloneExecEndpoint() : {}),
     ...(options.host === undefined ? {} : { host: options.host }),
     ...(options.authToken === undefined ? {} : { authToken: options.authToken }),
     telemetry: options.telemetry,

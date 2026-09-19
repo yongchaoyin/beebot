@@ -1,0 +1,67 @@
+name: beebot-local-demo
+
+# Local verification only. Each container has its own loopback-only Node and
+# model fixture. The demo supervisor relays TCP for Docker's localhost mapping.
+# Never change these host bindings to 0.0.0.0; use node-compose.yml + HTTPS remotely.
+x-node: &node
+  image: beebot-node:validation
+  pull_policy: never
+  init: true
+  restart: unless-stopped
+  entrypoint: ["node", "/demo/local-node-demo.mjs"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 512
+  mem_limit: 2g
+  cpus: 1.5
+  stop_grace_period: 30s
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7331/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 10s
+    timeout: 3s
+    start_period: 15s
+    retries: 5
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "2"
+
+services:
+  node-a:
+    <<: *node
+    container_name: beebot-demo-a
+    environment:
+      DEMO_NODE: a
+      DEMO_PUBLIC_PORT: "17431"
+    ports:
+      - "127.0.0.1:17431:7332"
+    volumes:
+      - node_a_data:/var/lib/beebot-node
+      - ../scripts/dev/local-node-demo.mjs:/demo/local-node-demo.mjs:ro
+    networks: [node_a]
+
+  node-b:
+    <<: *node
+    container_name: beebot-demo-b
+    environment:
+      DEMO_NODE: b
+      DEMO_PUBLIC_PORT: "17432"
+    ports:
+      - "127.0.0.1:17432:7332"
+    volumes:
+      - node_b_data:/var/lib/beebot-node
+      - ../scripts/dev/local-node-demo.mjs:/demo/local-node-demo.mjs:ro
+    networks: [node_b]
+
+networks:
+  # Docker Desktop does not publish ports on an internal-only bridge. Separate
+  # ordinary bridges keep the nodes apart while allowing localhost publication.
+  node_a:
+    driver: bridge
+  node_b:
+    driver: bridge
+
+volumes:
+  node_a_data:
+  node_b_data:

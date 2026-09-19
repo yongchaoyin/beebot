@@ -3,13 +3,18 @@ import { readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildNodeChat } from "./build-node-chat.mjs";
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
-const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"router",label:"Router",icon:"git-branch"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
+const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"servers",label:"Servers",icon:"servers"},{id:"router",label:"Router",icon:"git-branch"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 const APPEARANCE_BEFORE = 'l=a.jsx(re,{title:"Appearance",children:a.jsx(ie,{label:"Theme",variant:"card",children:a.jsx(ye,{"aria-label":"Theme",disabled:n,onValueChange:d,options:ba,placement:"bottom-end",size:"lg",value:e,variant:"filled"})})})';
 const APPEARANCE_AFTER = 'l=a.jsx(re,{title:"Appearance",children:a.jsxs(a.Fragment,{children:[a.jsx(ie,{label:"Theme",variant:"card",children:a.jsx(ye,{"aria-label":"Theme",disabled:n,onValueChange:d,options:ba,placement:"bottom-end",size:"lg",value:e,variant:"filled"})}),a.jsx(RLanguageRow,{})]})})';
 const GENERAL_BEFORE = 'Q=x==="general"?a.jsx(Te,{children:a.jsx(Sa,{auth:t})}):null';
 const GENERAL_AFTER = 'Q=x==="general"?a.jsx(Te,{children:a.jsx(Sa,{auth:t})}):x==="router"?a.jsx(RRouterPanel,{}):null';
+// Keep the original compiler cache intact. This branch uses the current onClose
+// callback (y), which is not a dependency of the original General panel cache.
+const SERVERS_BEFORE = ':Q=e[30];let Z;';
+const SERVERS_AFTER = ':Q=e[30];if(x==="servers")Q=a.jsx(Te,{children:a.jsx(RServersPanel,{onOpenBot:y})});let Z;';
 const USAGE_BEFORE = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(Na,{})}):null';
 const USAGE_AFTER = 'Z=x==="usage"?a.jsx(Te,{children:a.jsx(RRouterUsage,{})}):null';
 const COMPONENT_ANCHOR = 'function Sa(s){';
@@ -18,9 +23,9 @@ const COMPONENT_HEAD = String.raw`
 if(!window.__sandOpenSettingsBound){
   window.__sandOpenSettingsBound=!0;
   window.addEventListener("sand-open-settings",ev=>{
-    const section=ev&&ev.detail&&ev.detail.section==="router"?"router":"general";
+    const requested=ev&&ev.detail&&ev.detail.section,section=requested==="router"||requested==="servers"?requested:"general";
     const clickNav=()=>{
-      const labels=section==="router"?["Router","路由"]:["General","通用"];
+      const labels=section==="servers"?["Servers","服务器"]:section==="router"?["Router","路由"]:["General","通用"];
       const nodes=[...document.querySelectorAll('.sand-settings-nav__item, nav[aria-label="Settings sections"] button')];
       const hit=nodes.find(el=>labels.some(label=>(el.textContent||"").includes(label)));
       if(hit) hit.click();
@@ -59,6 +64,18 @@ function RRouterCredential({provider:s,state:e,keys:t,onSaved:n}){const[r,i]=de.
 function RRouterUsageRows({usage:s}){return a.jsxs("div",{children:[a.jsx(ie,{label:"Requests",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:RRouterNumber(s.requests)})}),a.jsx(ie,{divided:!0,label:"Input tokens",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:RRouterNumber(s.inputTokens)})}),a.jsx(ie,{divided:!0,label:"Output tokens",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:RRouterNumber(s.outputTokens)})}),a.jsx(ie,{divided:!0,label:"Cache tokens",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:RRouterNumber(s.cacheReadTokens+s.cacheWriteTokens)})}),a.jsx(ie,{divided:!0,label:"Last used",variant:"card",children:a.jsx(se,{as:"span",color:"secondary",size:"sm",children:s.lastUsedAt?new Date(s.lastUsedAt).toLocaleString():"Not used yet"})})]})}
 function RBoxRuntime(){const[s,e]=de.useState({mode:"remote",status:null,error:null,busy:!0});de.useEffect(()=>{let t=!0;window.desktop.agent.getBoxRuntime().then(n=>{t&&e({...n,error:null,busy:!1})}).catch(n=>{t&&e(r=>({...r,error:String(n?.message??n),busy:!1}))});return()=>{t=!1}},[]);const t=s.mode==="local-docker",n=async()=>{const r=t?"remote":"local-docker";e(i=>({...i,mode:r,busy:!0,error:null}));try{const i=await window.desktop.agent.setBoxRuntime(r);e({...i,error:null,busy:!1})}catch(i){e(o=>({...o,mode:t?"local-docker":"remote",error:String(i?.message??i),busy:!1}))}};return a.jsxs("div",{children:[a.jsx(ie,{description:t?(s.status?.detail??"Shell, files and computer use run in a Docker container on this Mac."):"Shell, files and computer use run on Grok Bot's remote computer.",label:"Use local Docker VM",variant:"card",children:a.jsx("button",{"aria-checked":t,"aria-label":"Use local Docker VM",disabled:s.busy,onClick:n,role:"switch",style:{appearance:"none",background:t?"var(--color-accent-primary, #4f8cff)":"rgba(255,255,255,.14)",border:0,borderRadius:999,cursor:s.busy?"wait":"pointer",height:22,opacity:s.busy?0.65:1,padding:2,position:"relative",transition:"background .15s ease",width:38},type:"button",children:a.jsx("span",{style:{background:"white",borderRadius:"50%",boxShadow:"0 1px 3px rgba(0,0,0,.35)",display:"block",height:18,transform:"translateX("+(t?16:0)+"px)",transition:"transform .15s ease",width:18}})})}),s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null]})}
 function RLanguageRow(){const[s,e]=de.useState("en");de.useEffect(()=>{window.desktop.agent.getUiLanguage().then(n=>{const r=n?.language==="zh"?"zh":"en";e(r);window.__sandUiLanguage=r}).catch(()=>{});return()=>{}},[]);const t=async n=>{e(n);window.__sandUiLanguage=n;try{await window.desktop.agent.setUiLanguage(n)}catch{}window.dispatchEvent(new Event("sand-ui-language-changed"))};const n=s==="zh"?"语言":"Language";return a.jsx(ie,{divided:!0,label:n,variant:"card",children:a.jsx(ye,{"aria-label":n,onValueChange:d=>{if(d!==null)void t(d)},options:[{value:"en",label:"English"},{value:"zh",label:"中文"}],placement:"bottom-end",size:"lg",value:s,variant:"filled"})})}
+function RServersPanel({onOpenBot}){
+  const host=de.useRef(null),onOpenBotRef=de.useRef(onOpenBot);
+  de.useEffect(()=>{onOpenBotRef.current=onOpenBot},[onOpenBot]);
+  de.useEffect(()=>{
+    if(!host.current)return;
+    const mount=window.__beebotMountServersSettings;
+    if(typeof mount!=="function"){host.current.textContent="Server connections are not available in this build.";return}
+    const cleanup=mount(host.current,{onOpenBot:()=>onOpenBotRef.current?.()});
+    return typeof cleanup==="function"?cleanup:void 0;
+  },[]);
+  return a.jsx("div",{ref:host,style:{minWidth:0}});
+}
 `;
 const COMPONENT_TAIL = String.raw`
 function RRouterPanel(){const[s,e]=RRouterState(),[t,n]=RRouterSecrets(),r=RRouterProviders.find(i=>i.value===s.provider)??RRouterProviders[0],i=s.usage?.providers?.[s.provider]??RRouterEmptyUsage,o=r.value==="codex"?"Uses the private ChatGPT login already stored by Codex on this Mac. Requests are made by Grok Bot directly.":r.kind==="local"?"Uses Claude Code's existing login on this Mac.":"Stored on this Mac and used for OpenAI-compatible requests.";return a.jsx(Te,{children:a.jsxs("div",{className:k("sand-settings-general","sand-9f619 sand-78zum5 sand-dt5ytf sand-3qzy4x"),children:[a.jsx(re,{title:"Routing",children:a.jsx(ie,{description:r.description,label:"Provider",variant:"card",children:a.jsx(ye,{"aria-label":"Routing provider",onValueChange:l=>{if(l!==null)void e(l)},options:RRouterOptions,placement:"bottom-end",size:"lg",value:s.provider,variant:"filled"})})}),a.jsx(re,{title:"Computer",children:a.jsx(RBoxRuntime,{})}),a.jsx(re,{title:(window.__sandUiLanguage||"en")==="zh"?"模型 API":"Model APIs",children:a.jsx(RVendorAccounts,{})}),r.kind==="http"?null:a.jsx(re,{title:"Account",children:a.jsx(ie,{description:o,label:"Status",variant:"card",children:a.jsx(RRouterCredential,{provider:r,state:s,keys:t,onSaved:n})})}),s.error?a.jsx(se,{as:"p",color:"red",size:"sm",children:s.error}):null,a.jsx(re,{title:"Usage for "+r.label,children:a.jsx(RRouterUsageRows,{usage:i})})]})})}
@@ -76,11 +93,16 @@ function gjn(n){return p.jsx(RVendorSetup,{headingId:n.headingId,auth:n.auth,onS
 const CREATE_AGENT_BEFORE = "function MOn(n){const e=n.roster,t=S.useCallback((r,i)=>e.createAgent({...r,origin:\"user\",...i}),[e]),s=lr(e.deleteAgents);";
 const ACCOUNT_MENU_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-account-menu.snippet.js"), "utf8");
 const GROUP_UI_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-group-ui.snippet.js"), "utf8");
+const NODE_WORKBENCH_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-workbench.snippet.js"), "utf8");
 const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8");
 const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
 const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
+const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
+const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
+
 export const LANDING_ABOUT_WRAP = `;(function(){
   function wrap(){
     if(window.__sandAboutWrapped) return true;
@@ -114,7 +136,8 @@ export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
-  return `${LANDING_ABOUT_WRAP}${patched}`;
+  patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
+  return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
 }
 
 function sha256(bytes) {
@@ -134,6 +157,7 @@ export function patchOriginalSettingsRegistry(source) {
 export function patchOriginalSettingsPanel(source) {
   let patched = replaceExactlyOnce(source, COMPONENT_ANCHOR, `${COMPONENT_SOURCE}${COMPONENT_ANCHOR}`, "component insertion");
   patched = replaceExactlyOnce(patched, GENERAL_BEFORE, GENERAL_AFTER, "Router panel switch");
+  patched = replaceExactlyOnce(patched, SERVERS_BEFORE, SERVERS_AFTER, "Servers panel switch");
   patched = replaceExactlyOnce(patched, USAGE_BEFORE, USAGE_AFTER, "Usage panel switch");
   patched = replaceExactlyOnce(patched, APPEARANCE_BEFORE, APPEARANCE_AFTER, "language setting");
   return patched;
@@ -161,21 +185,31 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     ["panel", panelCandidates[0], patchOriginalSettingsPanel],
     ["landing", landingCandidates[0], patchOriginalLanding],
   ]) {
-    const patched = transform(candidate.source);
+    // Registry and landing live in the same shipped chunk. Compose with any
+    // preceding patch instead of overwriting it with the discovery snapshot.
+    const current = await readFile(candidate.target, "utf8");
+    const patched = transform(current);
     await writeFile(candidate.target, patched);
     changes.push({
       role,
       path: `dist/renderer/assets/${candidate.name}`,
-      original: { bytes: Buffer.byteLength(candidate.source), sha256: sha256(candidate.source) },
+      original: { bytes: Buffer.byteLength(current), sha256: sha256(current) },
       patched: { bytes: Buffer.byteLength(patched), sha256: sha256(patched) },
     });
   }
+  const chatBuild = await buildNodeChat({ assetsRoot });
+  const chatAssets = await Promise.all(chatBuild.outputs.map(async output => ({
+    path: `dist/renderer/assets/${path.basename(output.path)}`,
+    bytes: output.bytes,
+    sha256: sha256(await readFile(output.path)),
+  })));
   const record = {
     schemaVersion: 1,
     mode: "original-renderer-settings-extension",
     chunks: changes,
-    features: ["settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing"],
-    transformations: ["settings-registry", "router-panel", "usage-panel", "vendor-landing"],
+    chatAssets,
+    features: ["settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
+    transformations: ["settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);

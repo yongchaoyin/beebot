@@ -207,7 +207,9 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(vendorAccounts, /deleteInferenceVendor/);
   assert.match(vendorAccounts, /RVendorInput/);
   assert.match(createOverlay, /data-agent-id/);
-  assert.doesNotMatch(createOverlay, /description:""/);
+  const vendorUpdate = createOverlay.match(/sel\.onchange=\(\)=>\{([\s\S]*?)\n  \};/);
+  assert.ok(vendorUpdate, "existing Bot vendor updates remain wired");
+  assert.doesNotMatch(vendorUpdate[1], /description\s*:/);
   assert.match(rendererPatch, /Model APIs/);
   assert.match(rendererPatch, /sand-vendor-accounts\.snippet\.js/);
   assert.match(mainEdge, /This vendor needs a Base URL and model ID/);

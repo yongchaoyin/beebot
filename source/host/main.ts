@@ -2,6 +2,7 @@ import { installInvariantReporter } from "../shared/invariant.js";
 import { gatewayScheme, resolveGatewayServerConfig } from "./gateway-config.js";
 import { startGatewayServer } from "./gateway-server.js";
 import { clearGatewayDiscovery, writeGatewayDiscovery } from "./host-discovery.js";
+import { standaloneExecEndpoint } from "./box/exec-daemon-endpoint.js";
 import { pinHostDiagnosticsReporter } from "./host-diagnostics.js";
 import { acquireHostLock } from "./host-lock.js";
 import { getSandRootDir } from "./host-paths.js";
@@ -135,6 +136,7 @@ export function createProductionHostMainDependencies(
     acquireHostLock,
     ...(useExistingBoxExecDaemon ? {} : { startBoxExecDaemon: () => startBoxExecDaemonProcess({
         entryPath: resolveBoxExecDaemonEntry(),
+        ...standaloneExecEndpoint(),
         generated: ports.extensionHost.boxGenerated,
         workspaceRoot: path.join(getSandRootDir(), "box-workspace"),
         terminalsDirectory: path.join(getSandRootDir(), "box-terminals"),
@@ -326,9 +328,13 @@ export function installShutdownHandlers(
 
     void (async () => {
       try {
-        await gateway.close();
+        // Stop external tool processes before waiting for runners and stores.
+        // A runner can be awaiting a Shell that will only settle when the daemon
+        // stops it; disposing the Host first can hit the shutdown watchdog and
+        // leave that daemon (and its separate Shell process groups) orphaned.
+        try { await gateway.close(); }
+        finally { await boxExecDaemon?.close(); }
         await host.dispose();
-        await boxExecDaemon?.close();
         await clearGatewayDiscovery();
       } catch (error) {
         host.reportProcessCrash(error, "shutdown_error");

@@ -390,6 +390,7 @@ const UPDATE_PILL_LABELS = {
 } as const;
 const SETTINGS_COMMANDS: readonly { id: SettingsSectionId; label: string; keywords: readonly string[] }[] = [
   { id: "general", label: "General", keywords: ["account", "model", "notifications", "preferences", "appearance", "theme", "mode", "security", "yubikey", "webauthn"] },
+  { id: "servers", label: "Servers", keywords: ["server", "connection", "deployment", "remote", "node"] },
   { id: "usage", label: "Usage & Billing", keywords: ["usage", "billing", "spend", "limit", "on-demand", "plan", "quota"] },
   { id: "beta", label: "Updates", keywords: ["beta", "updates", "release", "track", "danger"] }
 ];
@@ -2817,7 +2818,8 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   useEffect(() => {
     const onAbout = () => setOverlay("about");
     const onSettings = (event: Event) => {
-      const section = (event as CustomEvent<{ section?: string }>).detail?.section === "router" ? "router" : "general";
+      const requested = (event as CustomEvent<{ section?: string }>).detail?.section;
+      const section = requested === "router" || requested === "servers" ? requested : "general";
       setSettingsSection(section);
       setManageSharedRoomId(null);
       setOverlay("settings");

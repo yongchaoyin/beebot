@@ -96,6 +96,7 @@ function RDecorateGroupRow(el,group){
   }
 }
 function RActiveGroup(){
+  if(window.__beebotNodeChat?.getSnapshot().active)return null;
   const id=document.querySelector("[data-agent-id][aria-current='true'], [data-agent-id][data-active='true'], [data-sand-kind='group'][aria-selected='true']")?.getAttribute("data-agent-id");
   if(!id||!RIsGroupId(id)) return null;
   return RRosterRows().find(r=>r&&r.id===id)||null;

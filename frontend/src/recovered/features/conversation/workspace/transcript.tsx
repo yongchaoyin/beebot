@@ -36,6 +36,8 @@ function transcriptIds(id: string, hasTimestamp: boolean) {
 }
 
 export interface ConversationTranscriptActions {
+  /** A transport-owned action under an ordinary message, e.g. accepting a completed run. */
+  renderMessageFooter?(entry: TranscriptMessage): ReactNode;
   hasOlder?: boolean;
   isLoadingOlder?: boolean;
   loadOlder?(): void | Promise<void>;
@@ -613,7 +615,7 @@ export function TranscriptThinkingRow({ entry, expanded, onToggle }: { entry: Tr
   );
 }
 
-export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, resolveTranscriptCardInteractions, onResendFailedSend, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
+export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, renderMessageFooter, resolveTranscriptCardInteractions, onResendFailedSend, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const olderLoadInFlightRef = useRef(false);
   const viewCommitListenersRef = useRef(new Set<() => void>());
@@ -790,6 +792,7 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
                 {failed ? <FailedSendActions entry={entry} onDelete={onDeleteFailedSend} onResend={onResendFailedSend} /> : null}
               </div>
             </MessageActionAnchor>
+            {renderMessageFooter?.(entry)}
           </div>
         );
       })}

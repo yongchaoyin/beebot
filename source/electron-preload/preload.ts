@@ -110,6 +110,10 @@ export function createDesktopPreloadBridge(options: {
   const subscribe = (event: string, listener: (payload: any) => void): (() => void) => mainEdge.subscribe({ [event]: listener });
   const initialState = options.initialState ?? readPrimaryPreloadInitialState(ipc);
   const desktop: Record<string, any> = {
+    nodes: {
+      request: (request: unknown) => ipc.invoke("beebot:nodes", request),
+      onChanged: (listener: (payload: unknown) => void) => subscribeIpc(ipc, "beebot:nodes:changed", listener),
+    },
     resolveAttachmentMedia: (url: string) => edge("resolveAttachmentMedia", { source: url }),
     readAttachmentText: (path: string) => edge("readAttachmentText", { path }),
     readAttachmentBytes: (path: string, maxBytes: number) => edge("readAttachmentBytes", { path, maxBytes }),

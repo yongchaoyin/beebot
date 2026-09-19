@@ -7,17 +7,18 @@ import type { SandIconPlatform } from "../../../ui/sand-icon-registry";
 import { OverlayDialog } from "../../../ui/overlay-primitives";
 import "./view.css";
 
-export type SettingsSectionId = "general" | "router" | "usage" | "beta";
+export type SettingsSectionId = "general" | "servers" | "router" | "usage" | "beta";
 
 export interface SettingsSection {
   id: SettingsSectionId;
   label: string;
-  icon: "settings-gear" | "git-branch" | "chart-bars" | "cloud-download";
+  icon: "settings-gear" | "servers" | "git-branch" | "chart-bars" | "cloud-download";
 }
 
 /** Exact registry recovered from main renderer binding wDn. */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", icon: "settings-gear" },
+  { id: "servers", label: "Servers", icon: "servers" },
   { id: "router", label: "Router", icon: "git-branch" },
   { id: "usage", label: "Usage & Billing", icon: "chart-bars" },
   { id: "beta", label: "Updates", icon: "cloud-download" }

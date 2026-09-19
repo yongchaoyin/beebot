@@ -1,0 +1,78 @@
+name: beebot
+
+services:
+  node:
+    image: beebot-node:local
+    build:
+      context: ..
+      dockerfile: deploy/node.Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      # Supply this in the invoking shell; never put a real key in this file.
+      CUSTOM_API_KEY: "${CUSTOM_API_KEY:-}"
+    volumes:
+      - node_data:/var/lib/beebot-node
+    # No host port mapping: only the TLS proxy reaches this listener.
+    expose:
+      - "7331"
+    networks:
+      - backend
+      - outbound
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7331/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      BEEBOT_DOMAIN: "${BEEBOT_DOMAIN:?Set BEEBOT_DOMAIN to the node DNS hostname}"
+    command: ["caddy", "run", "--config", "/etc/beebot/node.Caddyfile", "--adapter", "caddyfile"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - .:/etc/beebot:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - backend
+      - outbound
+    depends_on:
+      node:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  # This private network carries proxy -> Node HTTP traffic.
+  backend:
+    internal: true
+  # Model APIs / tools and ACME need outbound Internet access.
+  outbound:
+
+volumes:
+  node_data:
+  caddy_data:
+  caddy_config:

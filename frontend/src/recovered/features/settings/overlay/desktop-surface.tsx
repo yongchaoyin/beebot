@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // @evidence src/app/dist/renderer/assets/index-BlqerJhg.js#byteOffset=36041 (released Settings Retry copy)
 import type { ProductionCoordinatorClient } from "../../../../production/coordinator-client";
 // @evidence src/app/dist/renderer/assets/index-BlqerJhg.js#L1
@@ -38,6 +38,24 @@ import { publishSurfaceNotice, type SettingsNoticeEvent } from "../../../contrac
 import { SandButton } from "../../../ui/sand-kit-primitives";
 
 const SETTINGS_FALLBACK_LABELS = { retry: "Retry" };
+
+function ServersSettingsPanel({ onOpenBot }: { onOpenBot(): void }) {
+  const host = useRef<HTMLDivElement>(null);
+  const onOpenBotRef = useRef(onOpenBot);
+  useEffect(() => { onOpenBotRef.current = onOpenBot; }, [onOpenBot]);
+  useEffect(() => {
+    if (host.current == null) return;
+    const mount = (window as Window & {
+      __beebotMountServersSettings?: (root: HTMLElement, options: { onOpenBot(): void }) => (() => void) | undefined;
+    }).__beebotMountServersSettings;
+    if (mount == null) {
+      host.current.textContent = "Server connections are not available in this build.";
+      return;
+    }
+    return mount(host.current, { onOpenBot: () => onOpenBotRef.current() });
+  }, []);
+  return <div ref={host} style={{ minWidth: 0 }} />;
+}
 
 export interface SettingsDesktopSurfaceProps {
   bridge: DesktopBridge;
@@ -209,6 +227,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
       isOpen={isOpen}
       onClose={onClose}
       renderSection={(section: SettingsSectionId) => {
+        if (section === "servers") return <ServersSettingsPanel onOpenBot={onClose} />;
         if (snapshot == null) return (
           <div aria-live="polite" role={error == null ? "status" : "alert"}>
             {error == null ? null : <>

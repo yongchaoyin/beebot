@@ -85,5 +85,12 @@ test("open group paints a member bar and @ mention menu", async () => {
   const mention = document.getElementById("sand-beebot-mention");
   assert.ok(mention);
   assert.match(mention.textContent ?? "", /@Writer/);
+  window.__beebotNodeChat = { getSnapshot: () => ({ active: true }) };
+  window.eval("RRefreshGroups()");
+  assert.equal(window.eval("RActiveGroup()"), null, "a remote conversation must not inherit the selected local group's controls");
+  assert.equal(document.getElementById("sand-beebot-group-bar"), null);
+  window.__beebotNodeChat = { getSnapshot: () => ({ active: false }) };
+  window.eval("RRefreshGroups()");
+  assert.ok(document.getElementById("sand-beebot-group-bar"), "returning to the local group restores its member bar");
   await window.happyDOM.close();
 });

@@ -169,6 +169,7 @@ class BoxExecRuntime {
   readonly #foreground = new Set<ChildProcessWithoutNullStreams>();
   readonly #background = new Map<number, BackgroundProcess>();
   #nextShellId = 1;
+  #stopping = false;
 
   constructor(readonly workspaceRoot: string, readonly terminalsDirectory: string, environment: NodeJS.ProcessEnv) {
     this.#environment = { ...environment };
@@ -399,13 +400,33 @@ class BoxExecRuntime {
   }
 
   async stop(): Promise<void> {
-    for (const child of this.#foreground) this.kill(child);
-    for (const process of this.#background.values()) this.kill(process.child);
+    this.#stopping = true;
+    const children = [...this.#foreground, ...[...this.#background.values()].map(running => running.child)];
+    await Promise.all(children.map(async child => {
+      const exited = new Promise<void>(resolve => {
+        if (child.exitCode != null || child.signalCode != null) resolve();
+        else { child.once("close", () => resolve()); child.once("error", () => resolve()); }
+      });
+      this.kill(child);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([exited, new Promise<void>(resolve => { timer = setTimeout(resolve, 750); })]);
+      if (timer !== undefined) clearTimeout(timer);
+      // Shell jobs have their own process groups. Killing only the daemon or the
+      // shell leader leaves descendants running after a cancelled Bot execution.
+      if (child.pid != null) {
+        try {
+          if (process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
+          else if (child.exitCode == null && child.signalCode == null) child.kill("SIGKILL");
+        } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+      }
+      await exited;
+    }));
     this.#foreground.clear();
     this.#background.clear();
   }
 
   private spawnShell(command: string, cwd: string): ChildProcessWithoutNullStreams {
+    if (this.#stopping) throw new Error("Exec daemon is shutting down");
     return spawn("/bin/sh", ["-lc", command], { cwd, env: this.#environment, detached: process.platform !== "win32", stdio: "pipe" });
   }
 
@@ -476,6 +497,11 @@ export async function startBoxExecDaemon(options: BoxExecDaemonOptions): Promise
   });
   let readyState = false;
   const server = createServer((request, response) => {
+    if (!readyState) {
+      response.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Exec daemon is shutting down");
+      return;
+    }
     if (request.headers.authorization !== `Bearer ${authToken}`) {
       response.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
       response.end("Unauthorized");
