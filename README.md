@@ -2,21 +2,113 @@
 
 English | [中文](README.zh.md)
 
-BeeBot is a local computer agent for macOS. Bots work like a hive: each one
-has its own Linux computer (shell, files, browser, desktop) and talks to the
-model vendor you choose. There is no Cursor account lock-in.
+BeeBot is a local computer agent for macOS. You give a goal and a boundary;
+bots work like a hive on one shared Linux computer. Each bot has its own
+identity, memory, and desktop, and talks to the model vendor you choose.
+There is no Cursor account lock-in.
 
 This repository is independent of Anysphere, Cursor, xAI, and SpaceX. It is not
 an official Grok Bot release.
+
+## Design philosophy
+
+BeeBot's core is: you give a goal and a boundary, and bots work like a hive.
+They divide the work, exchange what they need, cover for each other, and
+finish the delivery. You can step in at any time. When a judgment is needed,
+they bring you back.
+
+The feeling should be: after you hand over a goal, a group of colleagues who
+know you start working. You are not the meeting host who has to stay in the
+thread.
+
+### Long-lived individuals
+
+Each bot is a colleague, not a disposable worker. It has a name, a specialty,
+memory, and judgment. The longer it works with you, the better it knows you.
+Temporary subagents that run a single GUI or browser step are not hive
+members.
+
+### Group is a shared workplace
+
+A group is a place where members share a goal, progress, and results, and can
+see what the others are doing. Chat can be a surface of that place. The
+center is the work, not taking turns speaking.
+
+### The hive forms the division of labor
+
+You do not have to break the job into tickets and assign each one. Members
+claim work from their ability and the current situation, ask for help, and
+hand off results.
+
+### Coordination is per task, not a rank
+
+You can say who should lead this time. A member can also take that on
+unasked. The role dissolves when the task ends. There is no required standing
+manager bot.
+
+### Act around the whole outcome
+
+Speak when there is something to add. Cover a gap when needed. Stay quiet
+when there is nothing to contribute. The system should remember who claimed
+what, how far it got, and where the result is, so the hive does not duplicate
+work, talk forever, or leave the last mile unowned.
+
+### How you talk to them
+
+| You say | The product should hear |
+| --- | --- |
+| "Get this done." | Hand the goal and boundary to the hive. They collaborate until they deliver or need your judgment. |
+| "@Research, look this up." | A directed ask. Not an all-hands. |
+| "@Strategy, you lead this time." | A coordination relationship for this task, not a promotion. |
+
+The default is the first. The others are how you intervene. After you hand
+over a goal you can leave. You can also walk in and change the goal, the
+boundary, or who is leading. When they need a judgment, they find you instead
+of spinning until you happen to look.
+
+### One shared computer
+
+The hive shares one persistent Linux machine. That is the physical form of
+working together, not a metaphor.
+
+- **Shared:** `/workspace`, installed tools, and browser logins. A file or
+  login created by one bot is there for the others. Update and reset apply to
+  the whole computer.
+- **Separate:** each bot has its own desktop — its own screen and browser
+  window. Opening Computer on a bot shows that bot's screen, not the others'.
+  A bot's computer-use subagent shares that same screen, so only one GUI
+  operator runs there at a time.
+- **Identity on the shared disk:** each bot's profile and memory live under
+  `/home/box/sand-data/agents/<botId>/`. Teammates can still read those files
+  because they are on the same machine.
+- **Your Mac is a different computer.** Bots reach it only through CopyToBox /
+  CopyFromBox, or ExternalShell after you approve.
+
+Work is handed off by leaving it on the shared machine. There is not yet a
+lock or ownership model for files in `/workspace`; two bots can overwrite the
+same path.
+
+### What this is not
+
+- Not a multi-agent debate. Speaking is not the value.
+- Not a management tree. There is no permanent boss bot.
+- Not a pool of one-shot workers.
+- Not you acting as project manager who splits every task.
+
+Today's Group is still a concurrent chat room (mentions, silence as
+`(pass)`). The philosophy above is the product north star. The gap is moving
+from talking together to delivering together.
 
 ## Current features
 
 ### Local computer
 
-Each agent runs against a sandbox computer. **Settings → Router → Use local
+All bots share one sandbox Linux machine. **Settings → Router → Use local
 Docker VM** runs that computer in a Docker container on this Mac (loopback
 ports only, settings and API keys bind-mounted in). Docker Desktop, or another
-compatible local Docker daemon, must be running.
+compatible local Docker daemon, must be running. Each bot gets its own
+desktop on that machine; files, installed tools, and browser logins persist
+for the whole hive.
 
 ### Model APIs
 
@@ -127,7 +219,8 @@ polished shipped renderer + BeeBot patches
            ┌───────────┼───────────┐
      OpenRouter     OpenAI      DeepSeek / custom
                        │
-              that bot's Linux computer
+         one shared Linux computer
+         (per-bot desktop on that machine)
 ```
 
 The main source areas are:
@@ -164,11 +257,12 @@ Generated directories including `.cache`, `.build`, `dist`, `src/app/dist`,
 
 ## Project status
 
-The app launches and the core flows are usable: local Docker computers,
-multiple vendor APIs, and per-bot routing. This is still experimental. It
-targets one pinned macOS/arm64 runtime and does not promise compatibility with
-later upstream Grok Bot versions. Messaging gateways (Feishu, QQ, and similar)
-are planned and not in this tree yet.
+The app launches and the core flows are usable: one shared local Docker
+computer, multiple vendor APIs, and per-bot routing. Hive collaboration as
+described above is the north star; today's Group is still a chat room. This
+is still experimental. It targets one pinned macOS/arm64 runtime and does not
+promise compatibility with later upstream Grok Bot versions. Messaging
+gateways (Feishu, QQ, and similar) are planned and not in this tree yet.
 
 For changes, read [CONTRIBUTING.md](CONTRIBUTING.md). For the clean-history
 export procedure, see [docs/PUBLISHING.md](docs/PUBLISHING.md).
