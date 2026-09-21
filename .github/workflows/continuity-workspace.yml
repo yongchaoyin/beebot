@@ -1,0 +1,46 @@
+name: continuity verification workspace
+
+on:
+  push:
+    branches: [chore/continuity-verification-workspace-20260922]
+    paths: [.github/workflows/continuity-workspace.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source-workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Export tracked source and its exact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/beebot-workspace"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/beebot-workspace/source.tar.gz"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/beebot-workspace/source-tree.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/beebot-workspace/source-commit.txt"
+      - name: Prepare locked source-validation dependencies without native app installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          mkdir -p "$RUNNER_TEMP/toolchain/bin"
+          cp "$(command -v node)" "$RUNNER_TEMP/toolchain/bin/node"
+          tar -czf "$RUNNER_TEMP/beebot-workspace/dependencies.tar.gz" node_modules
+          tar -czf "$RUNNER_TEMP/beebot-workspace/toolchain.tar.gz" -C "$RUNNER_TEMP/toolchain" bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beebot-continuity-workspace
+          path: ${{ runner.temp }}/beebot-workspace/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
