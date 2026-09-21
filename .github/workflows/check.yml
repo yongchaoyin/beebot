@@ -9,16 +9,22 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # The full suite verifies the preserved DMG and checksum-pinned renderer.
+    # Bootstrap uses hdiutil, so a source-only Linux checkout is insufficient.
+    runs-on: macos-15
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
           cache: npm
       - name: Install the locked dependency graph
         run: npm ci --no-audit --no-fund
+      - name: Hydrate the checksum-pinned runtime for package regressions
+        run: npm run bootstrap
       - name: Run source and publication checks
         run: npm run check
       - name: Build the editable frontend
