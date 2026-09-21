@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { Window } from "happy-dom";
+import { Window } from "./helpers/renderer-controller-window.mjs";
 
 const snippet = await readFile(path.resolve(import.meta.dirname, "../scripts/lib/beebot-node-chat-controller.snippet.js"), "utf8");
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -14,7 +14,7 @@ const deferred = () => { let resolve;const promise = new Promise(done => { resol
 
 async function boot(t, { submit, snapshot } = {}) {
   const window = new Window({ url: "https://beebot.local" });
-  t.after(() => window.happyDOM.close());
+  t.after(() => window.close());
   let profiles = [profile("a"), profile("b")], sequence = 0;
   const snapshots = new Map([
     ["connection-a", { node: { id: "node-a" }, bots: [bot(), bot("other-bot", "Other")], goals: [], cursor: 0 }],
@@ -200,11 +200,12 @@ test("a connection whose node identity changed cannot send to the replacement se
 test("signed-out and still-authorizing servers do not fetch protected snapshots", async t => {
   const ui = await boot(t);
   for(const status of ["signed-out", "connecting"]) {
-    ui.setProfiles([profile("a", status), profile("b")]);await ui.open();
+    ui.setProfiles([profile("a", status), profile("b")]);
+    await assert.rejects(ui.open(), { code: "connection_unavailable" });
     assert.equal(ui.requests("snapshot").length, 0);assert.deepEqual([...ui.state().messages], []);assert.equal(ui.state().loading, false);
     await ui.controller.send("Not authorized");assert.equal(ui.requests("submitGoal").length, 0);
   }
-  ui.setProfiles([profile("a"), profile("b")]);await ui.controller.refresh();assert.equal(ui.requests("snapshot").length, 1);
+  ui.setProfiles([profile("a"), profile("b")]);await ui.open();assert.equal(ui.requests("snapshot").length, 1);
 });
 
 test("signing back in restores unchanged chat history after sign-out cleared it", async t => {
@@ -222,4 +223,150 @@ test("closing a conversation leaves the server execution running and preserves i
   assert.equal(ui.state().active, false);assert.equal(ui.requests("cancel").length, 0);assert.equal(ui.snapshots.get("connection-a").goals[0].status, "running");
   assert.equal(ui.selections.at(-1), null);
   await ui.open();assert.equal(ui.state().draft, "Next message");assert.equal(ui.state().runningGoal.id, "active-work");
+});
+
+test("failed open preserves the previous selection, draft and owning Settings dialog", async t => {
+  let fail = false, closed = 0;
+  const ui = await boot(t, { snapshot: (request, data) => { if (fail) throw new Error("Read failed"); return clone(data); } });
+  ui.window.__beebotCloseNodeWorkbench = () => { closed++; };
+  await ui.open(); ui.controller.setDraft("Keep this draft"); const previous = clone(ui.state());
+  fail = true;
+  await assert.rejects(ui.open("connection-b"), /Read failed/);
+  assert.deepEqual(clone(ui.state()), previous);
+  assert.equal(closed, 0, "the caller, not the controller, owns Settings lifecycle");
+  assert.equal(ui.selections.length, 1);
+  assert.equal(ui.calls.some(c => ["submitGoal", "cancel", "createBot"].includes(c.action)), false);
+});
+
+test("successful open publishes one verified selection and no empty interim conversation", async t => {
+  const ui = await boot(t), observed = [];
+  ui.snapshots.get("connection-a").goals = [goal("delivered", { status: "review", result: "Readable output" })];
+  const unsubscribe = ui.controller.subscribe(() => observed.push(clone(ui.state()))); t.after(unsubscribe);
+  await ui.open();
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0].messages.at(-1).text, "Readable output");
+  assert.equal(observed[0].loading, false);
+  assert.deepEqual(ui.calls.map(c => c.action), ["list", "snapshot", "list"]);
+});
+
+test("a newer selection wins over a slow earlier open without modifying either draft", async t => {
+  const gate = deferred(); t.after(gate.resolve); let hold = false;
+  const ui = await boot(t, { snapshot: async (request, data) => { if (hold && request.id === "connection-a") await gate.promise; return clone(data); } });
+  await ui.open(); ui.controller.setDraft("A draft"); hold = true;
+  const earlier = ui.open(); const rejected = assert.rejects(earlier, { code: "open_superseded" });
+  await tick(); await ui.open("connection-b"); ui.controller.setDraft("B draft");
+  gate.resolve(); await rejected;
+  assert.equal(ui.state().connectionId, "connection-b"); assert.equal(ui.state().draft, "B draft");
+  hold = false; await ui.open(); assert.equal(ui.state().draft, "A draft");
+});
+
+test("closing a view cancels its pending open via AbortSignal without stopping server work", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+  const abort = new AbortController();
+  const pending = ui.controller.open("connection-a", bot(), { signal: abort.signal });
+  const rejected = assert.rejects(pending, { code: "open_cancelled" });
+  await tick(); abort.abort(); await rejected; gate.resolve(); await tick();
+  assert.equal(ui.state().active, false); assert.equal(ui.selections.length, 0);
+  assert.equal(ui.requests("cancel").length, 0); assert.equal(ui.requests("submitGoal").length, 0);
+});
+
+test("an already aborted open performs no bridge calls", async t => {
+  const ui = await boot(t), abort = new AbortController(); abort.abort();
+  await assert.rejects(ui.controller.open("connection-a", bot(), { signal: abort.signal }), { code: "open_cancelled" });
+  assert.equal(ui.calls.length, 0); assert.equal(ui.state().active, false);
+});
+
+test("controller close supersedes an outstanding open", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+  const pending = ui.open(), rejected = assert.rejects(pending, { code: "open_superseded" });
+  await tick(); ui.controller.close(); gate.resolve(); await rejected;
+  assert.equal(ui.state().active, false);
+});
+
+test("sign-out racing a snapshot rejects the open even without an onChanged notification", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+  const pending = ui.open(), rejected = assert.rejects(pending, { code: "connection_changed" });
+  await tick(); ui.setProfiles([profile("a", "signed-out"), profile("b")]); gate.resolve(); await rejected;
+  assert.equal(ui.state().active, false); assert.equal(ui.selections.length, 0);
+});
+
+test("removed or replaced connection cannot receive a stale opening result", async t => {
+  for (const latest of [[profile("b")], [{ ...profile("a"), nodeId: "replacement" }, profile("b")]]) {
+    const gate = deferred(); t.after(gate.resolve);
+    const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+    const rejected = assert.rejects(ui.open(), { code: "connection_changed" });
+    await tick(); ui.setProfiles(latest); gate.resolve(); await rejected;
+    assert.equal(ui.state().active, false);
+  }
+});
+
+test("an authorization epoch change invalidates a pending open even after quick re-login", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+  const rejected = assert.rejects(ui.open(), { code: "connection_changed" });
+  await tick(); ui.emit(); gate.resolve(); await rejected;
+  assert.equal(ui.selections.length, 0);
+});
+
+test("missing Bot, mismatched node and malformed snapshots fail without entering the chat", async t => {
+  for (const [snapshot, code] of [
+    [{ node: { id: "other-node" }, bots: [bot()], goals: [] }, "connection_changed"],
+    [{ node: { id: "node-a" }, bots: [], goals: [] }, "bot_unavailable"],
+    [{ node: { id: "node-a" }, bots: [bot()], goals: null }, "invalid_response"],
+    [{ node: { id: "node-a" }, bots: [bot()], goals: [{ botId: "shared-bot" }] }, "invalid_response"],
+  ]) {
+    const ui = await boot(t, { snapshot: () => clone(snapshot) });
+    await assert.rejects(ui.open(), { code }); assert.equal(ui.state().active, false);
+  }
+});
+
+test("refresh does not restore messages after sign-out raced a snapshot", async t => {
+  const gate = deferred(); t.after(gate.resolve); let hold = false;
+  const ui = await boot(t, { snapshot: async (_request, data) => { if (hold) await gate.promise; return clone(data); } });
+  ui.snapshots.get("connection-a").goals = [goal("result", { status: "review", result: "Private result" })];
+  await ui.open(); hold = true; const refresh = ui.controller.refresh(); await tick();
+  ui.setProfiles([profile("a", "signed-out"), profile("b")]); gate.resolve(); await refresh;
+  assert.equal(ui.state().server.status, "signed-out"); assert.equal(ui.state().messages.length, 0);
+  await ui.controller.accept("result", 1); assert.equal(ui.requests("accept").length, 0);
+});
+
+test("a connection event blocks actions immediately until the fresh read succeeds", async t => {
+  const ui = await boot(t); ui.snapshots.get("connection-a").goals = [goal("result", { status: "review" })];
+  await ui.open(); ui.emit();
+  await ui.controller.send("Do not send"); await ui.controller.accept("result", 1);
+  assert.equal(ui.requests("submitGoal").length, 0); assert.equal(ui.requests("accept").length, 0);
+  await ui.controller.refresh(); await ui.controller.send("Now checked"); assert.equal(ui.requests("submitGoal").length, 1);
+});
+
+test("reopening the same Bot during a pending submission cannot unlock duplicate sending", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { submit: async request => { await gate.promise; return { goalId: "g", commandId: request.key }; } });
+  await ui.open(); const pending = ui.controller.send("Only once"); await tick();
+  await ui.open(); assert.equal(ui.state().busy, true);
+  await ui.controller.send("Only once"); assert.equal(ui.requests("submitGoal").length, 1);
+  gate.resolve(); await pending; assert.equal(ui.state().busy, false);
+});
+
+test("transient snapshot failure retains history without inventing task failure and blocks writes", async t => {
+  let fail = false;
+  const ui = await boot(t, { snapshot: (_request, data) => { if (fail) throw new Error("Network interrupted"); return clone(data); } });
+  ui.snapshots.get("connection-a").goals = [goal("working", { status: "running" })];
+  await ui.open(); fail = true; await ui.controller.refresh();
+  assert.equal(ui.state().runningGoal.status, "running"); assert.match(ui.state().error, /Network interrupted/);
+  await ui.controller.stop("working"); assert.equal(ui.requests("cancel").length, 0);
+  fail = false; await ui.controller.refresh(); await ui.controller.stop("working"); assert.equal(ui.requests("cancel").length, 1);
+});
+
+test("opening times out without letting a late read change the selected conversation", async t => {
+  const gate = deferred(); t.after(gate.resolve);
+  const ui = await boot(t, { snapshot: async (_request, data) => { await gate.promise; return clone(data); } });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const rejected = assert.rejects(ui.open(), { code: "open_timeout" });
+  await Promise.resolve(); await Promise.resolve();
+  t.mock.timers.tick(15001); await rejected; gate.resolve();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(ui.state().active, false); assert.equal(ui.selections.length, 0);
 });

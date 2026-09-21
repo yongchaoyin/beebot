@@ -38,7 +38,8 @@ test("Settings Servers manages connections in its panel and preserves the active
     assert.match(root.textContent,/此服务器上的 Bot/);
     assert.equal(root.querySelector("textarea"),null,"management must not contain an alternate chat or create form");
     assert.equal(root.querySelector('[aria-label="部署服务器"]'),null);
-    await click("助手");assert.deepEqual(opened,[["a",{id:"bot",name:"助手"}]]);
+    await click("助手");assert.deepEqual(opened.map(([id,bot])=>[id,bot]),[["a",{id:"bot",name:"助手"}]]);
+    assert.equal(typeof opened[0][2]?.signal?.addEventListener,"function","opening is bound to the owning Settings lifetime");
     assert.equal(closedSettings,1,"opening a Bot dismisses the owning Settings dialog");
     assert.equal(window.document.getElementById("beebot-node-workbench"),null);
     assert.equal(calls.filter(c=>["createBot","submitGoal"].includes(c.action)).length,0);
