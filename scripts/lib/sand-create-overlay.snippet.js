@@ -291,7 +291,7 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
     const empty=document.createElement("p");empty.className="bb-create-help";
     const status=document.createElement("p");status.className="bb-create-status";status.setAttribute("role","status");
     const submit=document.createElement("button");submit.type="button";submit.className="bb-create-submit";
-    const update=()=>{
+    const applyReady=()=>{
       submit.disabled=busy||!name.input.value.trim()||selected.size===0;
       submit.textContent=busy?RUiCopy().creating:RUiCopy().create;
       root.setAttribute("aria-busy",String(busy));
@@ -312,7 +312,7 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
         chip.textContent=agent.name+" ×";chip.setAttribute("aria-label",RCreateText("移除选择：","Remove selection: ")+agent.name);
         chip.onclick=()=>{if(busy)return;selected.delete(id);renderMembers();rows.get(id)?.focus({preventScroll:true});};chips.append(chip);
       }
-      update();
+      applyReady();
     };
     for(const agent of agents){
       const row=document.createElement("button");row.type="button";row.className="bb-create-member";row.dataset.memberId=agent.id;
@@ -322,18 +322,18 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else selected.add(agent.id);status.textContent="";renderMembers();};
       rows.set(agent.id,row);list.append(row);
     }
-    name.input.oninput=update;search.input.oninput=renderMembers;
+    name.input.oninput=applyReady;search.input.oninput=renderMembers;
     submit.onclick=async()=>{
-      update();if(submit.disabled||!alive)return;
+      applyReady();if(submit.disabled||!alive)return;
       // Validate membership again; a deleted Bot must not be silently dropped.
       const current=new Set(RListAgents().map(agent=>agent.id));
       if([...selected].some(id=>!current.has(id))){status.textContent=RCreateText("有成员已不可用，请取消对应选择后再创建。","A selected Bot is no longer available. Remove it before creating the group.");return;}
       const draft={name:name.input.value.trim(),memberAgentIds:[...selected]};
       if(typeof onCreate!=="function"){finish(draft);return;}
-      busy=true;status.textContent="";update();
+      busy=true;status.textContent="";applyReady();
       try{await onCreate(draft);finish(null,false);}
       catch(error){if(alive)status.textContent=RCreateError(error);}
-      finally{busy=false;if(alive)update();}
+      finally{busy=false;if(alive)applyReady();}
     };
     function localize(){
       const copy=RUiCopy();title.textContent=copy.groupTitle;root.setAttribute("aria-label",copy.groupTitle);

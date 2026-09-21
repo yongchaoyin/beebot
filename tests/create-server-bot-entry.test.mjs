@@ -175,7 +175,10 @@ test("main + local New Bot preserves the avatar, vendor and original roster beha
   ui.setField("Deployment server", "server-b", "change");ui.setField("Responsibilities", "Server-only draft");
   ui.setField("Deployment server", "", "change");
   assert.equal(ui.field("API").value, "vendor-b");assert.equal(ui.field("Responsibilities"), null);
-  ui.submit().click();await until(() => ui.calls.local.length === 1);
+  ui.submit().click();
+  // The inline form awaits the entire create callback. Recording the mock
+  // invocation is not completion: MOn registers the chosen vendor afterwards.
+  await until(() => !ui.document.getElementById("sand-create-bot-sheet"), "completed local creation");
   assert.deepEqual(ui.calls.local, [{ name: "Local editor", avatarColor: "red", avatarShape: "cloud", inferenceVendorId: "vendor-b", isKickstartRequested: true, origin: "user" }]);
   assert.equal(ui.window.__sandAgentVendors["created-local"], "vendor-b");
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.opened.length, 0);
@@ -216,4 +219,31 @@ test("main + New group chat includes only local Bots and preserves local group c
   assert.deepEqual(ui.calls.group, [{ name: "Local collaboration", memberAgentIds: ["local-writer", "local-reviewer"] }]);
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.local.length, 0);assert.equal(ui.calls.update.length, 0);
   assert.equal(ui.calls.closed, 1);
+});
+
+
+test("inline local creation stays busy until the real dispatcher registers the selected vendor", async (t) => {
+  const ui = await boot(t);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  ui.window.__testRoster.createAgent = async request => {
+    ui.calls.local.push(plain(request));
+    await pending;
+    return { agent: { id: "delayed-local" } };
+  };
+  await ui.openMenu("New Bot");
+  ui.setField("Name", "Delayed colleague");ui.setField("API", "vendor-b", "change");
+  const section = ui.document.getElementById("sand-create-bot-sheet");
+  ui.submit().click();ui.submit().click();
+  await until(() => ui.calls.local.length === 1);
+  assert.equal(section.isConnected, true, "the form cannot close just because creation was invoked");
+  assert.equal(ui.submit().disabled, true);
+  assert.equal(ui.window.__sandAgentVendors?.["delayed-local"], undefined);
+  release();
+  await until(() => !section.isConnected, "completed create callback");
+  assert.equal(ui.calls.local.length, 1);
+  assert.equal(ui.window.__sandAgentVendors["delayed-local"], "vendor-b");
+  assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.opened.length, 0);
+  assert.equal(ui.listeners.size, 0);
 });
