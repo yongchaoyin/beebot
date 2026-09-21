@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { transformSync } from "esbuild";
 import vm from "node:vm";
 import test from "node:test";
 
-const require = createRequire(import.meta.url);
-const ts = require("typescript");
 const source = await readFile(new URL("../frontend/src/recovered/features/conversation/workspace/composer.tsx", import.meta.url), "utf8");
 // Component contract test, not a React lifecycle/DOM test. Child controls and
 // hooks are replaced, but the actual composer source and handlers execute.
 function load() {
-  const exports = {};
+  const module = { exports: {} };
   const component = name => Object.defineProperty(() => null, "name", { value: name });
   const hooks = { useCallback: fn => fn, useMemo: fn => fn(), useRef: value => ({ current: value }), useState: value => [value, () => {}], useEffect: () => {} };
   const modules = {
@@ -23,9 +21,13 @@ function load() {
     "../../../ui/sand-kit-primitives": { SandIcon: component("SandIcon"), SandIconButton: component("SandIconButton") },
     "../../../ui/sand-status-primitives": { SandSpinner: component("SandSpinner") },
   };
-  const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } });
-  vm.runInNewContext(output.outputText, { exports, require: name => { assert.ok(modules[name], name); return modules[name]; } });
-  return exports.ConversationComposer;
+  // TypeScript 7 does not expose the legacy transpileModule API. Keep compiler
+  // transformation on the repository's pinned esbuild instead of another TS copy.
+  const { code } = transformSync(source, {
+    loader: "tsx", target: "es2022", format: "cjs", jsx: "automatic", sourcefile: "composer.tsx",
+  });
+  vm.runInNewContext(code, { module, exports: module.exports, require: name => { assert.ok(modules[name], name); return modules[name]; } });
+  return module.exports.ConversationComposer;
 }
 function find(node, predicate) {
   if (!node || typeof node !== "object") return null;
