@@ -15,14 +15,27 @@ function REnsureGroupStyle(){
     .sand-beebot-group-sub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cursor-text-tertiary,#888);font-size:11px;font-weight:400;margin-top:2px}
     .sand-beebot-group-stack{position:relative;width:34px;height:34px;flex:0 0 34px}
     .sand-beebot-group-stack svg{position:absolute;border-radius:8px;overflow:hidden;background:var(--cursor-bg-primary,Canvas)}
-    #sand-beebot-group-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 16px;border-bottom:1px solid var(--cursor-stroke-tertiary,rgba(0,0,0,.08));background:var(--cursor-bg-chrome,Canvas);font-size:12px}
+    #sand-beebot-group-bar{flex:none;min-width:0;padding:6px 16px;border-bottom:1px solid var(--cursor-stroke-tertiary,rgba(0,0,0,.08));background:var(--cursor-bg-chrome,Canvas);font-size:12px}
+    #sand-beebot-group-bar details{min-width:0}
+    #sand-beebot-group-bar summary{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;color:var(--cursor-text-secondary,GrayText);list-style:none}
+    #sand-beebot-group-bar summary::-webkit-details-marker{display:none}
+    #sand-beebot-group-bar summary::after{content:'⌄';margin-inline-start:auto}
+    #sand-beebot-group-bar details[open] summary::after{content:'⌃'}
+    #sand-beebot-group-bar summary:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px;border-radius:6px}
+    #sand-beebot-group-bar .sand-group-faces{display:flex;gap:3px;flex:none}
+    #sand-beebot-group-bar .sand-group-faces svg{display:block}
+    #sand-beebot-group-bar .sand-group-members{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 4px}
+    #sand-beebot-group-bar .sand-group-mention{display:inline-flex;gap:6px;align-items:center}
+    #sand-beebot-group-bar .sand-group-mention svg{flex:none}
     #sand-beebot-group-bar .sand-group-person{display:inline-flex;align-items:center;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;overflow:hidden;max-width:100%}
     #sand-beebot-group-bar button{border:0;background:transparent;padding:6px 10px;min-height:32px;cursor:pointer;font:inherit;color:var(--cursor-text-primary,CanvasText);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #sand-beebot-group-bar .sand-group-direct{border-left:1px solid var(--cursor-stroke-secondary,#8884);flex:none;color:var(--cursor-text-secondary,GrayText)}
     #sand-beebot-group-bar button:focus-visible,#sand-beebot-mention button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:-2px}
     #sand-beebot-group-bar button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
-    #sand-beebot-group-bar .sand-beebot-group-hint{color:var(--cursor-text-tertiary,#888);margin-left:4px}
-    #sand-beebot-mention{position:fixed;z-index:99994;width:min(300px,calc(100vw - 24px));max-height:220px;overflow:auto;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;font:13px system-ui}
+    #sand-beebot-group-bar .sand-beebot-group-hint{display:block;color:var(--cursor-text-secondary,GrayText);font-size:11px;margin:6px 0;overflow-wrap:anywhere}
+    #sand-beebot-mention{position:static;flex:none;box-sizing:border-box;width:100%;min-width:0;max-height:min(180px,25vh);overflow:auto;overscroll-behavior:contain;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);border-bottom:1px solid var(--cursor-stroke-secondary,#8884);padding:6px 0;font:13px/1.5 system-ui}
+    #sand-beebot-mention button{box-sizing:border-box}
+    @media(prefers-reduced-motion:reduce){#sand-beebot-mention{scroll-behavior:auto}}
     #sand-beebot-mention button{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:8px 10px;min-height:36px;border-radius:8px;cursor:pointer;overflow-wrap:anywhere;white-space:normal;font:inherit}
     #sand-beebot-mention small{display:block;color:var(--cursor-text-secondary,GrayText);font-size:10px}
     #sand-beebot-mention .sand-mention-help{padding:5px 10px;font-size:11px;color:var(--cursor-text-secondary,GrayText)}
@@ -108,6 +121,7 @@ function RActiveGroup(){
   if(!id||!RIsGroupId(id)) return null;
   return RRosterRows().find(r=>r&&r.id===id)||null;
 }
+const RGroupExpansion=new Map();
 function RPaintGroupBar(){
   const group=RActiveGroup();
   const header=document.querySelector(".sand-chat-header");
@@ -124,16 +138,29 @@ function RPaintGroupBar(){
   }
   const sig=JSON.stringify([group.id,window.__sandUiLanguage,members.map(m=>[m.id,m.name,m.shape,m.color])]);
   if(bar.getAttribute("data-sig")===sig) return;
-  bar.setAttribute("data-sig",sig);
+  const focused=bar.contains(document.activeElement)?document.activeElement:null;
+  const focusedMember=focused?.dataset.memberId,focusedDirect=focused?.classList.contains("sand-group-direct");
+  const focusedSummary=focused?.tagName==="SUMMARY";
+  if(bar.dataset.groupId)RGroupExpansion.set(bar.dataset.groupId,!!bar.querySelector("details")?.open);
+  bar.dataset.groupId=group.id;bar.setAttribute("data-sig",sig);
   bar.innerHTML="";
+  const details=document.createElement("details");details.open=RGroupExpansion.get(group.id)||false;
+  details.addEventListener("toggle",()=>RGroupExpansion.set(group.id,details.open));
+  const summary=document.createElement("summary"),faces=document.createElement("span");faces.className="sand-group-faces";faces.setAttribute("aria-hidden","true");
+  if(typeof RBotSvg==="function")members.slice(0,4).forEach(m=>faces.append(RBotSvg(m.shape,m.color,24)));
+  summary.append(faces,document.createTextNode(copy.bots(members.length)));
+  const memberList=document.createElement("div");memberList.className="sand-group-members";
+  details.append(summary,memberList);bar.append(details);
   const label=document.createElement("strong");
   label.textContent=copy.badge;
   label.style.cssText="color:var(--cursor-text-secondary,GrayText);font-size:11px;letter-spacing:.04em";
-  bar.append(label);
+  memberList.append(label);
   members.forEach(m=>{
     const b=document.createElement("button");
     b.type="button";
-    b.textContent="@"+m.name;
+    b.className="sand-group-mention";b.dataset.memberId=m.id;b.setAttribute("aria-label","@"+m.name);
+    if(typeof RBotSvg==="function")b.append(RBotSvg(m.shape,m.color,22));
+    b.append(document.createTextNode("@"+m.name));
     b.title=copy.hint;
     b.onpointerdown=event=>event.preventDefault(); // Keep the editor's caret.
     b.onclick=()=>{
@@ -150,7 +177,7 @@ function RPaintGroupBar(){
       if(selection) RInsertGroupMention(selection,m,group.id,false);
     };
     const direct=document.createElement("button");
-    direct.type="button";direct.className="sand-group-direct";direct.textContent="↗";
+    direct.type="button";direct.className="sand-group-direct";direct.textContent="↗";direct.dataset.memberId=m.id;
     direct.setAttribute("aria-label",copy.direct+": "+m.name);direct.title=copy.direct;
     direct.onclick=()=>{
       if(RActiveGroup()?.id!==group.id) return;
@@ -159,12 +186,17 @@ function RPaintGroupBar(){
       row?.click();
     };
     const person=document.createElement("span");person.className="sand-group-person";
-    person.append(b,direct);bar.append(person);
+    person.append(b,direct);memberList.append(person);
   });
   const hint=document.createElement("span");
   hint.className="sand-beebot-group-hint";
   hint.textContent=copy.hint;
-  bar.append(hint);
+  details.append(hint);
+  if(focusedSummary)summary.focus({preventScroll:true});
+  else if(focusedMember&&details.open){
+    const target=[...memberList.querySelectorAll("button")].find(button=>button.dataset.memberId===focusedMember&&button.classList.contains("sand-group-direct")===focusedDirect);
+    (target||summary).focus({preventScroll:true});
+  }
 }
 // Scope the adapter to the existing composer, never a Settings text field.
 let RMentionSession=null;
@@ -243,9 +275,11 @@ function RShowMention(state,members,query,groupId){
   const session={state,groupId,hits,index:0,aria:new Map()};RMentionSession=session;
   for(const key of ["aria-controls","aria-expanded","aria-activedescendant"]){session.aria.set(key,state.editor.getAttribute(key));}
   state.editor.setAttribute("aria-controls",menu.id);state.editor.setAttribute("aria-expanded","true");
-  const bounds=state.editor.getBoundingClientRect();
-  menu.style.left=Math.max(12,Math.min(bounds.left,window.innerWidth-312))+"px";
-  menu.style.bottom=Math.max(12,Math.min(window.innerHeight-40,window.innerHeight-bounds.top+8))+"px";
+  // A composer-owned section participates in layout; it never covers messages.
+  const host=state.editor.closest(".sand-chat-input-dock")||state.editor.closest(".sand-prompt-form");
+  if(!host){RHideMention();return;}
+  let anchor=state.editor;
+  while(anchor.parentElement&&anchor.parentElement!==host)anchor=anchor.parentElement;
   hits.forEach((member,index)=>{
     const option=document.createElement("button");option.type="button";option.tabIndex=-1;
     option.id="sand-mention-option-"+index;option.setAttribute("role","option");option.textContent="@"+member.name;
@@ -255,7 +289,7 @@ function RShowMention(state,members,query,groupId){
   });
   const help=document.createElement("div");help.className="sand-mention-help";
   help.textContent=window.__sandUiLanguage==="zh"?"↑ ↓ 选择 · Enter 点名 · Esc 关闭":"↑ ↓ Choose · Enter Mention · Esc Close";
-  menu.append(help);document.body.append(menu);RSelectMention(0);
+  menu.append(help);host.insertBefore(menu,anchor);RSelectMention(0);
 }
 function RSelectMention(index){
   const session=RMentionSession;if(!session) return;
@@ -263,7 +297,11 @@ function RSelectMention(index){
   const options=document.querySelectorAll('#sand-beebot-mention [role="option"]');
   options.forEach((option,i)=>{option.dataset.active=String(i===session.index);option.setAttribute("aria-selected",String(i===session.index));});
   session.state.editor.setAttribute("aria-activedescendant",options[session.index].id);
-  options[session.index].scrollIntoView?.({block:"nearest"});
+  // Scroll only the candidate section, never the conversation or the page.
+  const menu=document.getElementById("sand-beebot-mention"),option=options[session.index];
+  const top=option.getBoundingClientRect().top-menu.getBoundingClientRect().top+menu.scrollTop;
+  if(top<menu.scrollTop)menu.scrollTop=top;
+  else if(top+option.offsetHeight>menu.scrollTop+menu.clientHeight)menu.scrollTop=top+option.offsetHeight-menu.clientHeight;
 }
 function RBindMentions(){
   if(window.__sandGroupMentionBound) return;
@@ -303,6 +341,7 @@ function RRefreshGroups(){
   REnsureGroupStyle();
   const rows=RRosterRows();
   const groups=new Map(rows.filter(r=>r&&RIsGroupId(r.id)).map(r=>[r.id,r]));
+  for(const id of RGroupExpansion.keys())if(!groups.has(id))RGroupExpansion.delete(id);
   for(const el of document.querySelectorAll("[data-agent-id]")){
     const id=el.getAttribute("data-agent-id");
     const group=id?groups.get(id):null;
