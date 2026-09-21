@@ -15,6 +15,12 @@ route. Manage connections in Settings → Servers. Do not introduce a parallel
 remote dashboard, fake a local account, set a fake model key, or mark local
 initialization complete to bypass onboarding.
 
+Individual Bots and Groups are equally important core product surfaces. A Bot
+is the smallest unit of the swarm and must remain independently useful. Group
+collaboration happens through real Bot-to-Bot messages, discussion and handoffs,
+not a single coordinator impersonating multiple colleagues. Changes to either
+surface must include regression coverage for the other where they share code.
+
 ## Implementation paths
 
 The shipped renderer uses a pinned upstream baseline plus the adapters in

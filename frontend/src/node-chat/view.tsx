@@ -133,11 +133,16 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
       {actionError || snapshot.error ? <p className="beebot-chat-error" role="alert">{actionError || snapshot.error}</p> : null}
       <ConversationComposer
         acceptedSendGeneration={clearGeneration}
-        disabled={blocked}
+        disabled={false}
+        submitDisabled={blocked}
+        notice={blocked ? snapshot.runningGoal ? t(
+          "Draft only — not sent. This server cannot apply changes to running work yet.",
+          "可先写草稿，尚未发送；当前服务器暂不支持执行中追加要求。",
+        ) : t("Draft only — not sent and never sent automatically.", "草稿尚未发送，恢复后也不会自动发送。") : null}
         draft={{ prompt: snapshot.draft, attachments: [] }}
         enableAttachments={false}
         enableVoice={false}
-        onChange={(draft) => { if (!blocked) store.setDraft(draft.prompt); }}
+        onChange={(draft) => store.setDraft(draft.prompt)}
         onStageFiles={noOp}
         onSubmit={submit}
         placeholder={t(`Message ${snapshot.bot.name}`, `给 ${snapshot.bot.name} 发消息`)}

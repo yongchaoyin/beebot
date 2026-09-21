@@ -123,6 +123,7 @@
       const c=context;
       if(!c||state.busy||!text.trim())return;
       if(state.server?.status!=="online"||!c.available||state.uncertainGoal){publish({error:t("当前 Bot 暂不能接收消息，请先恢复连接或核查中断的执行。","This Bot cannot receive messages yet. Restore its connection or verify the interrupted execution first.")});return;}
+      if(state.runningGoal){publish({error:t("当前工作尚未结束。这条草稿没有发送，也不会自动追加或新建任务。","Work is still active. This draft was not sent and will not automatically amend or create a task.")});return;}
       c.error=null;publish({busy:true,error:null});
       try{
         await perform(c,"submitGoal",{botId:c.bot.id,prompt:text});
