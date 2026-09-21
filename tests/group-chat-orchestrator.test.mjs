@@ -78,6 +78,8 @@ test("after seeing others speak, members can add a follow-up", async () => {
         if (member.id === "a" && calls.a <= 4) return [`Alice ${calls.a}`];
         if (member.id === "b" && calls.b === 1) return ["Bob first"];
         if (member.id === "b" && calls.b === 2) return ["Bob follow-up"];
+        // A fourth turn needs a new peer message, not Alice waking herself.
+        if (member.id === "b" && calls.b === 3) return ["Alice, please finish the plan"];
         return ["(pass)"];
       },
       postMemberMessage: (member, content) => {
