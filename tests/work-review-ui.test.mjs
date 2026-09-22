@@ -71,3 +71,12 @@ test("the actual shipped renderer includes review UI and both authenticated RPC 
  assert.ok(patched.includes('typeof RBindWorkReview === "function" ? RBindWorkReview(runtime)'));
  const {transform}=await import("esbuild");await transform(patched,{loader:"js",format:"esm",target:"es2022"});
 });
+
+
+test("resolved review cards do not continue asking the user to accept the same result",async t=>{
+ for(const [state,title] of [["accepted","This result was accepted"],["changes_requested","Changes were requested"]]){
+   const ui=await setup(t);ui.inspect(async()=>({...structuredClone(data),task:{...data.task,state,version:4}}));await ui.open();
+   assert.equal(ui.root().querySelector("h4").textContent,title);assert.equal(ui.calls.some(c=>c[0]==="submit"),false);
+   assert.equal(ui.action().disabled,true);
+ }
+});

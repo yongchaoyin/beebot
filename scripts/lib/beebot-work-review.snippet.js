@@ -23,7 +23,8 @@ function RBindWorkReview(runtime) {
   }
   function paint(c){
     for(const [node,cn,en] of c.strings||[])node.textContent=t(cn,en);
-    c.title.textContent=t("这份结果需要你验收","This result needs your review");
+    const reviewedState=c.data?.task?.state;
+    c.title.textContent=reviewedState==="accepted"?t("这份结果已验收","This result was accepted"):reviewedState==="changes_requested"?t("这份结果需要修改","Changes were requested"):reviewedState&&reviewedState!=="submitted"?t("此版本的验收记录","Review record for this version"):t("这份结果需要你验收","This result needs your review");
     c.description.textContent=c.event.title+t(` · 工作版本 ${c.data?.task?.version??c.event.version}`,` · Work version ${c.data?.task?.version??c.event.version}`);
     c.open.textContent=c.loading?t("读取最新版本…","Loading latest version…"):c.expanded?t("收起验收","Hide review"):t("查看成果并验收","Review this result");
     c.open.disabled=c.loading||c.pending||down()||typeof runtime.roster?.getWorkReview!=="function";c.open.setAttribute("aria-expanded",String(c.expanded));
