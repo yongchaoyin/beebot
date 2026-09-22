@@ -1,0 +1,29 @@
+name: Work contract source snapshot
+on:
+  push:
+    branches: [chore/work-contract-source-20260922]
+    paths: [.github/workflows/work-contract-source.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 02be4fec11cd4eb01a8e9f3864eb359427784c44
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked history only
+        run: |
+          mkdir /tmp/work-source
+          git bundle create /tmp/work-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/work-source/commit.txt
+          sha256sum /tmp/work-source/source.bundle > /tmp/work-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: work-contract-source
+          path: /tmp/work-source/
+          retention-days: 1
