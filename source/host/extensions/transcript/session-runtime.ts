@@ -35,6 +35,8 @@ export interface LiveTranscriptSession {
 }
 
 export interface AppendEntryOptions {
+  /** Actual outgoing publications must be durable before becoming visible. */
+  readonly requireDurable?: boolean;
   readonly persistBeforeEmit?: boolean;
   readonly deferEmit?: boolean;
   readonly onPersistOutcome?: (isDurable: boolean) => void;
@@ -113,8 +115,15 @@ export class SessionRuntime {
     entry: TranscriptEntry,
     options?: AppendEntryOptions,
   ): TranscriptEntry {
+    if (options?.requireDurable === true) {
+      const durable = this.activeSession?.db.appendTranscriptEntry(entry) ?? false;
+      try { options.onPersistOutcome?.(Boolean(durable)); } catch {}
+      if (!durable) throw new Error("Message could not be saved. Delivery was not confirmed; check its receipt before retrying.");
+    }
     appendTranscriptEntry(entry);
-    if (options?.persistBeforeEmit === true) {
+    if (options?.requireDurable === true) {
+      if (options.deferEmit !== true) this.tm.roster.emit({ type: "appended", entry });
+    } else if (options?.persistBeforeEmit === true) {
       const isDurable =
         this.activeSession?.db.appendTranscriptEntry(entry) ?? false;
       try {
