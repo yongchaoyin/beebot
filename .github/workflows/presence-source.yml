@@ -1,11 +1,12 @@
-name: presence source snapshot
+name: presence QA environment
 on:
   push:
     branches: [work/presence-source-20260922]
+    paths: [.github/workflows/presence-source.yml]
 permissions:
   contents: read
 jobs:
-  snapshot:
+  linux:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -16,20 +17,39 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
-      - name: Archive exact tracked source and isolated browser dependencies
-        shell: bash
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Archive locked Linux QA dependencies
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/presence-source /tmp/presence-qa
-          git archive HEAD | gzip > /tmp/presence-source/source.tar.gz
-          git ls-tree -r HEAD > /tmp/presence-source/git-tree.txt
-          git rev-parse HEAD > /tmp/presence-source/commit.txt
-          npm install --prefix /tmp/presence-qa --no-audit --no-fund --ignore-scripts react@19.2.1 react-dom@19.2.1 esbuild@0.28.2 typescript@7.0.2
-          tar -czf /tmp/presence-source/qa-deps.tar.gz -C /tmp/presence-qa node_modules
-          cd /tmp/presence-source
-          sha256sum *.gz > SHA256SUMS
+          mkdir -p /tmp/presence-env
+          tar -czf /tmp/presence-env/deps.tar.gz node_modules
+          cp "$(which node)" /tmp/presence-env/node
+          cd /tmp/presence-env && sha256sum deps.tar.gz node > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: presence-source-6ca9d5e
-          path: /tmp/presence-source
+          name: presence-linux-locked-env
+          path: /tmp/presence-env
+          retention-days: 3
+  renderer:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - name: Archive checksum-verified renderer for adapter tests
+        run: |
+          mkdir -p /tmp/presence-native
+          tar -czf /tmp/presence-native/renderer.tar.gz src/app/dist/renderer
+          shasum -a 256 src/app/dist/renderer/assets/index-UbX-y3il.js > /tmp/presence-native/renderer.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: presence-native-renderer
+          path: /tmp/presence-native
           retention-days: 3
