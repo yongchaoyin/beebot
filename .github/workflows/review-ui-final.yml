@@ -1,0 +1,71 @@
+name: Final human review verification
+on:
+  push:
+    branches: [chore/work-review-integration-20260922]
+    paths: [.github/workflows/review-ui-final.yml]
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8227dec80caa943f7817901c3d7fc4ad5db4653c
+          fetch-depth: 0
+          lfs: false
+      - name: Verify focused UI follow-up and its regression together
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess
+          def git(*args,data=None): return subprocess.check_output(['git',*args],input=data)
+          parent='8227dec80caa943f7817901c3d7fc4ad5db4653c'
+          assert git('rev-parse','HEAD').decode().strip()==parent
+          p=pathlib.Path('scripts/lib/beebot-work-review.snippet.js')
+          assert git('hash-object',str(p)).decode().strip()=='ea1ca7ad3e0c99d02584cae820fb265f2626b373'
+          old='    c.title.textContent=t("这份结果需要你验收","This result needs your review");'
+          new='    const reviewedState=c.data?.task?.state;\n    c.title.textContent=reviewedState==="accepted"?t("这份结果已验收","This result was accepted"):reviewedState==="changes_requested"?t("这份结果需要修改","Changes were requested"):reviewedState&&reviewedState!=="submitted"?t("此版本的验收记录","Review record for this version"):t("这份结果需要你验收","This result needs your review");'
+          text=p.read_text();assert text.count(old)==1;p.write_text(text.replace(old,new));git('add',str(p))
+          p=pathlib.Path('tests/work-review-ui.test.mjs')
+          assert git('hash-object',str(p)).decode().strip()=='088ae3b0b2e9f453daec43bc6762772117677b52'
+          more='\n\ntest("resolved review cards do not continue asking the user to accept the same result",async t=>{\n for(const [state,title] of [["accepted","This result was accepted"],["changes_requested","Changes were requested"]]){\n   const ui=await setup(t);ui.inspect(async()=>({...structuredClone(data),task:{...data.task,state,version:4}}));await ui.open();\n   assert.equal(ui.root().querySelector("h4").textContent,title);assert.equal(ui.calls.some(c=>c[0]==="submit"),false);\n   assert.equal(ui.action().disabled,true);\n }\n});\n'
+          p.write_text(p.read_text()+more);git('add',str(p))
+          tree=git('write-tree').decode().strip();assert tree=='3f0a0005ad510dbdfc18ae36e78a60482ee686e9',tree
+          raw=f'tree {tree}\nparent {parent}\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790066182 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790066182 +0000\n\nfix(review-ui): show resolved result state without prompting duplicate approval\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=raw.encode()).decode().strip();assert sha=='ec7384d1246ed45e46c7668ad13b2f49f0078019',sha
+          git('update-ref','HEAD',sha,parent);assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/work-review-candidate-20260922')
+          print('Verified final source:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ec7384d1246ed45e46c7668ad13b2f49f0078019
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Verify exact product revision
+        run: test "$(git rev-parse HEAD)" = ec7384d1246ed45e46c7668ad13b2f49f0078019
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          mkdir -p /tmp/work-review-verification
+          git rev-parse HEAD > /tmp/work-review-verification/commit.txt
+          npm run node:test:integration 2>&1 | tee /tmp/work-review-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: work-review-final-runtime
+          path: /tmp/work-review-verification/
+          retention-days: 1
