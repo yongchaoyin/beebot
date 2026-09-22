@@ -79,8 +79,8 @@ export function resolveMessageResponders<T extends Pick<GroupMember, "id" | "nam
     if (message.awaitingUser || isPassContent(message.content)) continue;
     // Only the trusted publication path stamps these recipients. Visibility is
     // independent of waking every peer to inspect a progress acknowledgement.
-    if (message.speaker.kind === "member" && message.actionRecipientIds !== undefined) {
-      for (const id of message.actionRecipientIds) if (id !== message.speaker.id && members.some(member => member.id === id)) selected.add(id);
+    if (message.actionRecipientIds !== undefined) {
+      for (const id of message.actionRecipientIds) if ((message.speaker.kind !== "member" || id !== message.speaker.id) && members.some(member => member.id === id)) selected.add(id);
       continue;
     }
     const targets = parseGroupMentions(message.content, members);

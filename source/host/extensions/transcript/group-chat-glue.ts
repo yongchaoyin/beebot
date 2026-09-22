@@ -789,6 +789,7 @@ export class GroupChatGlue {
           id: entry.id,
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
+          ...(entry.workEvent ? {actionRecipientIds: (entry.workEvent as any).recipients} : {}),
           speaker: name == null ? { kind: "user" } : { kind: "user", name },
           content: String(entry.content),
         });

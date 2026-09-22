@@ -90,6 +90,17 @@ export class SendPipeline {
     catch { return true; }
   }
 
+  /** A user review is already persisted. Continue without another echo or cancellation. */
+  async dispatchWorkReview(session: LiveTranscriptSession, entry: TranscriptEntry): Promise<void> {
+    await dispatchUserTurn({tm: this.tm, session, trimmedPrompt: String(entry.content),
+      userMessageId: entry.id, awaitTurn: false, isFork: false, selectedImages: [],
+      fileAttachmentPaths: [], attachedFileSizes: new Map(), acceptedAtMs: Date.now(),
+      wasInFlight: false, readAddressedTranscript: () => session.db.getTranscriptEntries(),
+      latestRecoverySends: this.latestRecoverySends, recoveryBreakEpochs: this.recoveryBreakEpochs,
+      nextTurnEpoch: value => this.nextExecutionEpoch(value), markSendAccepted: () => {}, ackGuard: {disarm() {}},
+    });
+  }
+
   /** Explicit control only. Receiving a normal message never calls this. */
   async stopConversation(agentId: string): Promise<{ accepted: true; interrupted: boolean; externalEffectsUndone: false }> {
     if (!agentId || this.tm.sessions.isAgentGone(agentId)) throw new Error("The conversation is unavailable.");

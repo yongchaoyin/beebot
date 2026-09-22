@@ -8,6 +8,8 @@ function RBindConversationStatus(runtime) {
   let disposed=false,scheduled=false,id=null,entryStore=null,offEntries,epoch=0;
   let intent=null,pending=false,feedback="";
   const disposers=[];
+  const workReview = typeof RBindWorkReview === "function" ? RBindWorkReview(runtime) : undefined;
+  disposers.push(() => workReview?.dispose());
   const toolbar=document.createElement("section");toolbar.id="beebot-conversation-status";
   toolbar.setAttribute("aria-label",t("当前会话处理状态","Conversation status"));
   const summary=document.createElement("span");summary.className="bb-conversation-summary";
@@ -77,9 +79,9 @@ function RBindConversationStatus(runtime) {
     const workStates={offer:["offered"],claim:["claimed"],block:["blocked"],resume:["claimed"],revise:["offered","changes_requested"],submit:["submitted"],review:["accepted","changes_requested"]};
     const works=new Map(entries.filter(entry=>{
       const event=entry?.workEvent;
-      return entry.kind==="send-message"&&event?.schema===1&&typeof event.taskId==="string"&&event.taskId.length<=256
+      return (entry.kind==="send-message" || (entry.kind==="message"&&entry.role==="user"&&event?.reviewerKind==="user"&&event.actorId==="$user"))&&event?.schema===1&&typeof event.taskId==="string"&&event.taskId.length<=256
         &&Number.isSafeInteger(event.version)&&event.version>0&&typeof event.title==="string"&&event.title.length<=160
-        &&event.actorId===entry.author?.id&&workStates[event.action]?.includes(event.state);
+        &&(event.actorId===entry.author?.id || (event.reviewerKind==="user"&&event.actorId==="$user"&&entry.role==="user"))&&workStates[event.action]?.includes(event.state);
     }).map(entry=>[entry.id,entry]));
     for(const row of document.querySelectorAll("[data-row-key]")){
       const entry=works.get(row.getAttribute("data-row-key"));let badge=row.querySelector(":scope > [data-bb-work]");
@@ -87,7 +89,7 @@ function RBindConversationStatus(runtime) {
       const event=entry.workEvent;
       if(!badge){badge=document.createElement("span");badge.dataset.bbWork=entry.id;row.append(badge);}
       const labels={offer:t("分工已记录","Assignment recorded"),claim:t("已接下工作","Responsibility claimed"),block:t("已报告工作受阻","Blocker reported"),resume:t("已恢复处理","Work resumed"),revise:t("工作要求已修订","Requirements revised"),submit:t("结果已提交（不等于验收）","Result submitted (not acceptance)")};
-      const value=event.action==="review"?(event.state==="accepted"?t("同伴检查通过（非用户验收）","Peer review accepted (not user approval)"):t("同伴检查：需要修改","Peer review: changes requested")):labels[event.action];
+      const value=event.reviewerKind==="user"?(event.state==="accepted"?t("用户验收通过（不授权额外操作）","User accepted (no extra permission)"):t("用户要求修改","User requested changes")):event.action==="review"?(event.state==="accepted"?t("同伴检查通过（非用户验收）","Peer review accepted (not user approval)"):t("同伴检查：需要修改","Peer review: changes requested")):labels[event.action];
       if(badge.textContent!==value)badge.textContent=value;
       badge.dataset.action=event.action;
       badge.title=t(`此消息记录的工作事件 · ${event.title} · 版本 ${event.version}。历史记录不代替当前工作状态。`,`Work event recorded by this message · ${event.title} · version ${event.version}. Historical events do not replace current task state.`);

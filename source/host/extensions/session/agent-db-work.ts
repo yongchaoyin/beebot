@@ -52,6 +52,8 @@ function hasUserSource(entries: readonly TranscriptEntry[], id: string): boolean
 export interface WorkPublicationInput {
   message: Record<string, unknown>; actor: {id: string; name: string}; memberIds: readonly string[];
   replyTo: string; workOnId?: string; timestampMs?: number;
+  /** Trusted user RPC only, never copied from SendMessage arguments. */
+  userReview?: boolean;
 }
 export interface WorkPublicationResult { entry: TranscriptEntry; task: CollaborationWork; replay: boolean }
 
@@ -63,7 +65,8 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
   const command = collaborationCommandSchema.parse(input.message.collaboration);
   requireFact(input.message.type === "text" && typeof input.message.content === "string" && input.message.content.trim() && !input.message.channel && !input.message.images,
     "work_message_invalid", "Work operations must be ordinary local text messages. Publish files separately, then cite their IDs.");
-  requireFact(input.memberIds.includes(input.actor.id), "work_member_unavailable", "The sender is not a current participant.");
+  const human = input.userReview === true;
+  requireFact(human ? input.actor.id === "$user" && command.action === "review" : input.actor.id !== "$user" && input.memberIds.includes(input.actor.id), "work_member_unavailable", "The sender is not a current participant or an authenticated reviewer.");
   const key = canonical([input.actor.id, command.operation_id]);
   const fingerprint = digest({actorId: input.actor.id, message: {...input.message, collaboration: command}, replyTo: input.replyTo, workOnId: input.workOnId});
   db.exec("BEGIN IMMEDIATE");
@@ -81,7 +84,7 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
     }
     requireMessageReference(entries, input.replyTo);
     if (input.workOnId) requireMessageReference(entries, input.workOnId, "work_on");
-    const messageId = nextEntryId(entries, "send-message");
+    const messageId = nextEntryId(entries, human ? "user-message" : "send-message");
     let task: CollaborationWork, recipients: string[] = [];
     const currentMember = (id: string | null) => id != null && input.memberIds.includes(id);
     if (command.action === "offer") {
@@ -120,7 +123,8 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
         task.state = task.ownerId ? "changes_requested" : "offered";
         recipients = task.ownerId ? [task.ownerId] : task.assigneeId ? [task.assigneeId] : [];
       } else if (command.action === "review") {
-        requireFact(task.reviewerId === input.actor.id && task.ownerId !== input.actor.id, "work_not_reviewer", "Only the designated independent reviewer can record this review.");
+        requireFact((human ? task.reviewerId == null : task.reviewerId === input.actor.id) && task.ownerId !== input.actor.id, "work_not_reviewer", "Only the designated independent reviewer can record this review.");
+        requireFact(currentMember(task.ownerId), "work_member_unavailable", "The result owner has left this conversation. Review membership before continuing.");
         requireFact(task.state === "submitted" && task.submission?.id === command.submission_id, "work_stale_submission", "Review the current submitted result, not an older version.");
         requireFact(task.submission.results.every(ref => { const entry = entries.find(e => e.id === ref.id); return entry && resultDigest(entry) === ref.digest; }), "work_result_changed", "A submitted result changed or disappeared. Ask the owner to submit a new version.");
         const criteria = new Set(command.checks.map(check => check.criterion));
@@ -161,9 +165,9 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
     recipients = [...new Set(recipients)].filter(id => id !== input.actor.id && currentMember(id));
     const event: WorkEvent = {schema: 1, taskId: task.id, version: task.version, title: task.title,
       state: task.state, action: command.action, actorId: input.actor.id, ownerId: task.ownerId,
-      requesterId: task.requesterId, reviewerId: task.reviewerId, recipients};
-    const entry: TranscriptEntry = {kind: "send-message", id: messageId, timestampMs: input.timestampMs ?? Date.now(),
-      author: input.actor, message: {...input.message, collaboration: command}, replyTo: input.replyTo,
+      requesterId: task.requesterId, reviewerId: task.reviewerId, recipients, ...(human ? {reviewerKind: "user" as const} : {})};
+    const entry: TranscriptEntry = {kind: human ? "message" : "send-message", id: messageId, timestampMs: input.timestampMs ?? Date.now(),
+      ...(human ? {role: "user", content: String(input.message.content)} : {author: input.actor}), message: {...input.message, collaboration: command}, replyTo: input.replyTo,
       ...(command.action !== "offer" ? {workOnId: task.id} : input.workOnId ? {workOnId: input.workOnId} : {}), workEvent: event};
     db.prepare("INSERT INTO collaboration_tasks(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value").run(task.id, JSON.stringify(task));
     db.prepare("INSERT INTO transcript_entries(id,entry) VALUES(?,?)").run(entry.id, JSON.stringify(entry));

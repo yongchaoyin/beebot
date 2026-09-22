@@ -15,6 +15,7 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
+      export { getWorkReview, submitWorkReview } from './source/host/extensions/transcript/work-review.ts';
       export { SandAgentDb } from './source/host/extensions/session/agent-db.ts';
       export { commitWorkInConversation, workContext } from './source/host/extensions/transcript/conversation-work.ts';
       export { collaborationCommandSchema } from './source/shared/collaboration-work.ts';

@@ -1,3 +1,4 @@
+import { getWorkReview, submitWorkReview } from "./work-review.js";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -398,6 +399,9 @@ export class TranscriptManager {
   disconnectChannel(agentId: string, platform: string) {
     return this.sessionStore.disconnectChannel(agentId, platform);
   }
+
+  getWorkReview(args: unknown) { return getWorkReview(this, args); }
+  submitWorkReview(args: unknown) { return submitWorkReview(this, args); }
 
   stopConversation(agentId: string) {
     return this.sendPipeline.stopConversation(agentId);
