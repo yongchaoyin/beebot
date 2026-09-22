@@ -1,3 +1,4 @@
+import { stampCollaborationEntry, buildCollaborationContext, type CollaborationEvent } from "./collaboration-work.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -458,7 +459,7 @@ export class GroupChatGlue {
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
               {
-                systemPrompt: effective.systemPrompt,
+                systemPrompt: effective.systemPrompt + buildCollaborationContext(roomSession.db.getTranscriptEntries(), memberSession.id),
                 isSharedRoomTurn:
                   this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null,
               },
@@ -635,7 +636,7 @@ export class GroupChatGlue {
     const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
-    if (live != null && isActive) {
+    if (live != null && isActive && !message.collaboration) {
       const previewId = live.sealed.shift();
       if (previewId != null) {
         const finalized = updateEntry(previewId, (entry) =>
@@ -675,15 +676,16 @@ export class GroupChatGlue {
       timestampMs: Date.now(),
       author,
     };
-    if (session.db.appendTranscriptEntry(entry) === false) throw new Error("Group message was not saved.");
+    const workEntry = stampCollaborationEntry(entry, session.db.getTranscriptEntries(), member.id, readSandGroupConfig(dirname(session.dbPath))?.memberIds ?? [], this.tm.sharedRooms.sharedRoomConfigOf(session) != null);
+    if (session.db.appendTranscriptEntry(workEntry) === false) throw new Error("Group message was not saved.");
     if (isActive) {
-      appendEntry(entry); this.tm.roster.emit({type: "appended", entry}, session.id);
+      appendEntry(workEntry); this.tm.roster.emit({type: "appended", entry: workEntry}, session.id);
       this.tm.sessions.markActiveSessionArrival?.(session);
     } else {
       this.tm.sessionStore.markSessionActivity(session);
       void this.tm.roster.emitAgentUpdate(session.id);
     }
-    this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, entry);
+    this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, workEntry);
     return entry.id;
   }
 
@@ -773,6 +775,8 @@ export class GroupChatGlue {
         const name = (entry.fromUser as any)?.name;
         messages.push({
           id: entry.id,
+          ...((entry.message as any)?.intent ? {intent: (entry.message as any).intent} : {}),
+          ...(entry.collaborationEvent ? {collaborationTargets: (entry.collaborationEvent as CollaborationEvent).wakeMemberIds} : {}),
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
           speaker: name == null ? { kind: "user" } : { kind: "user", name },
@@ -788,6 +792,8 @@ export class GroupChatGlue {
       ) {
         messages.push({
           id: entry.id,
+          ...((entry.message as any)?.intent ? {intent: (entry.message as any).intent} : {}),
+          ...(entry.collaborationEvent ? {collaborationTargets: (entry.collaborationEvent as CollaborationEvent).wakeMemberIds} : {}),
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
           speaker: {

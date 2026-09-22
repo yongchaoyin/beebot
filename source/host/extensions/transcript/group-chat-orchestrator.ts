@@ -233,7 +233,8 @@ export class GroupChatOrchestrator {
         repliedIds.add(replyToId);
         if (id) this.deps.onReplied?.(member, replyToId, id);
       }
-      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
+      const saved = id ? this.deps.readHistory().find(message => message.id === id) : undefined;
+      onMessage({ ...(saved?.intent ? {intent: saved.intent} : {}), ...(saved?.collaborationTargets ? {collaborationTargets: saved.collaborationTargets} : {}), ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
       return id || undefined;
     };
     try {

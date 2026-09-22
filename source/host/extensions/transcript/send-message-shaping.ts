@@ -163,7 +163,7 @@ export async function createUserAttachmentEntry(
   };
 }
 function shapeThreadable(message: SendMessage, replyTo?: string): SendMessage {
-  const thread = { ...(replyTo == null ? {} : { reply_to: replyTo }), ...(message.work_on ? { work_on: message.work_on } : {}) };
+  const thread = { ...(message.intent ? { intent: message.intent } : {}), ...(message.collaboration ? { collaboration: message.collaboration } : {}), ...(replyTo == null ? {} : { reply_to: replyTo }), ...(message.work_on ? { work_on: message.work_on } : {}) };
   switch (message.type) {
     case "text":
       return {

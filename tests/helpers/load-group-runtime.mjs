@@ -1,4 +1,4 @@
-import { transform } from "esbuild";
+import { build, transform } from "esbuild";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +17,14 @@ export async function loadGroupRuntime(t) {
     ["source/host/extensions/transcript/group-chat-orchestrator.ts", "orchestrator.mjs"],
   ];
   for (const [input, output] of sources) {
+    if (output === "group-chat.mjs") {
+      // Follow the real import graph (including the shared Agent contract), not
+      // detached source whose relative imports point outside this fixture.
+      await build({entryPoints: [new URL(input, root).pathname],
+        outfile: path.join(temporary, output), bundle: true,
+        platform: "node", format: "esm", target: "node26", logLevel: "silent"});
+      continue;
+    }
     const source = (await readFile(new URL(input, root), "utf8"))
       .replace('"../../groups/group-chat.js"', '"./group-chat.mjs"')
       .replace('"../../groups/group-replies.js"', '"./group-replies.mjs"');

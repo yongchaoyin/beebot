@@ -1,3 +1,4 @@
+import { stampCollaborationEntry, buildCollaborationContext } from "./collaboration-work.js";
 import { describeReplyChain } from "./message-reply-contract.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
@@ -41,7 +42,7 @@ import type {
   TranscriptEntry,
   TranscriptManagerLike,
 } from "./transcript-hub.js";
-import { getTranscript, updateEntry } from "./transcript-store.js";
+import { appendEntry, getTranscript, updateEntry } from "./transcript-store.js";
 import type { LiveTranscriptSession } from "./session-runtime.js";
 
 export const MAX_REPLY_NUDGES = 3;
@@ -425,7 +426,7 @@ export class TurnRuntime {
       try {
         const unansweredPrompts =
           this.tm.widgetResponses.collectUnansweredQuestionPrompts(session);
-        const result = await runner.run(prompt, {
+        const result = await runner.run(prompt + buildCollaborationContext(session.db.getTranscriptEntries(), session.id), {
           ...options,
           ...unansweredPrompts,
           traceCtx: turnCtx,
@@ -768,10 +769,23 @@ export class TurnRuntime {
           update.boxHandoff == null
             ? base
             : stampBoxRequestEntry(base, update.boxHandoff);
-        const entry =
+        let entry =
           runSession != null && this.forkTurnSessions.has(runSession)
             ? { ...stamped, branched: true }
             : stamped;
+        if (incoming.collaboration) {
+          const target = runSession ?? this.tm.sessions.activeSession;
+          if (!target) throw new Error("No active conversation for this work action.");
+          entry = stampCollaborationEntry(entry, target.db.getTranscriptEntries(), target.id, [target.id]);
+          if (target.db.appendTranscriptEntry(entry) === false) throw new Error("Work publication could not be saved. Nothing was claimed.");
+          if (isForActiveAgent || runSession == null) {
+            appendEntry(entry); this.tm.roster.emit({type: "appended", entry}, target.id);
+          }
+          this.tm.ackObligations.fulfillAckObligation(target.id, update.ackToken);
+          this.tm.sessionStore.markSessionActivity(target);
+          void this.tm.roster.emitAgentUpdate(target.id);
+          return sendId;
+        }
         if (isForActiveAgent || runSession == null) {
           this.tm.sendPipeline.appendSendMessageEntry(entry);
           const activeId = runSession?.id ?? this.tm.sessions.activeSession?.id;

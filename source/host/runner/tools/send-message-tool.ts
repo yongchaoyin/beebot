@@ -1,3 +1,4 @@
+import { COLLABORATION_GUIDANCE } from "./collaboration-schema.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -37,7 +38,7 @@ export async function resolveAttachmentSource<Context>(ctx: Context, sourceUrl: 
 }
 async function dimensions<Context>(url: string, deps: SendMessageDependencies<Context>): Promise<{ width: number; height: number } | undefined> { const file = filePathFromFileUrl(url); return file == null ? undefined : await deps.readMediaDimensions?.(file) ?? undefined; }
 export async function buildSandSendMessage<Context>(ctx: Context, input: SendMessageInput, deps: SendMessageDependencies<Context>): Promise<SandOutgoingMessage> {
-  const raw = sendMessageParameters.parse(input); const reply = raw.reply_to || undefined, channel = raw.channel || undefined; const work = raw.work_on ? { work_on: raw.work_on } : {};
+  const raw = sendMessageParameters.parse(input); const reply = raw.reply_to || undefined, channel = raw.channel || undefined; const work = { ...(raw.work_on ? { work_on: raw.work_on } : {}), ...(raw.intent ? { intent: raw.intent } : {}), ...(raw.collaboration ? { collaboration: raw.collaboration } : {}) };
   if (raw.type === "text") { const images = []; for (const image of raw.images ?? []) { const source = await resolveAttachmentSource(ctx, image.url, deps); images.push({ url: source.url, ...(image.alt ? { alt: image.alt } : {}), ...await dimensions(source.url, deps) }); } return { type: "text", content: raw.content ?? "", ...(images.length ? { images } : {}), ...work, ...(reply ? { reply_to: reply } : {}), ...(channel ? { channel } : {}) }; }
   if (raw.type === "widget") { if (raw.widget == null) throw new SandToolInputError("widget is required when type is widget"); return { type: "widget", widget: raw.widget, ...work, ...(reply ? { reply_to: reply } : {}) }; }
   if (raw.type === "cursor-agent") { if (!raw.bcId) throw new SandToolInputError("bcId is required when type is cursor-agent"); let title: string | undefined; try { title = (await deps.resolveCloudAgentTitle?.(ctx, raw.bcId))?.trim() || undefined; } catch {} return { type: "cursor-agent", bcId: raw.bcId, ...(title ? { title } : {}), ...work, ...(reply ? { reply_to: reply } : {}) }; }
@@ -100,7 +101,7 @@ export function createSendMessageTool(deps: SendMessageDependencies<Context>) {
   };
   return createZodAgentTool("SEND_MESSAGE", {
     name: SAND_SEND_MESSAGE_TOOL_NAME,
-    descriptionGenerator: () => SAND_SEND_MESSAGE_TOOL_DESCRIPTION,
+    descriptionGenerator: () => SAND_SEND_MESSAGE_TOOL_DESCRIPTION + "\n\n" + COLLABORATION_GUIDANCE,
     parameters: sendMessageParameters,
     execute: withSafeParsedArgs(
       sendMessageParameters,

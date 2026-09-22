@@ -1,3 +1,4 @@
+import { collaborationActionSchema, type CollaborationAction, type ChatIntent } from "./collaboration-schema.js";
 import { z } from "zod";
 import { sandWidgetSchema } from "../../../shared/sand-widgets.js";
 export const SEND_MESSAGE_TYPES = ["text", "attachment", "widget", "cursor-agent", "secret-request"] as const;
@@ -6,6 +7,7 @@ export type SendMessageType = typeof SEND_MESSAGE_TYPES[number];
 export interface SendMessageInput {
   readonly type: SendMessageType; readonly content?: string | undefined; readonly url?: string | undefined;
   readonly images?: readonly { readonly url: string; readonly alt?: string | undefined }[] | undefined; readonly alt?: string | undefined;
+  readonly intent?: ChatIntent | undefined; readonly collaboration?: CollaborationAction | undefined;
   readonly reply_to?: string | undefined; readonly work_on?: string | undefined; readonly channel?: string | undefined; readonly widget?: unknown; readonly bcId?: string | undefined;
   readonly secret?: { readonly label: string; readonly description?: string | undefined; readonly connector: string; readonly field: string } | undefined;
 }
@@ -18,6 +20,7 @@ const TYPE_FIELDS: readonly { field: keyof SendMessageInput; types: readonly Sen
 ];
 export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   const issues: SendMessageIssue[] = [];
+  if (value.collaboration && (value.type !== "text" || value.channel || !value.reply_to)) issues.push({path: ["collaboration"], message: "Work actions require a quoted text message in the current local conversation."});
   if (value.work_on && (!value.reply_to || value.channel || value.type === "secret-request")) issues.push({ path: ["work_on"], message: "work_on requires reply_to in this conversation, cannot target external channels or credential requests, and never grants permission or completes work." });
   for (const { field, types } of TYPE_FIELDS) if (!types.includes(value.type) && isFieldProvided(value[field])) { const allowed = types.map((type) => `type:${type}`).join(" or "); issues.push({ path: [String(field)], message: `${String(field)} is only valid with ${allowed} and cannot ride a type:${value.type} message \u2014 it would be silently dropped. Nothing was sent. Re-send as separate SendMessage calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.` }); }
   if (value.channel && value.type !== "text" && value.type !== "attachment") issues.push({ path: ["channel"], message: "channel can only be set for type:text or type:attachment, not widgets or cursor-agent cards" });
@@ -40,6 +43,8 @@ const objectSchema = z.object({
     alt: z.string().trim().optional().describe("Optional short description of this image, shown on hover and as its fullscreen caption."),
   })).optional().describe("Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text \u2014 one image full width, several as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message."),
   alt: z.string().trim().optional().describe("Optional. A short description (alt text) of the image for type:attachment \u2014 what the image shows. Shown to the user on hover and in the fullscreen viewer."),
+  intent: z.enum(["update", "request", "question", "result"]).optional().describe("Use update only for progress with nobody asked to act. Visible to the group without waking every colleague. An intent never completes work."),
+  collaboration: collaborationActionSchema.optional().describe("Optional explicit work action attached to the real chat message. The Host validates identity and expected_version. No new permissions."),
   reply_to: z.string().trim().min(1).max(256).optional().describe("Exact address of the message being answered. Quote a colleague's question for clarification; quote their original assignment when delivering its result. For multiple assignments, use separate quoted replies. Omit only for a general update. A quote stays in the same chat; it does not start a new thread or grant permissions."),
   work_on: z.string().trim().min(1).max(256).optional().describe("Original assignment message address in this conversation. Keep this association across questions and answers when reply_to points to the immediate question instead. Requires reply_to. Association only: NOT a completion, acceptance or authorization claim."),
   channel: z.string().trim().optional().describe("Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment."),
