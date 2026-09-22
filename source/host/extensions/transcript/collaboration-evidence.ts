@@ -14,7 +14,7 @@ const digest = (value: string | Uint8Array) => createHash("sha256").update(value
 export function captureWorkEvidence(entries: readonly TranscriptEntry[], ids: readonly string[], dbPath?: string): WorkEvidence[] {
   return [...new Set(ids)].map(id => {
     const entry = requireMessageReference(entries, id, "evidence_ids");
-    if (entry.kind !== "send-message" || entry.isStreaming || !entry.message) throw new Error("work_evidence_invalid: Reference a final published result, not a transient preview or user authorization.");
+    if (entry.kind !== "send-message" || (entry.isStreaming || entry.streaming) || !entry.message) throw new Error("work_evidence_invalid: Reference a final published result, not a transient preview or user authorization.");
     const message = entry.message as Record<string, any>;
     const files: WorkEvidence["files"] = [];
     const attachments = message.type === "attachment" ? [message] : message.type === "text" ? message.images || [] : [];

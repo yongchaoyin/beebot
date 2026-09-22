@@ -649,10 +649,10 @@ export class GroupChatGlue {
     const scopeVersion = questionWork ? (publication?.contextWorkVersions ? publication.contextWorkVersions[questionWork.id] : questionWork.scopeVersion) : undefined;
     const decisionContext = questionWork ? {taskId: questionWork.id, scopeVersion: scopeVersion ?? 0} : {userMessageId: decisionUserId};
     const decisionStale = questionWork ? scopeVersion !== questionWork.scopeVersion || questionWork.state === "accepted" : decisionUserId !== (latestUser?.id ?? null);
-    const details = { ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext, ...(decisionStale ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const details = { ...(work.completion ? {completionEvent: work.completion} : {}), ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext, ...(decisionStale ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
-    if (live != null && isActive && !work.event) {
+    if (live != null && isActive && !work.event && !work.completion) {
       const previewId = live.sealed.shift();
       if (previewId != null) {
         const finalized = updateEntry(previewId, (entry) =>
@@ -686,7 +686,7 @@ export class GroupChatGlue {
       : session.db.getTranscriptEntries();
     const entry: TranscriptEntry = {
       kind: "send-message",
-      id: work.event ? candidateId : nextEntryId(entries, "send-message"),
+      id: (work.event || work.completion) ? candidateId : nextEntryId(entries, "send-message"),
       message,
       ...details,
       timestampMs: Date.now(),
@@ -782,7 +782,11 @@ export class GroupChatGlue {
         : session.db.getTranscriptEntries();
     const messages: GroupMessage[] = [];
     for (const entry of entries) {
-      if (
+      if (entry.kind === "notice" && entry.controlActor === "user" && entry.collaborationEvent) {
+        const event = entry.collaborationEvent as any;
+        messages.push({id:entry.id, speaker:{kind:"user"}, content:String(entry.text ?? "User review recorded"),
+          replyToId:event.task.id, responseTargetId:event.task.id, workOnId:event.task.id, recipientIds:event.wake});
+      } else if (
         entry.kind === "message" &&
         entry.role === "user" &&
         String(entry.content ?? "").trim()
@@ -808,7 +812,7 @@ export class GroupChatGlue {
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
           ...((entry.message as any).purpose ? {purpose: (entry.message as any).purpose} : {}),
-          ...(entry.collaborationEvent ? {recipientIds: (entry.collaborationEvent as any).wake} : {}),
+          ...(entry.collaborationEvent ? {recipientIds: (entry.collaborationEvent as any).wake} : entry.completionEvent ? {recipientIds: []} : {}),
           speaker: {
             kind: "member",
             id: (entry.author as any).id,

@@ -79,6 +79,10 @@ test("packaging preserves Settings registration when landing and registry share 
     const sections = new Function(`${main.match(/const wDn=\[[^;]+?\]/)[0]};return wDn;`)();
     assert.deepEqual(sections.map((section) => section.id), ["general", "servers", "router", "usage", "beta"]);
     assert.ok(main.includes("function RLocalChatLayout(n)"), "the landing/chat transform is also retained");
+    assert.ok(main.includes("function RBindCollaborationReview(runtime)"), "the real review UI ships in the pinned renderer");
+    assert.ok(main.includes('getCollaboration:we=>e.getCollaboration(we)'), "read uses the actual coordinator bridge");
+    assert.ok(main.includes('reviewCollaboration:we=>e.reviewCollaboration(we)'), "review uses the actual authenticated coordinator bridge");
+
     const registry = result.chunks.find((chunk) => chunk.role === "registry");
     const landing = result.chunks.find((chunk) => chunk.role === "landing");
     assert.equal(landing.original.sha256, registry.patched.sha256, "patch provenance records the shared chunk in sequence");

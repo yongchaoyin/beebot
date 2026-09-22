@@ -99,8 +99,9 @@ const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.m
 const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
+const COLLABORATION_REVIEW_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-collaboration-review.snippet.js"), "utf8");
 const CONVERSATION_STATUS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-conversation-status.snippet.js"), "utf8");
-const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
 const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
 const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
@@ -138,9 +139,9 @@ export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
-  patched = replaceExactlyOnce(patched, 'sendPrompt:{args:"object",reply:"send-result"}', 'stopConversation:{args:"object",reply:"record"},sendPrompt:{args:"object",reply:"send-result"}', "explicit conversation control RPC");
-  patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
-  patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:{args:"object",reply:"send-result"}', 'getCollaboration:{args:"object",reply:"record"},reviewCollaboration:{args:"object",reply:"record"},stopConversation:{args:"object",reply:"record"},sendPrompt:{args:"object",reply:"send-result"}', "explicit conversation control RPC");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'getCollaboration:"transcript",reviewCollaboration:"send",stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
+  patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'getCollaboration:we=>e.getCollaboration(we),reviewCollaboration:we=>e.reviewCollaboration(we),stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
   patched = patchQuotedReplies(patched);
   return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;

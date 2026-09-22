@@ -1,6 +1,7 @@
+import { prepareCompletion, projectCompletions, completionIsCurrent } from "./collaboration-completion.js";
 import { advanceWork, workDependenciesReady, workIsAccepted } from "./collaboration-transitions.js";
 import { createHash } from "node:crypto";
-import { collaborationActionSchema, collaborationEventSchema, type CollaborationTask, type CollaborationEvent } from "../../../shared/collaboration.js";
+import { collaborationActionSchema, collaborationEventSchema, type CollaborationTask, type CollaborationEvent, type CollaborationCompletion } from "../../../shared/collaboration.js";
 import { requireMessageReference } from "./message-reply-contract.js";
 import type { TranscriptEntry } from "./transcript-hub.js";
 
@@ -37,7 +38,7 @@ export interface WorkPublication {
   message: Record<string, any>; sharedRoom?: boolean; dbPath?: string; trustedUser?: boolean;
 }
 export interface PreparedWork {
-  event?: CollaborationEvent; replayId?: string; replyTo?: string; wake?: string[];
+  event?: CollaborationEvent; completion?: CollaborationCompletion; replayId?: string; replyTo?: string; wake?: string[];
 }
 
 /** Synchronous preparation + synchronous transcript append is the publication
@@ -52,15 +53,16 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
   check((input.actor === "user" && input.trustedUser === true && action.action === "review") || (input.actor !== "user" && input.members.includes(input.actor)), "work_actor_unavailable", "The publishing Bot is no longer a member.");
   const digest = createHash("sha256").update(JSON.stringify([action, input.message.content, input.message.reply_to, input.message.work_on])).digest("hex");
   const repeated = input.entries.find(entry => {
-    const event = entry.collaborationEvent as CollaborationEvent | undefined;
+    const event = (entry.collaborationEvent ?? entry.completionEvent) as CollaborationEvent | CollaborationCompletion | undefined;
     return event?.actor === input.actor && event.requestId === action.request_id;
   });
   if (repeated) {
-    const event = collaborationEventSchema.parse(repeated.collaborationEvent);
+    const event = (repeated.collaborationEvent ?? repeated.completionEvent) as CollaborationEvent | CollaborationCompletion;
     check(event.digest === digest, "work_request_conflict", "This request_id was already used for different input. Inspect history, do not silently retry with a new ID.");
     return { replayId: repeated.id };
   }
   const tasks = projectCollaboration(input.entries);
+  if (action.action === "finish") return {completion: prepareCompletion(input, action, tasks, digest), wake: [], replyTo: action.goal_message_id};
   let next: CollaborationTask; let wake: string[] = [];
   if (action.action === "assign") {
     check(tasks.size < 256, "work_limit", "This conversation has reached the supported work-contract limit.");
@@ -91,7 +93,9 @@ export function collaborationContext(entries: readonly TranscriptEntry[], actor:
   const projected = projectCollaboration(entries);
   const tasks = [...projected.values()].filter(task => task.assignee === actor || task.creator === actor || task.reviewer === actor);
   if (!tasks.length) return "";
-  return `\n\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${tasks.slice(-32).map(task => JSON.stringify({...task, dependenciesReady: workDependenciesReady(task, projected), acceptedForCurrentInputs: workIsAccepted(task, projected)})).join("\n")}\nUse wait to end reasoning while waiting; only claim when dependenciesReady. Publish result/evidence messages before submit; only the independent reviewer may review all criteria. Reference work_on for scoped questions. Receipt or an evidence hash is not semantic acceptance. Use SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must pass review before dependent work starts. If tools, access or the environment are missing, report the limitation; do not claim verified capability.\n`;
+  const receipts = [...projectCompletions(entries).values()].filter(item => item.actor === actor)
+    .map(item => ({goalId:item.goalId, id:item.id, currentForKnownWork:completionIsCurrent(item, projected)}));
+  return `\n\nCompletion receipts (all known work only): ${JSON.stringify(receipts)}\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${tasks.slice(-32).map(task => JSON.stringify({...task, dependenciesReady: workDependenciesReady(task, projected), acceptedForCurrentInputs: workIsAccepted(task, projected)})).join("\n")}\nThe first assignment creator is the temporary closer for that goal. Use finish only with every recorded task ID/current version and the final published result_ids after acceptance. Added/revised tasks invalidate an earlier finish receipt. A finish receipt is not external-send/deploy permission. Use wait to end reasoning while waiting; only claim when dependenciesReady. Publish result/evidence messages before submit; only the independent reviewer may review all criteria. Reference work_on for scoped questions. Receipt or an evidence hash is not semantic acceptance. Use SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must pass review before dependent work starts. If tools, access or the environment are missing, report the limitation; do not claim verified capability.\n`;
 }
 
 export const COLLABORATION_GUIDANCE = "For real work, attach a collaboration action to your natural SendMessage, not a separate dashboard. Assign with the user's goal_message_id, assignee ID, concrete criteria and optional existing dependency task IDs; the published assignment message ID is also the task_id. The addressed colleague must claim with expected_version before doing the work. Use purpose:update for information that needs no response, purpose:request for an actionable question and discussion for genuine open discussion. Never treat a quoted reply, acknowledgement or progress report as completed work. These records do not add permissions or lock arbitrary filesystem writes.";

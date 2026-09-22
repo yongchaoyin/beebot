@@ -764,7 +764,7 @@ export class TurnRuntime {
           if (work.replayId) return work.replayId;
           const message = work.replyTo && !threaded.reply_to ? {...threaded, reply_to: work.replyTo} : threaded;
           const entry: TranscriptEntry = {...createSendMessageEntry(sendId, message, update.timestampMs),
-            author: {id: runSession.id, name: this.tm.roster.resolveAgentProfile(runSession).name}, collaborationEvent: work.event};
+            author: {id: runSession.id, name: this.tm.roster.resolveAgentProfile(runSession).name}, collaborationEvent: work.event, completionEvent: work.completion};
           if (runSession.db.appendTranscriptEntry(entry) === false) throw new Error("Work update was not saved; no commitment changed.");
           if (isForActiveAgent) { appendEntry(entry); this.tm.roster.emit({type:"appended",entry}, runSession.id); }
           this.tm.ackObligations.fulfillAckObligation(runSession.id, update.ackToken);

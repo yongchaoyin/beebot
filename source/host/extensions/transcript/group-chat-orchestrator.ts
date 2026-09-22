@@ -221,7 +221,12 @@ export class GroupChatOrchestrator {
     let posted = 0;
     const publish = (publication: GroupPublication): string | undefined => {
       if (!isCurrent() || isPassContent(publication.content)) return;
-      const replyToId = publication.replyToId ?? (context.triggers.length === 1 ? context.triggers[0]?.id : undefined);
+      const action = publication.message?.collaboration as {action?: string; goal_message_id?: string; task_id?: string} | undefined;
+      // A formal work event refers to its goal/task; a control receipt's stable
+      // handling ID need not be a quotable chat message. Keep these distinct.
+      const workTarget = action ? (["assign", "finish"].includes(action.action ?? "") ? action.goal_message_id : action.task_id) : undefined;
+      const trigger = context.triggers.length === 1 ? context.triggers[0] : undefined;
+      const replyToId = publication.replyToId ?? workTarget ?? trigger?.responseTargetId ?? trigger?.id;
       const parent = replyToId ? this.deps.readHistory().find(message => message.id === replyToId) : undefined;
       const workOnId = publication.workOnId ?? parent?.workOnId;
       const item = { ...publication, ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}) };

@@ -67,3 +67,76 @@ messages. Models/OS are controlled substitutes with real transcript SQLite.
 C1 macOS repository check 35685647743 completed successfully. C2's exact macOS
 commit checks remain required. The user review UI is the next stage; merely
 recording reviewer=user does not expose a working acceptance button yet.
+
+
+## C3 — actual user review and accountable completion
+
+The authenticated coordinator exposes getCollaboration/reviewCollaboration.
+The model cannot set actor=user. A review is checked against the exact work,
+submission, every criterion, member set and control epoch. Its freshness token
+is process-scoped (not a replacement for coordinator authentication). The review
+and visible quoted control receipt are one synchronous SQLite append. Repeated
+unchanged request IDs return that receipt without another wake. Storage failure
+leaves the previous state intact. A saved review whose follow-up notification
+fails is reported as saved-with-notification-unconfirmed, not rolled back.
+There is no exactly-once external operation or transactional wake outbox claim.
+
+A collapsed panel in the existing chat input area exposes pending user reviews.
+It requires an explicit outcome per criterion; failed criteria need a note. It
+shows submitted evidence, owner/reviewer and version. Notes/focus survive refresh
+of the same version; stale selection, disconnect, Stop or membership changes do
+not enable obsolete acceptance. No chat modal, global task dashboard or automatic
+acceptance is introduced. New Bot/Group management remains centered. The real
+pinned renderer includes the adapter, RPC table and roster bridge, not only the
+editable frontend. The remote Node UI is not given unsupported local controls.
+
+The existing SendMessage sidecar now accepts finish. The temporary closer is the
+creator of the first assignment for that user goal, not a permanent supervisor.
+It must pin every recorded task/current version, require valid independent/user
+acceptance (including dependency versions), recheck submitted evidence, and attach
+real final published results. Missing, changed, unaccepted or extra tasks prevent
+completion. Later scope/work-set changes mark historical receipts obsolete. This
+verifies the KNOWN recorded work, not that the model found every implicit need.
+Hashes establish content identity, not semantic correctness; criterion outcomes
+are attributed human/peer assertions. Finish never grants deployment permission.
+
+Browser-to-runtime validation found a control-receipt quotation bug. User review
+notices have handling identities but aren't arbitrary quotable messages. They
+now identify the original assignment as their response target; formal work events
+prefer their goal/task over the automatic trigger quote. Thus the coordinator
+can finish against the initial goal, while a colleague can acknowledge the
+review against the original task. Explicit user/Bot quotes still take priority
+and invalid targets still fail rather than silently dropping the quote.
+
+Both individual Bot and Group use these controls and contracts. The single-Bot
+regression runs its actual message-update path, user acceptance and send ingress;
+the group regression runs assign/claim/submit, human review, selective wake and
+finish end to end through actual local modules and SQLite. Model/OS execution
+is deterministic test behavior, not production-model acceptance. File snapshot
+support remains the existing group publication boundary; arbitrary workspace
+writes are not serialized by a work-state label.
+
+Validation before commit: 23 new runtime/UI checks passed, followed by an added
+active-session review regression and packaged renderer bridge assertions. Both
+typechecks and frontend build passed. The first full local run had 366 tests:
+356 passed, 1 LFS-installer-pointer failure, 9 conditionally skipped. A later full
+run was interrupted by the tool timeout and is not counted as passing. Final
+exact-tree macOS repository checks must hydrate the existing LFS/runtime assets;
+no tests, assertions or checksum checks were removed to accommodate Linux.
+
+Chromium exercised the actual adapter plus actual review/SQLite/dispatch modules
+via an isolated stdio bridge. Local HTTP browser navigation was blocked by the
+environment, so the test rendered an offline document without changing browser
+policy. The outer shell, Electron bridge and model behavior are fixtures. Twelve
+checks passed at 1280x900 and 390x844: inline display, evidence, incomplete review
+rejection, real saved acceptance and final receipt, retained chat draft/focus,
+language/theme, no horizontal overflow and no console errors/warnings. Native
+macOS UI, signed packaging and a production-model comparison remain separate.
+
+
+Final local rerun after the live-receipt fix: 370 tests, 360 passed, 1 expected
+missing-LFS-installer assertion, 9 conditional skips. Both typechecks and frontend
+build passed; all 24 newly added tests and the packaged bridge assertions passed.
+The real group's user-review-to-finish case was added after browser integration
+caught the invalid default quote. Exact macOS CI and enabled Host integration
+are still required to turn the environment-limited suite into release evidence.

@@ -1,6 +1,7 @@
 /* Read-only UI projections from the real conversation stores. No DOM-derived
  * work state, fabricated read receipts, automatic retries, or popup approvals. */
 function RBindConversationStatus(runtime) {
+  if (typeof RBindCollaborationReview === "function") RBindCollaborationReview(runtime);
   if (!runtime?.selection?.snapshots || !runtime?.transcript?.snapshotsFor) return;
   if (window.__beebotConversationStatus?.runtime === runtime) return;
   window.__beebotConversationStatus?.dispose();

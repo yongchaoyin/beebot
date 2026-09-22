@@ -214,6 +214,8 @@ export function createHostGatewayApi(
       });
       return { accepted: true };
     },
+    getCollaboration: (args: unknown) => method(manager, "getCollaboration")(args),
+    reviewCollaboration: (args: unknown) => { markActive("user_action"); return method(manager, "reviewCollaboration")(args); },
     stopConversation: (args: any) => {
       if (typeof args?.agentId !== "string" || !args.agentId.trim()) throw new Error("A conversation ID is required.");
       markActive("user_action");

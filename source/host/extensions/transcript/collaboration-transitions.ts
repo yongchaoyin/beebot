@@ -8,7 +8,10 @@ const check = (ok: unknown, code: string, detail: string): void => { if (!ok) th
 /** Acceptance is invalidated transitively when an upstream reviewed version is
  * revised. The original review remains in history; it is never silently erased. */
 export function workIsAccepted(task: CollaborationTask, tasks: ReadonlyMap<string, CollaborationTask>, seen = new Set<string>()): boolean {
-  if (seen.has(task.id) || task.state !== "accepted" || !task.submission || task.submission.scopeVersion !== task.scopeVersion) return false;
+  if (seen.has(task.id) || task.state !== "accepted" || !task.submission || task.submission.scopeVersion !== task.scopeVersion
+    || task.review?.verdict !== "accept" || task.review.submissionId !== task.submission.id
+    || task.review.reviewer !== task.reviewer || task.review.reviewer === task.assignee
+    || task.review.checks.length !== task.criteria.length || !task.review.checks.every(c => c.passed)) return false;
   const next = new Set(seen).add(task.id);
   return task.dependencies.every(id => {
     const dep = tasks.get(id);
@@ -36,7 +39,7 @@ function addressesWork(entries: readonly TranscriptEntry[], source: TranscriptEn
 }
 
 export function advanceWork(args: {
-  prior: CollaborationTask; action: Exclude<CollaborationAction, {action: "assign"}>;
+  prior: CollaborationTask; action: Exclude<CollaborationAction, {action: "assign" | "finish"}>;
   actor: string; members: readonly string[]; tasks: ReadonlyMap<string, CollaborationTask>;
   entries: readonly TranscriptEntry[]; messageId: string; dbPath?: string | undefined;
 }): {task: CollaborationTask; wake: string[]} {
