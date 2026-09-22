@@ -1,0 +1,43 @@
+name: Continuity development snapshot
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/continuity-dev-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 28f0da1ec95043f6bfa37f6b7cd309f83c10c444
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Export only tracked source and Git objects (no Git configuration)
+        run: |
+          mkdir -p /tmp/beebot-snapshot
+          git archive HEAD > /tmp/beebot-snapshot/source.tar
+          git bundle create /tmp/beebot-snapshot/source.bundle HEAD
+          git rev-parse HEAD > /tmp/beebot-snapshot/commit.txt
+          git ls-tree -r HEAD > /tmp/beebot-snapshot/tree.txt
+      - name: Install locked dependencies without lifecycle scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          tar -cf /tmp/beebot-snapshot/dependencies.tar node_modules
+      - name: Export exact Node executable
+        run: |
+          cp "$(command -v node)" /tmp/beebot-snapshot/node
+          sha256sum /tmp/beebot-snapshot/* > /tmp/beebot-snapshot/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beebot-continuity-development
+          path: /tmp/beebot-snapshot/
+          retention-days: 1
+          compression-level: 6
