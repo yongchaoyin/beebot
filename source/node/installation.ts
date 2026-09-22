@@ -1,4 +1,4 @@
-import { constants, closeSync, fstatSync, openSync, readSync, accessSync, unlinkSync, writeFileSync } from "node:fs";
+import { constants, closeSync, fstatSync, openSync, readSync, accessSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { NodeConfig } from "./config.js";
 
@@ -85,7 +85,7 @@ export interface NodeReadiness {
 }
 /** Configuration inspection is not a model call or a successful work/desktop probe. */
 export function inspectNodeReadiness(config: NodeConfig, credential: ModelCredential, hostEntry: string, shell = "/bin/sh"): NodeReadiness {
-  const available = (file: string, mode: number) => { try { accessSync(file, mode); return true; } catch { return false; } };
+  const available = (file: string, mode: number) => { try { if (!statSync(file).isFile()) return false; accessSync(file, mode); return true; } catch { return false; } };
   const hostBundle = available(hostEntry, constants.R_OK) ? "available" : "missing";
   const shellStatus = available(shell, constants.X_OK) ? "available" : "missing";
   const model = !config.model ? "not_configured" : credential.status === "available" ? "configured_not_tested" : credential.status === "missing" ? "credential_missing" : "credential_unreadable";
@@ -120,7 +120,10 @@ export function loadSetupLink(dataDir: string, config: Pick<NodeConfig, "nodeId"
 /** Read-only network check. No redirect, credentials, TLS override, or model call. */
 export async function verifyNodeEndpoint(config: Pick<NodeConfig, "nodeId" | "publicUrl">, request: typeof fetch = fetch): Promise<void> {
   const response = await request(new URL("/v1/node", config.publicUrl), { redirect: "error", signal: AbortSignal.timeout(10_000), headers: { accept: "application/json" } });
-  if (!response.ok || !response.body) throw new Error("The public Node endpoint is not available; installation data was kept.");
+  if (!response.ok || !response.body) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error("The public Node endpoint is not available; installation data was kept.");
+  }
   const reader = response.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
   try {
     while (true) {

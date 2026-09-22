@@ -81,7 +81,7 @@ test('CLI rejects keys in argv, accepts stdin, and doctor does not leak or claim
 async function port() { const probe = createServer(); await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve)); const value = probe.address().port; await new Promise(resolve => probe.close(resolve)); return value; }
 async function until(check, message) { for (let i = 0; i < 150; i++) { if (await check()) return; await delay(50); } throw new Error(message); }
 
-test('managed CLI setup keeps codes out of service logs and removes consumed receipt', { timeout: 30000 }, async t => {
+for (const query of ['', '?source=installation-test']) test(`managed CLI setup keeps codes out of logs and removes consumed receipt (${query || 'plain route'})`, { timeout: 30000 }, async t => {
   const dir = directory(); const config = api.initializeConfig(dir); config.port = await port(); config.publicUrl = `http://127.0.0.1:${config.port}`;
   writeFileSync(path.join(dir, 'node.json'), JSON.stringify(config), { mode: 0o600 });
   const child = spawn(process.execPath, [cli, 'start', '--data-dir', dir, '--setup-output', 'file'], { env: { PATH: process.env.PATH, HOME: root }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -94,7 +94,7 @@ test('managed CLI setup keeps codes out of service logs and removes consumed rec
   assert.equal(invoke('verify', dir).status, 0);
   const page = await fetch(link), html = await page.text(); assert.equal(page.status, 200, html);
   const fields = { flow_id: /name="flow_id" value="([^"]+)"/.exec(html)[1], csrf: /name="csrf" value="([^"]+)"/.exec(html)[1], username: 'owner', password: 'installation-test-only-passphrase' };
-  const response = await fetch(config.publicUrl + '/setup', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: config.publicUrl, Cookie: page.headers.get('set-cookie').split(';')[0] }, body: new URLSearchParams(fields) });
+  const response = await fetch(config.publicUrl + '/setup' + query, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: config.publicUrl, Cookie: page.headers.get('set-cookie').split(';')[0] }, body: new URLSearchParams(fields) });
   assert.equal(response.status, 200, await response.text());
   await until(() => !existsSync(file), 'Consumed receipt not removed');
   assert.notEqual(invoke('setup-link', dir).status, 0); assert.ok(!output.includes(code));

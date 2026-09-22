@@ -95,3 +95,15 @@ test('private readers reject world-readable credentials', t => {
 test('argument errors do not echo an accidentally supplied credential', () => {
   assert.throws(() => api.parseNodeArguments('init', [fakeKey]), error => !error.message.includes(fakeKey));
 });
+
+test('readiness requires real files rather than readable directories', t => {
+  const dir = temporary(t);
+  const report = api.inspectNodeReadiness(node, { status: 'missing' }, dir, dir);
+  assert.equal(report.hostBundle, 'missing'); assert.equal(report.shell, 'missing');
+});
+test('failed endpoint responses release their bodies without consuming server data', async () => {
+  let cancelled = false;
+  const response = new Response(new ReadableStream({ cancel() { cancelled = true; } }), { status: 503 });
+  await assert.rejects(api.verifyNodeEndpoint(node, async () => response));
+  assert.equal(cancelled, true);
+});

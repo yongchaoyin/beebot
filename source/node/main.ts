@@ -75,7 +75,9 @@ async function main(): Promise<void> {
     }
   } catch (error) { await server.close(); throw error; }
   if (privateSetup) server.http.on("request", (req, res) => {
-    if (req.method !== "POST" || req.url !== "/setup") return;
+    if (req.method !== "POST") return;
+    try { if (new URL(req.url ?? "/", config.publicUrl).pathname !== "/setup") return; }
+    catch { return; }
     res.once("finish", () => {
       try { if (!server.auth.getSetupInfo().required) removeSetupLink(dataDir); }
       catch { /* A shutdown may have closed the auth store; shutdown also removes the file. */ }
