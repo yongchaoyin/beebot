@@ -18,7 +18,7 @@ export async function loadContinuityRuntime(t) {
       export { buildGroupReplyContext } from './source/host/groups/group-replies.ts';
       export { requireMessageReference, describeReplyChain } from './source/host/extensions/transcript/message-reply-contract.ts';
       export { validateAiReplyTarget, applyAutoReplyThread } from './source/host/extensions/transcript/send-thread-stamping.ts';
-      export { buildSandSendMessage } from './source/host/runner/tools/send-message-tool.ts';
+      export { buildSandSendMessage, createSendMessageTool } from './source/host/runner/tools/send-message-tool.ts';
       export { prepareGroupPublication } from './source/host/extensions/transcript/group-publications.ts';
       export { readAttachmentText } from './source/host/extensions/attachments/attachments-service.ts';
       export { WidgetResponses } from './source/host/extensions/transcript/widget-responses.ts';

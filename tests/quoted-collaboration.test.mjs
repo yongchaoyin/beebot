@@ -142,3 +142,13 @@ test("single-Bot context keeps author, original assignment and clarification ind
   const session={};const message=h.runtime.applyAutoReplyThread({turnRuntime:{replyThreadTargets:new Map([[session,"ans"]])}},{type:"text",content:"Understood",work_on:"work"},session,entries);
   assert.equal(message.reply_to,"ans");assert.equal(message.work_on,"work");
 });
+
+
+test("Agent tool instructions agree with the same-chat quote contract", async t => {
+  const h = await continuityHarness(t);
+  const tool = h.runtime.createSendMessageTool({getIngestAttachment: () => undefined, onSendMessage: () => undefined});
+  const description = tool.descriptionGenerator();
+  assert.match(description, /like reply_to, this stays in the current chat and never creates a thread/);
+  assert.doesNotMatch(description, /unlike reply_to this never threads/);
+  assert.match(description, /Use reply_to for a direct answer and a reference link for supporting context/);
+});

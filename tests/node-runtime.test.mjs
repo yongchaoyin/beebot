@@ -295,13 +295,24 @@ test("controller crash disconnects and stops owned Bot processes without replayi
   const controller = spawn(process.execPath, [fixturePath], { stdio: "ignore" });
   const exited = new Promise(resolve => controller.once("exit", resolve));
   const marker = path.join(dataDir, "runtime-bots", hash(bot.id), "host/box-workspace/orphan-shell.pid");
-  let shellPid;
+  let shellPid, hostPid;
+  const waitForHostExit = async () => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { process.kill(hostPid, 0); }
+      catch (error) { if (error.code === "ESRCH") return true; throw error; }
+      await delay(100);
+    }
+    return false;
+  };
   try {
     for (let attempt = 0; attempt < 150; attempt++) {
       try { shellPid = Number((await readFile(marker, "utf8")).trim()); break; } catch (error) { if (error.code !== "ENOENT") throw error; }
       await delay(100);
     }
     assert.ok(shellPid > 0, "shell must run before killing controller");
+    const discovery = JSON.parse(await readFile(path.join(dataDir, "runtime-bots", hash(bot.id), "host/gateway.json"), "utf8"));
+    hostPid = discovery.pid;
+    assert.ok(Number.isInteger(hostPid) && hostPid > 0 && hostPid !== process.pid && hostPid !== controller.pid, "capture the owned Host before disconnecting its controller");
     controller.kill("SIGKILL");
     await exited;
     let alive = true;
@@ -311,6 +322,10 @@ test("controller crash disconnects and stops owned Bot processes without replayi
     }
     if (alive && process.platform !== "win32") console.error(execFileSync("ps", ["-o", "pid,ppid,pgid,state,comm", "-p", String(shellPid)], { encoding: "utf8" }));
     assert.equal(alive, false, "orphan shell must be reaped after controller IPC disconnect");
+    // Shell shutdown happens before the Host flushes stores/discovery. Removing
+    // its profile at that point races those final writes (ENOTEMPTY on macOS).
+    // Assert natural Host exit rather than adding blind deletion retries.
+    assert.equal(await waitForHostExit(), true, "orphan Host must finish shutdown before its profile is removed");
     const replacement = new HostRuntime({ dataDir, hostEntry, env });
     try {
       await assert.rejects(replacement.execute({ runId: "orphan-run", bot, prompt: "Start the long test command" }, new AbortController().signal), error => error.code === "uncertain");
@@ -320,6 +335,10 @@ test("controller crash disconnects and stops owned Bot processes without replayi
     controller.kill("SIGKILL");
     await exited;
     if (shellPid) { try { process.kill(-shellPid, "SIGKILL"); } catch {} }
+    if (Number.isInteger(hostPid) && hostPid > 0 && hostPid !== process.pid && hostPid !== controller.pid) {
+      try { process.kill(hostPid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+      assert.equal(await waitForHostExit(), true, "owned Host did not exit during fixture cleanup");
+    }
     if (process.env.BEEBOT_KEEP_RUNTIME_TEST_DATA !== "1") await rm(dataDir, { recursive: true, force: true });
     else console.log(`Runtime test data: ${dataDir}`);
   }

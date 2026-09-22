@@ -82,3 +82,20 @@ Shared-room history and tool authorization boundaries are unchanged. Remote Node
 conversations without quote protocol support do not silently acquire local-only
 features. Native model/OS and installed application acceptance remain required
 before claiming a release.
+
+
+## Final integration follow-up
+
+The first macOS run for `34e363a` passed repository checks. The additional
+13-case Host/Shell suite passed 12 cases, but the orphan-controller case failed
+while removing its temporary profile (`ENOTEMPTY`). It already waited for the
+Shell, which stops *before* the Host flushes its stores/discovery. The fixture now
+captures the owned Host identity before disconnect and asserts its natural exit
+before deleting the directory. It retains the original no-replay and Shell-exit
+assertions; no deletion retries or swallowed failures are added. Exact final
+macOS integration remains a separate verification gate.
+
+The legacy SendMessage description also now agrees with its parameter schema:
+both quotes and reference links stay in the current conversation; a quote is a
+direct answer, a reference link points to supporting context. A runtime-loaded
+regression checks these Agent-facing instructions instead of relying only on UI.
