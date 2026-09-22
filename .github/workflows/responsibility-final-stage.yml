@@ -1,0 +1,90 @@
+name: Responsibility final stage verification
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/responsibility-final-stage.yml, '.dev-submit/responsibility-final/**']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify source transformations and exact Git stage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          root=pathlib.Path('.dev-submit/responsibility-final')
+          checks=['cdd667729c0a7b3a40e5f63f92b26edadd3c3bfd','d722879892cf733462ed28a33f6eeb1807886f2e','fd9928bdb4ba2c6e24f3b7977274a3a7561e194a']
+          operations=[]
+          for i,expected in enumerate(checks):
+              raw=(root/f'ops-{i}.json').read_bytes()
+              assert git('hash-object','--stdin',data=raw).decode().strip()==expected
+              operations.extend(json.loads(raw))
+          targets={
+              'completion.ts':('source/host/extensions/transcript/collaboration-completion.ts','a800029506d6a2f196a5ab3c8abff853d2f900e8'),
+              'controls.ts':('source/host/extensions/transcript/collaboration-controls.ts','4095e9d35e2ef8f4aae3e301806cdc3c1b0f9d5b'),
+              'review-ui.js':('scripts/lib/beebot-collaboration-review.snippet.js','5d662066d7dc7ff955cf0b6e2be600da0223f74c'),
+              'completion.test.mjs':('tests/collaboration-completion.test.mjs','14773b36affeeafb0364e18a95c2852342e464ff'),
+              'review-ui.test.mjs':('tests/collaboration-review-ui.test.mjs','42bb273d544b5b8d1263263256b132bedcbdcdd7'),
+          }
+          additions={}
+          for file,(target,sha) in targets.items():
+              raw=(root/file).read_bytes()
+              assert git('hash-object','--stdin',data=raw).decode().strip()==sha
+              additions[target]=raw
+          parent='81812eb13e23e433a33ed4cee1c71e018270ada8'
+          git('checkout','--detach',parent)
+          for op in operations:
+              path=pathlib.Path(op['path'])
+              assert path.as_posix().startswith(('source/','frontend/','scripts/','tests/','docs/')) and '..' not in path.parts
+              assert git('hash-object',str(path)).decode().strip()==op['old_blob']
+              lines=path.read_text().splitlines(keepends=True)
+              for start,end,replacement in reversed(op['ops']):
+                  assert 0<=start<=end<=len(lines)
+                  lines[start:end]=[replacement]
+              path.write_text(''.join(lines))
+              git('add',str(path))
+          for target,raw in additions.items():
+              path=pathlib.Path(target)
+              assert not path.exists()
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(raw)
+              git('add',str(path))
+          tree=git('write-tree').decode().strip()
+          assert tree=='62584177590efbdbeebed63c70d0c81baf6fe4e4'
+          commit='tree '+tree+'\nparent '+parent+'\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790055519 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790055519 +0000\n\nfeat(collaboration): review and close recorded work in the conversation\n\nAdd authenticated, version-bound user review and exact work-set completion receipts. Keep reviews inline, preserve drafts, separate control receipt targets from quoted goals, and recheck evidence before closure. Add 24 regression cases and exercise the actual pinned renderer bridge. Both typechecks/build and browser-to-SQLite checks pass. Local full suite: 360 passed, one missing LFS installer, nine conditional skips; exact macOS and enabled Host integration remain required. No native UI, production model or signed-release claim.\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit.encode()).decode().strip()
+          assert sha=='639ff091652c6455bd68c1554a78c81f907fefe8'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/responsibility-final-candidate-20260922')
+          print('Verified exact C3 source:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 639ff091652c6455bd68c1554a78c81f907fefe8
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Assert exact source revision
+        run: test "$(git rev-parse HEAD)" = 639ff091652c6455bd68c1554a78c81f907fefe8
+      - name: Real Host and Shell with deterministic model and isolated profiles
+        run: npm run node:test:integration
