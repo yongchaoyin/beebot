@@ -1,3 +1,4 @@
+import { patchPresenceCreatePicker } from "./presence-create-picker-patch.mjs";
 import { buildSync } from "esbuild";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -58,5 +59,6 @@ export function patchPresenceRenderer(source) {
 
   result = once(result, 'new URL("app-icon-C7NKj2u7.png",import.meta.url)', 'new URL("beebot-app-icon.svg",import.meta.url)', "neutral welcome application icon");
 
+  result = patchPresenceCreatePicker(result);
   return `${presenceSharedModule()}\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
 }
