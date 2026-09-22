@@ -5,19 +5,28 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  dependencies:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: a8bd4703edf0e75196d308b31b5b3c4ea9e34d74
           persist-credentials: false
           lfs: false
-      - name: Export tracked source without credentials or runtime binaries
-        run: git archive --format=tar.gz HEAD > "$RUNNER_TEMP/beebot-source.tar.gz"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Install exact dependencies for isolated Linux frontend validation
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Export dependencies and pinned Node, never credentials or configuration
+        run: |
+          cp "$(command -v node)" "$RUNNER_TEMP/node-26.5.0"
+          tar -czf "$RUNNER_TEMP/beebot-dependencies.tar.gz" node_modules
       - uses: actions/upload-artifact@v4
         with:
-          name: honeyline-source-a8bd470
-          path: ${{ runner.temp }}/beebot-source.tar.gz
+          name: honeyline-linux-validation-toolchain
+          path: |
+            ${{ runner.temp }}/beebot-dependencies.tar.gz
+            ${{ runner.temp }}/node-26.5.0
           retention-days: 1
