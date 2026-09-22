@@ -52,7 +52,7 @@ test("work labels distinguish input needed, actual work and idle without inventi
   assert.equal(workLabel({ isRunning: false, currentActivity: { verb: "reading" } }), null, "stale activity is not work");
   assert.equal(workLabel({}), null);
   assert.equal(workLabel({ awaitingUserResponse: false }), null);
-  assert.equal(workLabel({ waitingReason: "Permission needed" }).state, "waiting");
+  assert.equal(workLabel({ waitingReason: "Permission needed" }).state, "waiting", "free text is not proof that the user owns an action");
   assert.equal(workLabel({ isRunning: true, awaitingUserResponse: { id: "permission" } }).state, "attention");
   assert.equal(workLabel({ isRunning: true, currentActivity: { verb: "reading" } }).zh, "正在查阅资料");
   assert.equal(workLabel({ isRunning: true, currentActivity: { verb: "running-commands" } }).en, "Running commands");

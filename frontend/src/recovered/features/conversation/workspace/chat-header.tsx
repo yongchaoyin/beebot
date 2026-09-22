@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { WorkState } from "../../../../honeyline/status";
 import type { RendererAgent } from "../../../../production/model";
 import { ComputerHeaderControl } from "../../computer/shell/view";
 import { SharedRoomHeaderTrigger, type SharedRoomHeaderTriggerProps } from "../../agent-info/shared-room/trigger";
@@ -11,7 +12,7 @@ import { AgentAvatar } from "./agent-avatar";
 // owned by the separate agent-info surface and is intentionally not mounted here.
 
 export interface ConversationAgentHeaderProps {
-  agent: Pick<RendererAgent, "id" | "name" | "isRunning" | "isComposingMessage" | "awaitingUserResponse" | "currentActivity" | "avatarDataUrl" | "avatarShape" | "avatarColor" | "isSharedRoom" | "memberIds"> & { isGroup?: boolean };
+  agent: Pick<RendererAgent, "id" | "name" | "isRunning" | "isComposingMessage" | "awaitingUserResponse" | "currentActivity" | "avatarDataUrl" | "avatarShape" | "avatarColor" | "isSharedRoom" | "memberIds"> & WorkState & { isGroup?: boolean };
   isComputerActive: boolean;
   isInfoOpen: boolean;
   onToggleInfo(): void;

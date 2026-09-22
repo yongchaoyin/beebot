@@ -9,7 +9,7 @@
  * @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=5705447 (fVn transcript overlay reconciliation)
  */
 
-export type AcknowledgementPhase = "pending" | "queued" | "dispatching" | "accepted-awaiting-echo" | "failed";
+export type AcknowledgementPhase = "pending" | "queued" | "dispatching" | "accepted-awaiting-echo" | "failed" | "uncertain";
 export type AcknowledgementEntryKind = "message" | "user-attachment";
 
 export interface AcknowledgementEntry {
@@ -57,6 +57,7 @@ export interface TranscriptAcknowledgementController {
   insertOptimistic(record: Omit<AcknowledgementRecord, "priorNonces"> & { priorNonces?: readonly string[] }): boolean;
   markDispatching(accountSlot: string | null, nonce: string): boolean;
   markAcceptedAwaitingEcho(accountSlot: string | null, nonce: string): boolean;
+  markUncertain(accountSlot: string | null, nonce: string): boolean;
   markFailed(accountSlot: string | null, nonce: string, failedAtMs: number): boolean;
   retryFailed(input: {
     accountSlot: string | null;
@@ -64,7 +65,7 @@ export interface TranscriptAcknowledgementController {
     nonce: string;
     freshNonce: string;
     entries: readonly AcknowledgementEntry[];
-    phase?: Exclude<AcknowledgementPhase, "accepted-awaiting-echo" | "failed">;
+    phase?: Exclude<AcknowledgementPhase, "accepted-awaiting-echo" | "failed" | "uncertain">;
   }): boolean;
   ingestTranscriptEvent(input: { accountSlot: string | null; agentId: string; entry: TranscriptAcknowledgementEvent }): boolean;
   reconcileEcho(input: { accountSlot: string | null; agentId: string; nonce: string; echoedNonce?: string }): boolean;
@@ -181,6 +182,12 @@ export function createTranscriptAcknowledgementController(): TranscriptAcknowled
       if (match == null || match[1].phase === "failed") return false;
       if (match[1].phase === "accepted-awaiting-echo") return true;
       records.set(match[0], { ...match[1], phase: "accepted-awaiting-echo" });
+      return publish(true);
+    },
+    markUncertain(slot, nonce) {
+      const match = findRecord(slot, nonce);
+      if (match == null || match[1].phase === "failed" || match[1].phase === "accepted-awaiting-echo") return false;
+      records.set(match[0], { ...match[1], phase: "uncertain" });
       return publish(true);
     },
     markFailed(slot, nonce, failedAtMs) {

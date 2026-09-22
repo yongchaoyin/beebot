@@ -19,7 +19,7 @@ runtime. It does not replace the checksum-pinned upstream renderer wholesale.
 A Bot or Group has one FIFO receipt queue. New sends and reconnect flushes use
 one scheduler. A typed pre-dispatch rejection permits later messages to proceed;
 a generic exception is an **unknown receipt**, not proof the host did nothing.
-Unknown receipts pause that conversation until the user reviews and explicitly
+Unknown receipts pause that conversation until a verified read-only receipt resolves it, or the user reviews and explicitly
 dismisses the receipt. Continuing never replays the uncertain message and never
 cancels host work. Other conversations remain independent.
 
@@ -83,3 +83,27 @@ here. Component checks do not establish shipped send-journal behavior.
 Still requires interactive Mac validation: native window/IPC, real Bot and Group
 transport, permissions, audio, computer stream, installation, signing and update.
 No signed release or main-branch merge is part of this increment.
+
+## Reconciled concurrent increment
+
+The concurrent `a11209c` draft handoff, live-client dispatch ref, per-conversation
+attachment gates, queued-cancel restoration, bilingual inline recovery and bounded
+receipt cache are retained. Unknown receipt compatibility remains `phase: failed`
+with `failureKind: unknown`; it is never treated as a proven rejection or exposed
+to blind Resend. The acknowledgement store distinguishes it as `uncertain`.
+
+Read-only `promptAcceptanceStatus` validates host slot, conversation and nonce.
+A five-second lookup bound, missing/pending/evicted/malformed results and a failed
+lookup all remain unknown. A verified acceptance can settle before the original
+RPC returns; late failures cannot reverse it. A verified rejection enables review
+or deliberate resend, without replaying automatically. The user's existing inline
+queue-review/dismiss action is preserved: it releases later messages without
+claiming this message was rejected and without re-executing it.
+
+Work-state projection now also distinguishes typed wait owners, review, resource
+queues and lost connection. Source/packaged adapters share that projection.
+Unspecified free-text waits remain neutral. Actual React tests preserve frames,
+menus, input focus and draft; both branches' tests are retained. Browser checks
+include computed feedback spacing above upstream specificity, both palettes,
+three window widths and readonly lookup errors. Updated final counts are recorded
+in PR #3 and the evidence bundle, not inferred from either pre-merge suite.

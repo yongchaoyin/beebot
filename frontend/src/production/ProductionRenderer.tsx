@@ -6,8 +6,10 @@ import { ConversationComposer } from "../recovered/features/conversation/workspa
 import { commitComposerAttachments, stageComposerFiles } from "../recovered/features/conversation/workspace/desktop";
 import type { ComposerDraft, ConversationTranscriptEntry, DraftAttachment, TranscriptMessage } from "../recovered/features/conversation/workspace/model";
 import { createComposerDraftPersistence, createComposerDraftStateStore } from "../recovered/features/conversation/workspace/draft-state";
-import { ComposerSubmissionRejectedError, createComposerSubmissionQueue, type ComposerSubmission, type ComposerSubmissionQueue } from "../recovered/features/conversation/workspace/submission";
+import { createComposerSubmissionQueue, ComposerSubmissionRejectedError, type ComposerSubmission, type ComposerSubmissionQueue } from "../recovered/features/conversation/workspace/submission";
 import { createSendJournalApprovalLifecycle } from "../recovered/features/conversation/workspace/send-journal-approval-lifecycle";
+import { lookupSubmissionReceipt, verifiedSubmissionOutcome } from "../recovered/features/conversation/workspace/submission-receipt";
+import { HOST_ACCOUNT_SLOT } from "../../../source/shared/send-acceptance";
 import { createTranscriptAcknowledgementController } from "../recovered/features/conversation/workspace/acknowledgement";
 import { createReplyThreadController, type ReplySelection } from "../recovered/features/conversation/workspace/reply-thread-controller";
 import type { ComposerReplyTarget } from "../recovered/features/conversation/workspace/reply-preview";
@@ -989,15 +991,15 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   useStrictModeSafeDisposal(hiddenChatsMutationController);
 
   const sendComposerPrompt = async (submission: ComposerSubmission): Promise<void> => {
-    if (client == null) throw new ComposerSubmissionRejectedError("coordinator is unavailable for sendPrompt");
     const accountGeneration = accountScopeGenerationRef.current;
+    if (client == null) throw new ComposerSubmissionRejectedError("coordinator is unavailable for sendPrompt");
     const draftAttachments = submission.attachments.map((attachment) => ({ path: attachment.path, name: attachment.name }));
     let attachments: typeof draftAttachments;
     try { attachments = bridge == null ? draftAttachments : await commitComposerAttachments(bridge, draftAttachments); }
-    catch (error) { throw new ComposerSubmissionRejectedError("Attachments could not be prepared; message was not sent", { cause: error }); }
-    if (accountScopeGenerationRef.current !== accountGeneration) {
-      throw new ComposerSubmissionRejectedError("Account changed before message dispatch");
-    }
+    catch (error) { throw new ComposerSubmissionRejectedError("Attachments could not be prepared; the message was not sent.", { cause: error }); }
+    // Never let preparation started in one account dispatch in the next account.
+    if (accountScopeGenerationRef.current !== accountGeneration || accountRef.current?.kind !== "logged-in")
+      throw new ComposerSubmissionRejectedError("The account changed before this message was sent.");
     for (const attachment of draftAttachments) stagedPaths.current.delete(attachment.path);
     setEntriesByAgent((current) => ({
       ...current,
@@ -1005,7 +1007,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         ? { ...entry, attachments, text: submission.prompt }
         : entry)
     }));
-    await client.call("sendPrompt", {
+    try { await client.call("sendPrompt", {
       agentId: submission.agentId,
       prompt: submission.prompt,
       directAddressedAcceptance: true,
@@ -1017,7 +1019,23 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       ...(submission.richText == null ? {} : { richText: submission.richText }),
       ...(submission.replyToId == null ? {} : { replyToId: submission.replyToId }),
       ...(submission.isFork === undefined ? {} : { isFork: submission.isFork })
-    });
+    }); } catch (error) {
+      // Failed RPC delivery is not proof that the send was rejected. The ledger
+      // query is read-only and never replays sendPrompt.
+      if (accountScopeGenerationRef.current !== accountGeneration) throw error;
+      let outcome: ReturnType<typeof verifiedSubmissionOutcome> = null;
+      if (transportRef.current === "connected") {
+        try {
+          outcome = await lookupSubmissionReceipt(() => client.call("promptAcceptanceStatus", {
+            accountSlot: HOST_ACCOUNT_SLOT, clientNonce: submission.nonce,
+          }), { accountSlot: HOST_ACCOUNT_SLOT, agentId: submission.agentId, nonce: submission.nonce });
+        } catch { /* A failed lookup leaves the original outcome unconfirmed. */ }
+      }
+      if (accountScopeGenerationRef.current !== accountGeneration) throw error;
+      if (outcome === "sent") return;
+      if (outcome === "not-sent") throw new ComposerSubmissionRejectedError("The server rejected this message.", { cause: error });
+      throw error;
+    }
   };
   // Long-lived queues must dispatch through the current client, not mount-time closures.
   const sendComposerPromptRef = useRef(sendComposerPrompt);
@@ -1063,7 +1081,8 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       const scope = acknowledgementScopeRef.current;
       if (submission.phase === "pending") acknowledgementController.markDispatching(scope.accountSlot, submission.nonce);
       if (submission.phase === "sent") acknowledgementController.markAcceptedAwaitingEcho(scope.accountSlot, submission.nonce);
-      if (submission.phase === "failed") acknowledgementController.markFailed(scope.accountSlot, submission.nonce, Date.now());
+      if (submission.phase === "failed" && submission.failureKind !== "rejected") acknowledgementController.markUncertain(scope.accountSlot, submission.nonce);
+      if (submission.phase === "failed" && submission.failureKind === "rejected") acknowledgementController.markFailed(scope.accountSlot, submission.nonce, Date.now());
       if (submission.phase === "cancelled") acknowledgementController.removeOptimistic({ accountSlot: scope.accountSlot, nonce: submission.nonce });
       setEntriesByAgent((current) => {
         if (submission.phase === "cancelled") {
@@ -1072,9 +1091,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
             [submission.agentId]: (current[submission.agentId] ?? []).filter((entry) => entry.kind !== "message" || entry.clientNonce !== submission.nonce)
           };
         }
-        const delivery: "pending" | "queued" | "failed" | "sent" = submission.phase === "pending" || submission.phase === "queued" || submission.phase === "failed" || submission.phase === "sent"
-          ? submission.phase
-          : "pending";
+        const delivery = submission.phase;
         return {
           ...current,
           [submission.agentId]: (current[submission.agentId] ?? []).map((entry) => entry.kind === "message" && entry.clientNonce === submission.nonce
@@ -2390,6 +2407,9 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         const projectedEntries = projectTranscriptFeedEntries(rawEntries, owner?.name ?? UI_TEXT.title, ownerId);
         for (const entry of projectedEntries) {
           if (entry.kind !== "message" || entry.clientNonce == null) continue;
+          if (entry.role === "user" && !("sourceKind" in entry && entry.sourceKind === "user-attachment")
+            && composerSubmissionQueue.snapshot().some(record => record.nonce === entry.clientNonce && record.agentId === ownerId))
+            composerSubmissionQueue.reconcile(entry.clientNonce, "sent");
           acknowledgementController.ingestTranscriptEvent({
             accountSlot: acknowledgementScopeRef.current.accountSlot,
             agentId: ownerId,
@@ -2436,6 +2456,9 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       const acknowledgementEntryKind = event && typeof event === "object" && "kind" in event && event.kind === "user-attachment" ? "user-attachment" as const : "message" as const;
       if (clientNonce != null) acknowledgementController.ingestTranscriptEvent({ accountSlot: acknowledgementScopeRef.current.accountSlot, agentId: ownerId, entry: { id: projected.id, kind: acknowledgementEntryKind, clientNonce } });
       const projectedMessage = projected.kind === "message" ? projected : null;
+      if (clientNonce != null && projectedMessage?.role === "user" && acknowledgementEntryKind === "message"
+        && composerSubmissionQueue.snapshot().some(record => record.nonce === clientNonce && record.agentId === ownerId))
+        composerSubmissionQueue.reconcile(clientNonce, "sent");
       const projectedAttachments = projectedMessage?.attachments ?? [];
       setEntriesByAgent((current) => {
         const existing = current[ownerId] ?? [];
@@ -2744,6 +2767,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         accountScopeGenerationRef.current += 1;
         composerSubmissionQueue.reset();
         resendSubmissionNoncesRef.current.clear();
+        setBusy(false);
         setAttachmentStages({});
         localToolPermissionScopeGate.reset();
         groupMembersRoot.reset();
@@ -3032,6 +3056,11 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     const prompt = liveDraft.prompt.trim();
     const attachments = liveDraft.attachments.map(({ path, name }) => ({ path, name }));
     if (prompt.length === 0 && attachments.length === 0) return;
+    if (composerSubmissionQueue.snapshot().some(record => record.agentId === activeAgent.id && record.phase === "failed" && record.failureKind !== "rejected"
+      && record.prompt === prompt && JSON.stringify(record.attachments) === JSON.stringify(attachments))) {
+      setNotice("Check the original message receipt before sending the same unconfirmed message again.");
+      return;
+    }
     const submission = replyThreadController.projectSubmission({
       nonce: clientNonce,
       agentId: activeAgent.id,
@@ -3083,7 +3112,22 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     }));
   }, [acknowledgementController, composerSubmissionQueue]);
 
+  const checkSendReceipt = async (entry: TranscriptMessage): Promise<void> => {
+    const agentId = activeAgentIdRef.current;
+    const accountGeneration = accountScopeGenerationRef.current;
+    if (client == null || entry.clientNonce == null || !(entry.delivery === "uncertain" || (entry.delivery === "failed" && entry.deliveryFailure !== "rejected"))) return;
+    if (transportRef.current !== "connected") throw new Error("Reconnect before checking this receipt.");
+    const outcome = await lookupSubmissionReceipt(() => client.call("promptAcceptanceStatus", {
+      accountSlot: HOST_ACCOUNT_SLOT, clientNonce: entry.clientNonce,
+    }), { accountSlot: HOST_ACCOUNT_SLOT, agentId, nonce: entry.clientNonce });
+    if (accountScopeGenerationRef.current !== accountGeneration || activeAgentIdRef.current !== agentId) return;
+    if (outcome == null) throw new Error("The server cannot confirm delivery yet. The queue remains paused; nothing was resent.");
+    if (!composerSubmissionQueue.reconcile(entry.clientNonce, outcome)) return;
+    setNotice(outcome === "sent" ? "The server received this message; this is not confirmation that the work is complete." : "The server confirmed rejection. You can now review or resend the failed message.");
+  };
+
   const resendFailedSend = useCallback(async (entry: TranscriptMessage) => {
+    if (entry.delivery !== "failed") return;
     const agentId = activeAgentIdRef.current;
     if (client == null || !agentId) return;
     const original = composerSubmissionQueue.snapshot().find(record => record.nonce === entry.clientNonce && record.agentId === agentId);
@@ -3603,6 +3647,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
                 onReply={(entry) => selectReplyTarget(entry.id)}
                 onStartThread={(entry) => { replyThreadController.navigate(entry.id); }}
                 onResendFailedSend={(entry) => void resendFailedSend(entry)}
+                onCheckSendReceipt={checkSendReceipt}
                 renderMessageReactionActions={renderReactionActions}
                 renderComputerHandoff={(entry) => renderComputerHandoffEntry(entry, computer)}
                 renderMessageReactionPills={renderReactionPills}

@@ -37,6 +37,8 @@ export interface ComposerSubmissionQueue {
   /** Explicitly dismiss a failed receipt; never replays that message. */
   discard(nonce: string): void;
   cancelQueued(nonce: string): boolean;
+  /** Reconcile only a verified acceptance/rejection; missing records stay unknown. */
+  reconcile(nonce: string, outcome: "sent" | "not-sent"): boolean;
   flush(): void;
   snapshot(): readonly ComposerSubmissionRecord[];
   /** Forget a previous account epoch; does not cancel work already on the host. */
@@ -49,6 +51,7 @@ interface QueueOptions {
   now?(): number;
   onPhase?(input: ComposerSubmission & { phase: ComposerSubmissionPhase; failureKind?: ComposerSubmissionFailure }): void;
   onFailure?(input: ComposerSubmissionRecord, error: unknown): void;
+  onObserverError?(error: unknown): void;
 }
 interface PendingRecord {
   input: ComposerSubmission;
@@ -81,7 +84,9 @@ export function createComposerSubmissionQueue(options: QueueOptions): ComposerSu
   const live = (record: PendingRecord, epoch: number) => !disposed && generation === epoch && records.get(record.input.nonce) === record;
   // UI observer failures must not turn an accepted send into a transport failure.
   const observe = (callback: () => void) => {
-    try { callback(); } catch { console.error("BeeBot submission observer failed"); }
+    try { callback(); } catch (error) {
+      try { if (options.onObserverError) options.onObserverError(error); else console.error("BeeBot submission observer failed"); } catch { /* Diagnostics do not own progress. */ }
+    }
   };
   const notify = (record: PendingRecord, phase: ComposerSubmissionPhase) => observe(() => options.onPhase?.({
     ...copySubmission(record.input), phase, ...(record.failureKind ? { failureKind: record.failureKind } : {})
@@ -174,6 +179,23 @@ export function createComposerSubmissionQueue(options: QueueOptions): ComposerSu
       record.resolve("cancelled");
       remember(record);
       notify(record, "cancelled");
+      flushAgent(record.input.agentId, generation);
+      return true;
+    },
+    reconcile(nonce, outcome) {
+      const record = records.get(nonce);
+      if (!record || (record.phase !== "pending" && !(record.phase === "failed" && record.failureKind === "unknown"))) return false;
+      if (outcome !== "sent" && outcome !== "not-sent") return false;
+      // A negative lookup cannot cancel an RPC that may still be in flight.
+      if (record.phase === "pending" && outcome !== "sent") return false;
+      release(record);
+      if (outcome === "sent") {
+        record.phase = "sent"; delete record.failureKind;
+        records.delete(nonce); remember(record); record.resolve("sent"); notify(record, "sent");
+      } else {
+        record.phase = "failed"; record.failureKind = "rejected";
+        notify(record, "failed");
+      }
       flushAgent(record.input.agentId, generation);
       return true;
     },

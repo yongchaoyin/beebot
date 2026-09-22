@@ -48,6 +48,8 @@ export interface ConversationTranscriptActions {
   onReply?(entry: TranscriptMessage): void;
   onStartThread?(entry: TranscriptMessage): void;
   onResendFailedSend?(entry: TranscriptMessage): void;
+  /** Read-only receipt lookup; never a retry of the external operation. */
+  onCheckSendReceipt?(entry: TranscriptMessage): Promise<void>;
   onCopyMessage?(entry: TranscriptMessage): void | Promise<void>;
   renderMessageReactionActions?: RenderTranscriptMessageReactionActions;
   renderMessageReactionPills?: RenderTranscriptMessageReactionPills;
@@ -65,7 +67,7 @@ export type RenderTranscriptMessageReactionPills = (props: TranscriptMessageReac
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=6395536 (immutable mCn action eligibility/copy injection; UTF-8; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
 function isOrdinaryMessageActionable(entry: TranscriptMessage, isReadOnly: boolean, onCopy?: (entry: TranscriptMessage) => void | Promise<void>): boolean {
   const hasCopyContent = entry.text.length > 0;
-  const deliveryActionable = entry.delivery !== "failed" && entry.delivery !== "pending" && entry.delivery !== "queued";
+  const deliveryActionable = entry.delivery !== "failed" && entry.delivery !== "pending" && entry.delivery !== "queued" && entry.delivery !== "uncertain";
   return hasCopyContent && deliveryActionable && (!isReadOnly || onCopy != null);
 }
 
@@ -88,12 +90,13 @@ function QueuedSendNotice({ entry, isTransportDown, onCancel }: { entry: Transcr
   </div>;
 }
 
-function FailedSendActions({ entry, onDelete, onResend }: { entry: TranscriptMessage; onDelete?: (entry: TranscriptMessage) => void; onResend?: (entry: TranscriptMessage) => void }) {
+function FailedSendActions({ entry, onDelete, onResend, onCheck }: { entry: TranscriptMessage; onDelete?: (entry: TranscriptMessage) => void; onResend?: (entry: TranscriptMessage) => void; onCheck?: (entry: TranscriptMessage) => Promise<void> }) {
   const zh = useDeliveryLanguage() === "zh";
   const [confirmDismiss, setConfirmDismiss] = useState(false);
   const uncertain = entry.deliveryFailure !== "rejected";
   return <div aria-label={zh ? "发送状态与操作" : "Message delivery actions"} className="sand-failed-send-actions sand-pvyfi4 sand-78zum5 sand-6s0dn4 sand-1a02dak sand-13a6bvl sand-11twubx sand-1om1abp" role="group">
     <span className="sand-6rl5ky sand-y5h43f sand-1rhlpx6 sand-19ji09o" role="status">{uncertain ? (zh ? "送达结果待确认 · 再次发送前请核对会话" : "Delivery unconfirmed · Check the conversation before sending again") : (zh ? "尚未发送" : "Not sent")}</span>
+    {uncertain && onCheck != null ? <ReceiptCheck entry={entry} onCheck={onCheck} /> : null}
     {uncertain || onResend == null ? null : <button className={deliveryActionButtonClass} onClick={() => onResend(entry)} type="button">{zh ? "重新发送" : "Resend"}</button>}
     {onDelete == null ? null : uncertain ? <>
       {confirmDismiss ? <>
@@ -102,6 +105,33 @@ function FailedSendActions({ entry, onDelete, onResend }: { entry: TranscriptMes
         <button className={deliveryActionButtonClass} onClick={() => setConfirmDismiss(false)} type="button">{zh ? "保持暂停" : "Keep paused"}</button>
       </> : <button className={deliveryActionButtonClass} onClick={() => setConfirmDismiss(true)} type="button">{zh ? "核对队列" : "Review queue"}</button>}
     </> : <button className={deliveryActionButtonClass} onClick={() => onDelete(entry)} type="button">{zh ? "删除" : "Delete"}</button>}
+  </div>;
+}
+
+function ReceiptCheck({ entry, onCheck }: { entry: TranscriptMessage; onCheck?: (entry: TranscriptMessage) => Promise<void> }) {
+  const zh = useDeliveryLanguage() === "zh";
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const check = async () => {
+    if (checking || onCheck == null) return;
+    setChecking(true); setError(null);
+    try { await onCheck(entry); }
+    catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { if (mounted.current) setChecking(false); }
+  };
+  return <>
+    {onCheck == null ? null : <button className={deliveryActionButtonClass} disabled={checking} onClick={() => void check()} type="button">{checking ? (zh ? "正在核对回执…" : "Checking receipt…") : (zh ? "核对送达回执" : "Check receipt")}</button>}
+    {error == null ? null : <span role="status">{error}</span>}
+  </>;
+}
+
+function UncertainSendNotice({ entry, onCheck }: { entry: TranscriptMessage; onCheck?: (entry: TranscriptMessage) => Promise<void> }) {
+  const zh = useDeliveryLanguage() === "zh";
+  return <div className="sand-uncertain-send-notice" role="status">
+    <span>{zh ? "送达结果待确认。本会话后续消息已暂停，本条消息不会自动重发。" : "Delivery unconfirmed. Later messages in this chat are paused; this message will not be resent automatically."}</span>
+    <ReceiptCheck entry={entry} onCheck={onCheck} />
   </div>;
 }
 
@@ -234,7 +264,7 @@ function MessageActionAnchor({ entry, isReadOnly, threadRootId, threadSummary, o
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label="More message actions" className="sand-message-hover-actions__button" onClick={() => { setReactionMenuOpen(false); setMenuOpen((open) => !open); }} ref={triggerRef} type="button">
           <span aria-hidden="true" data-icon-name="dots-3-horizontal" style={{ fontFamily: "cursor-icons" }}>{String.fromCodePoint(messageActionIconCodePoint("dots-3-horizontal"))}</span>
         </button>
-        {menuOpen ? <div aria-label="More message actions" role="menu" style={{ position: "absolute", right: 0, bottom: "34px", display: "grid", minWidth: "150px", padding: "4px", background: "var(--bee-surface, #20231f)", color: "var(--bee-text, #fff)", border: "1px solid var(--bee-border, #343832)", borderRadius: "8px", boxShadow: "0 12px 28px rgba(0, 0, 0, .35)" }}>
+        {menuOpen ? <div aria-label="More message actions" role="menu" style={{ position: "absolute", right: 0, bottom: "34px", display: "grid", minWidth: "150px", padding: "4px", background: "var(--bee-surface, #20231f)", border: "1px solid var(--bee-border, #343832)", borderRadius: "8px", boxShadow: "var(--bee-shadow, 0 12px 28px rgba(0, 0, 0, .35))" }}>
           {!isReadOnly && isThreadActionVisible && onReply != null ? <button className="sand-message-hover-actions__button" onClick={() => { onReply(entry); closeMenu(true); }} role="menuitem" style={{ width: "100%", border: 0, borderRadius: "5px", textAlign: "left" }} type="button"><SandIcon name={replyActionIconName(entry)} />Reply</button> : null}
           {!isReadOnly && isThreadActionVisible && onStartThread != null ? <button className="sand-message-hover-actions__button" onClick={() => { onStartThread(entry); closeMenu(true); }} role="menuitem" style={{ width: "100%", border: 0, borderRadius: "5px", textAlign: "left" }} type="button"><span aria-hidden="true" data-icon-name="chat-bubbles" />Start a thread</button> : null}
           {/* @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=6395536 (immutable Copy item is conditional on injected onCopy; UTF-8; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5) */}
@@ -635,7 +665,7 @@ export function TranscriptThinkingRow({ entry, expanded, onToggle }: { entry: Tr
   );
 }
 
-export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, renderMessageFooter, resolveTranscriptCardInteractions, onResendFailedSend, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
+export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, renderMessageFooter, resolveTranscriptCardInteractions, onResendFailedSend, onCheckSendReceipt, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const olderLoadInFlightRef = useRef(false);
   const viewCommitListenersRef = useRef(new Set<() => void>());
@@ -807,9 +837,10 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
                 {messageLink != null && messageUrlCards != null ? <LinkCardView isGroupStart={messageAdjacency.isGroupStart} provider={messageUrlCards} url={messageLink} /> : entry.isStreaming && entry.role === "assistant" && !entry.text ? <StreamingMessage /> : entry.role === "assistant" ? <AssistantMessageContent channel={entry.channel} images={entry.images} isSourceTrusted={entry.isSourceTrusted} isStreaming={entry.isStreaming} text={entry.text} /> : <UserMessageContent richText={entry.richText} text={entry.text} />}
                 {renderMessageReactionPills?.(reactionPillProps)}
                 {entry.attachments?.length ? <TranscriptAttachmentGallery adjacency={messageAdjacency} attachments={entry.attachments} downloadAttachment={downloadAttachment} readAttachmentBytes={readAttachmentBytes} resolveMedia={resolveAttachmentMedia} role={entry.role} /> : null}
-                {entry.delivery === "queued" && entry.composedAtMs == null ? <QueuedSendNotice entry={entry} isTransportDown={isTransportDown} onCancel={onCancelQueuedSend} /> : null}
-                {entry.role === "user" && !failed && entry.composedAtMs != null ? <SentWhileOfflineNotice composedAtMs={entry.composedAtMs} /> : null}
-                {failed ? <FailedSendActions entry={entry} onDelete={onDeleteFailedSend} onResend={onResendFailedSend} /> : null}
+                {entry.delivery === "queued" ? <QueuedSendNotice entry={entry} isTransportDown={isTransportDown} onCancel={onCancelQueuedSend} /> : null}
+                {entry.role === "user" && (entry.delivery == null || entry.delivery === "sent") && entry.composedAtMs != null ? <SentWhileOfflineNotice composedAtMs={entry.composedAtMs} /> : null}
+                {entry.delivery === "uncertain" ? <UncertainSendNotice entry={entry} onCheck={onCheckSendReceipt} /> : null}
+                {failed ? <FailedSendActions entry={entry} onDelete={onDeleteFailedSend} onResend={onResendFailedSend} onCheck={onCheckSendReceipt} /> : null}
               </div>
             </MessageActionAnchor>
             {renderMessageFooter?.(entry)}
