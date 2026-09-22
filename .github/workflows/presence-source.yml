@@ -1,4 +1,4 @@
-name: presence candidate validation
+name: presence source-only validation
 on:
   push:
     branches: [work/presence-source-20260922]
@@ -31,7 +31,7 @@ jobs:
           node-version: 26.5.0
           cache: npm
           cache-dependency-path: source/package-lock.json
-      - name: Apply reviewed hash-locked candidate without helper files
+      - name: Apply reviewed source while preserving the existing CI workflow
         run: python3 ../tooling/.presence-candidate/apply.py
       - name: Install unchanged locked dependencies
         run: npm ci --no-audit --no-fund
