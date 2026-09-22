@@ -1,0 +1,76 @@
+name: Honeyline verified source submission
+on:
+  push:
+    branches: [feat/honeyline-theme-20260922]
+    paths: [.github/workflows/honeyline-submit.yml]
+permissions:
+  contents: write
+concurrency:
+  group: honeyline-verified-submission
+  cancel-in-progress: false
+jobs:
+  verify-and-push:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Apply exact reviewed source and commit the verified tree
+        run: |
+          python3 - <<'PY'
+          import gzip, hashlib, os, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert os.environ['GITHUB_REF'] == 'refs/heads/feat/honeyline-theme-20260922'
+          base = '5e4113f399bfb6ec23f0cdf152a33b46e0b7ff8c'
+          assert git('rev-parse', 'HEAD^') == base, 'Unexpected preparation parent'
+          parts = ['1', '2', '3a', '3b', '4']
+          paths = [f'.github/honeyline-part-{part}.bin' for part in parts]
+          expected = set(paths + ['.github/workflows/honeyline-submit.yml'])
+          assert set(git('diff', '--name-only', base, 'HEAD').splitlines()) == expected
+          packed = b''.join(pathlib.Path(path).read_bytes() for path in paths)
+          assert len(packed) == 20901
+          patch = gzip.decompress(packed)
+          assert len(patch) == 72102
+          assert hashlib.sha256(patch).hexdigest() == '797e78f3dc0db1d39f8cdb24017b37b8d7f18ce93bd1af93a949b4579d2a69cc'
+          pathlib.Path('/tmp/honeyline-reviewed.patch').write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', '--unidiff-zero', '/tmp/honeyline-reviewed.patch'], check=True)
+          subprocess.run(['git', 'apply', '--index', '--unidiff-zero', '/tmp/honeyline-reviewed.patch'], check=True)
+          PY
+          node --input-type=module -e 'import {honeylineIconSvg} from "./scripts/lib/honeyline-icon.mjs"; import {writeFileSync} from "node:fs"; writeFileSync("branding/beebot-app-icon.svg", honeylineIconSvg());'
+          git add branding/beebot-app-icon.svg
+          git rm branding/beebot-app-icon.png branding/beebot-app-icon.icns .github/workflows/honeyline-renderer-fixture.yml .github/workflows/honeyline-submit.yml .github/honeyline-part-1.bin .github/honeyline-part-2.bin .github/honeyline-part-3a.bin .github/honeyline-part-3b.bin .github/honeyline-part-4.bin
+          test "$(git write-tree)" = 36ea89c5ad27382a5ac1b6219fb5c21b3965f1e2
+          git diff --cached --check
+          git config user.name 'BeeBot development'
+          git config user.email 'beebot-development@users.noreply.github.com'
+          git commit -m 'feat(ui): ship Honeyline theme across editable and packaged renderers'
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Hydrate checksum-pinned runtime
+        run: npm run bootstrap
+      - name: Generate original macOS app icon
+        run: npm run icon:generate
+      - name: Run all repository checks
+        run: npm run check
+      - name: Build editable frontend
+        run: npm run frontend:build
+      - name: Verify exact committed publication tree
+        run: npm run publication:check
+      - name: Push only the tested commit, without overwriting concurrent work
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test "$(git rev-parse HEAD^{tree})" = 36ea89c5ad27382a5ac1b6219fb5c21b3965f1e2
+          current=$(git ls-remote --refs origin refs/heads/feat/honeyline-theme-20260922 | cut -f1)
+          test "$current" = "$GITHUB_SHA"
+          git push origin HEAD:refs/heads/feat/honeyline-theme-20260922
+          echo "Verified source commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Exact tested tree: $(git rev-parse HEAD^{tree})" >> "$GITHUB_STEP_SUMMARY"
