@@ -5,10 +5,15 @@ import type { TranscriptEntry } from "./transcript-hub.js";
 
 const check = (ok: unknown, code: string, detail: string): void => { if (!ok) throw new Error(`${code}: ${detail}`); };
 
+/** Old review rows remain readable, but do not invent evidence pins on load. */
+export function workReviewNeedsRefresh(task: CollaborationTask): boolean {
+  return task.state === "accepted" && task.review?.verdict === "accept" && !task.review.manifest;
+}
+
 /** Acceptance is invalidated transitively when an upstream reviewed version is
  * revised. The original review remains in history; it is never silently erased. */
 export function workIsAccepted(task: CollaborationTask, tasks: ReadonlyMap<string, CollaborationTask>, seen = new Set<string>()): boolean {
-  if (seen.has(task.id) || task.state !== "accepted" || !task.submission || task.submission.scopeVersion !== task.scopeVersion
+  if (seen.has(task.id) || task.state !== "accepted" || !task.review?.manifest?.length || !task.submission || task.submission.scopeVersion !== task.scopeVersion
     || task.review?.verdict !== "accept" || task.review.submissionId !== task.submission.id
     || task.review.reviewer !== task.reviewer || task.review.reviewer === task.assignee
     || task.review.checks.length !== task.criteria.length || !task.review.checks.every(c => c.passed)) return false;
@@ -60,7 +65,8 @@ export function advanceWork(args: {
     next.evidenceIds = [];wake = [prior.assignee];
   } else if (action.action === "review") {
     check(actor === prior.reviewer && actor !== prior.assignee, "work_not_reviewer", "Only the designated independent reviewer or actual user can review.");
-    check(prior.state === "review" && prior.submission?.id === action.submission_id && prior.submission.scopeVersion === prior.scopeVersion,
+    check(actor === "user" || (members.includes(prior.assignee) && members.includes(prior.creator)), "work_member_unavailable", "Reconcile the work's missing assignee/coordinator before accepting or requesting changes.");
+    check((prior.state === "review" || workReviewNeedsRefresh(prior)) && prior.submission?.id === action.submission_id && prior.submission.scopeVersion === prior.scopeVersion,
       "work_submission_stale", "This is no longer the current submitted version.");
     check(action.verdict === "changes" || (workDependenciesReady(prior, tasks) && prior.submission!.dependencyVersions.every(pin => tasks.get(pin.id)?.version === pin.version)),
       "work_dependencies_changed", "The submission used an obsolete prerequisite; ask for an updated result.");
@@ -68,15 +74,21 @@ export function advanceWork(args: {
     const indices = new Set(action.checks.map(item => item.criterion));
     check(indices.size === prior.criteria.length && action.checks.length === prior.criteria.length && [...indices].every(i => i < prior.criteria.length),
       "work_checks_incomplete", "Review every criterion exactly once with published evidence.");
-    for (const item of action.checks) captureWorkEvidence(entries, item.evidence_ids, dbPath);
+    const manifest = captureWorkEvidence(entries, action.checks.flatMap(item => item.evidence_ids), dbPath);
     check(action.verdict !== "accept" || action.checks.every(item => item.passed), "work_check_failed", "A failed criterion cannot be accepted.");
     check(action.verdict !== "changes" || action.checks.some(item => !item.passed), "work_change_reason_required", "Identify at least one criterion requiring changes.");
-    next.review = {id: messageId, reviewer: actor, submissionId: action.submission_id, verdict: action.verdict, checks: action.checks};
+    next.review = {id: messageId, reviewer: actor, submissionId: action.submission_id, verdict: action.verdict, checks: action.checks, manifest};
     next.state = action.verdict === "accept" ? "accepted" : "changes-requested";
     wake = [prior.assignee, prior.creator];
     if (next.state === "accepted") {
       const projected = new Map(tasks).set(next.id, next);
-      for (const candidate of projected.values()) if (candidate.dependencies.includes(next.id) && ["offered", "waiting"].includes(candidate.state) && workDependenciesReady(candidate, projected)) wake.push(candidate.assignee);
+      for (const candidate of projected.values()) {
+        // Accepted downstream work can become obsolete without changing its own
+        // row. Notify its owner to explicitly recheck/reclaim, never auto-run it.
+        const needsInput = ["offered", "waiting"].includes(candidate.state)
+          || (candidate.state === "accepted" && !workIsAccepted(candidate, projected));
+        if (candidate.dependencies.includes(next.id) && needsInput && workDependenciesReady(candidate, projected)) wake.push(candidate.assignee);
+      }
     }
   } else {
     check(prior.assignee === actor && members.includes(actor), "work_not_owner", "Only the current designated colleague may claim or update this work.");

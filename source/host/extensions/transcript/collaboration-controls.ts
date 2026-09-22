@@ -5,7 +5,7 @@ import { collaborationReviewRequestSchema, type CollaborationTask } from "../../
 import { readSandGroupConfig } from "../../groups/group-store.js";
 import { prepareCollaboration, projectCollaboration } from "./collaboration.js";
 import { completionIsCurrent, projectCompletions } from "./collaboration-completion.js";
-import { workDependenciesReady, workIsAccepted } from "./collaboration-transitions.js";
+import { workDependenciesReady, workIsAccepted, workReviewNeedsRefresh } from "./collaboration-transitions.js";
 import { appendEntry } from "./transcript-store.js";
 import { nextEntryId } from "./transcript-entry-ids.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
@@ -35,7 +35,7 @@ export class CollaborationControls {
   }
   private canReview(task:CollaborationTask, members:readonly string[], entries:readonly TranscriptEntry[]) {
     const submittedAt = entries.findIndex(entry => entry.id === task.submission?.id);
-    return task.state === "review" && task.reviewer === "user" && submittedAt >= 0
+    return (task.state === "review" || workReviewNeedsRefresh(task)) && task.reviewer === "user" && submittedAt >= 0
       && members.includes(task.assignee) && members.includes(task.creator)
       && !entries.slice(submittedAt + 1).some(entry => entry.code === "conversation_stop_requested");
   }
@@ -43,7 +43,7 @@ export class CollaborationControls {
     const {agentId} = query.parse(raw), {session,members} = await this.room(agentId);
     const entries:TranscriptEntry[] = session.db.getTranscriptEntries(), tasks = projectCollaboration(entries);
     return {agentId, tasks:[...tasks.values()].map(task => ({...task,
-      dependenciesReady:workDependenciesReady(task,tasks), acceptedForCurrentInputs:workIsAccepted(task,tasks),
+      dependenciesReady:workDependenciesReady(task,tasks), acceptedForCurrentInputs:workIsAccepted(task,tasks), reviewNeedsRefresh:workReviewNeedsRefresh(task),
       canReview:this.canReview(task,members,entries), reviewToken:this.token(agentId,task,members,entries),
       evidence:(task.submission?.manifest ?? []).map(item => {
         const entry = entries.find(row => row.id === item.id), message = entry?.message as any;

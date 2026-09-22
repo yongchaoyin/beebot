@@ -52,7 +52,11 @@ export const collaborationTaskSchema = z.object({
     evidenceIds: requiredRefs, manifest: z.array(workEvidenceSchema).max(48),
     dependencyVersions: z.array(z.object({id: address, version}).strict()).max(24),
   }).strict().optional(),
-  review: z.object({id: address, reviewer: address, submissionId: address, verdict: z.enum(["accept", "changes"]), checks}).strict().optional(),
+  review: z.object({id: address, reviewer: address, submissionId: address, verdict: z.enum(["accept", "changes"]), checks,
+    // Optional only to read pre-upgrade history. Such acceptance needs a fresh
+    // review; current evidence must never be passed off as its historical basis.
+    manifest: z.array(workEvidenceSchema).min(1).max(288).optional(),
+  }).strict().optional(),
   claimedBy: address.optional(), reason: z.string().max(1000).optional(),
   evidenceIds: z.array(address).max(24), updatedBy: address, updatedMessageId: address,
 }).strict();

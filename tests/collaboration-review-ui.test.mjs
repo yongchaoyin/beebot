@@ -85,3 +85,14 @@ test("finish receipts distinguish current recorded work from an obsolete finish"
  ui.get(async()=>({agentId:"room",tasks:[task()],completions:[{current:false}]}));ui.refresh();await tick();
  assert.match(ui.root().textContent,/此前交付的工作范围或版本已变化/);
 });
+
+test("legacy evidence review is shown as re-verification, not falsely blamed on dependencies",async t=>{
+ const ui=await boot(t);ui.tasks([task({state:"accepted",acceptedForCurrentInputs:false,reviewNeedsRefresh:true})]);
+ ui.refresh();await tick();ui.expand();
+ assert.match(ui.root().textContent,/历史验收缺少版本依据，请重新核对/);
+ assert.doesNotMatch(ui.root().textContent,/依赖已变化/);
+ assert.equal(ui.window.document.querySelectorAll('[role="dialog"]').length,0);
+ assert.equal(ui.calls.length,0,"opening historical evidence never triggers acceptance");
+ ui.choose();ui.root().querySelector('.bb-work-actions button').click();await tick();
+ assert.equal(ui.calls.length,1);
+});

@@ -35,7 +35,9 @@ export function prepareCompletion(input: WorkPublication, action: Extract<Collab
         || (task.reviewer !== "user" && !input.members.includes(task.reviewer)))
       throw new Error("work_member_unavailable: Reconcile changed membership before delivery.");
     verifyWorkEvidence(input.entries, task.submission!.manifest, input.dbPath);
-    for (const criterion of task.review!.checks) captureWorkEvidence(input.entries, criterion.evidence_ids, input.dbPath);
+    // Independent test evidence need not be in the implementer's submission.
+    // Compare the actual reviewed version, not a new hash of today's text.
+    verifyWorkEvidence(input.entries, task.review!.manifest!, input.dbPath);
   }
   receipt.manifest = captureWorkEvidence(input.entries, action.result_ids, input.dbPath);
   return receipt;

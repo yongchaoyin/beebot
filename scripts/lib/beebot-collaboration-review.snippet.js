@@ -118,7 +118,7 @@ function RBindCollaborationReview(runtime) {
     const wanted=new Set();
     for(const task of data.tasks){const c=card(task);wanted.add(c.key);c.task=task;
       c.owner.textContent=t(`${name(task.assignee)} 负责 · ${name(task.reviewer)} 验收`,`${name(task.assignee)} owns · ${name(task.reviewer)} reviews`);
-      c.title.textContent=task.title;c.state.textContent=`${labels()[task.state]||task.state} · v${task.version}`+(task.state==="accepted"&&!task.acceptedForCurrentInputs?t(" · 依赖已变化，需要重查"," · Changed dependencies; recheck needed"):"");
+      c.title.textContent=task.title;c.state.textContent=`${task.state==="accepted"&&!task.acceptedForCurrentInputs?t("需要重新核对","Re-verification required"):(labels()[task.state]||task.state)} · v${task.version}`+(task.state==="accepted"&&!task.acceptedForCurrentInputs?(task.reviewNeedsRefresh?t(" · 历史验收缺少版本依据，请重新核对"," · Historical review needs evidence verification"):t(" · 依赖已变化，需要重查"," · Changed dependencies; recheck needed")):"");
       c.heading.textContent=t("查看已提交的成果与依据","Inspect submitted results and evidence");c.basis.hidden=!task.submission;
       c.form.hidden=c.actions.hidden=!task.canReview;c.accept.textContent=t("确认此版本通过","Accept this version");c.changes.textContent=t("提出修改","Request changes");
       c.accept.disabled=c.changes.disabled=!trusted||down()||c.pending;
