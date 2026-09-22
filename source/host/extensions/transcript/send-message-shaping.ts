@@ -15,6 +15,7 @@ export interface Reaction {
 export type SendMessage = Record<string, unknown> & {
   type: string;
   reply_to?: string;
+  work_on?: string;
 };
 export function isUserMessageEntry(entry: TranscriptEntry): boolean {
   return entry.kind === "message"
@@ -112,6 +113,7 @@ export function createSendMessageEntry(
     id,
     message,
     timestampMs,
+    ...(message.work_on ? { workOnId: message.work_on } : {}),
     ...(message.reply_to != null && message.reply_to.length > 0
       ? { replyTo: message.reply_to }
       : {}),
@@ -161,7 +163,7 @@ export async function createUserAttachmentEntry(
   };
 }
 function shapeThreadable(message: SendMessage, replyTo?: string): SendMessage {
-  const thread = replyTo == null ? {} : { reply_to: replyTo };
+  const thread = { ...(replyTo == null ? {} : { reply_to: replyTo }), ...(message.work_on ? { work_on: message.work_on } : {}) };
   switch (message.type) {
     case "text":
       return {

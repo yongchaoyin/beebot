@@ -67,5 +67,5 @@ export function prepareGroupPublication(dbPath: string, raw: unknown, sharedRoom
     if (message.images.length > 8) throw new Error("Share no more than 8 images in one group message.");
     body.images = message.images.map(image => ({...image, ...snapshotFile(dbPath, image.url)}));
   }
-  return {content: publicationText(body), message: body, ...(message.reply_to ? {replyToId: message.reply_to} : {}), ...(message.type === "widget" ? {awaitingUser: true} : {})};
+  return {content: publicationText(body), message: body, ...(message.reply_to ? {replyToId: message.reply_to} : {}), ...(message.work_on ? {workOnId: message.work_on} : {}), ...(message.type === "widget" ? {awaitingUser: true} : {})};
 }

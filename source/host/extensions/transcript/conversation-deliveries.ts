@@ -12,6 +12,7 @@ export interface ConversationDelivery {
   state: DeliveryState;
   recipients: Record<string, DeliveryState>;
   recoveryNotified?: boolean;
+  responses?: Record<string, string[]>;
 }
 const states = new Set<DeliveryState>(["queued", "processing", "processed", "replied", "failed", "needs-review", "cancelled"]);
 const unfinished = (state: DeliveryState) => ["queued", "processing", "needs-review"].includes(state);
@@ -37,6 +38,7 @@ export class ConversationDeliveries {
       if (!file || typeof file !== "object" || (file as any).version !== 1 || !Array.isArray((file as any).records) || (file as any).records.length > LIMIT) throw new Error("Conversation recovery data is invalid; no work was replayed.");
       for (const item of (file as any).records) {
         if (!item || typeof item.id !== "string" || !item.id || typeof item.owner !== "string" || !states.has(item.state) || !Number.isFinite(item.updatedAt) || !item.recipients || typeof item.recipients !== "object" || Array.isArray(item.recipients) || Object.values(item.recipients).some(value => !states.has(value as DeliveryState))) throw new Error("Conversation recovery entry is invalid; no work was replayed.");
+        if (item.responses != null && (typeof item.responses !== "object" || Array.isArray(item.responses) || Object.entries(item.responses).some(([actor, ids]) => !Object.hasOwn(item.recipients, actor) || !Array.isArray(ids) || ids.length > 64 || ids.some(id => typeof id !== "string" || !id || id.length > 256)))) throw new Error("Conversation response references are invalid.");
         if (records.has(item.id)) throw new Error("Duplicate conversation recovery identity.");
         records.set(item.id, { ...item, recipients: { ...item.recipients } });
       }
@@ -96,6 +98,20 @@ export class ConversationDeliveries {
     });
   }
 
+  /** Only an addressed recipient can attach a real, durably published response.
+   * Replying to an older request can resolve its response status without
+   * declaring the task complete or replaying the original work.
+   */
+  recordResponse(dbPath: string, id: string, actor: string, responseId: string): ConversationDelivery | undefined {
+    const prior = this.load(dbPath).get(id);
+    if (!prior || !Object.hasOwn(prior.recipients, actor)) return;
+    if (!responseId || responseId.length > 256) throw new Error("Invalid response identity.");
+    return this.change(dbPath, id, entry => {
+      const ids = [...new Set([...(entry.responses?.[actor] ?? []), responseId])].slice(-64);
+      entry.responses = { ...entry.responses, [actor]: ids };
+    });
+  }
+
   private change(dbPath: string, id: string, mutate: (entry: ConversationDelivery) => void): ConversationDelivery {
     const current = this.load(dbPath), prior = current.get(id);
     if (!prior) throw new Error("Message delivery was not saved before execution.");
@@ -146,7 +162,7 @@ export class ConversationDeliveries {
 
 /** Existing transcript mutations make status visible in both single and group chats. */
 export function publishDelivery(tm: TranscriptManagerLike, session: any, record: ConversationDelivery): void {
-  const transform = (entry: TranscriptEntry): TranscriptEntry => ({ ...entry, delivery: { state: record.state, recipients: record.recipients, updatedAt: record.updatedAt } });
+  const transform = (entry: TranscriptEntry): TranscriptEntry => ({ ...entry, delivery: { state: record.state, recipients: record.recipients, ...(record.responses ? { responses: record.responses } : {}), updatedAt: record.updatedAt } });
   const persisted = session.db.updateTranscriptEntry(record.id, transform);
   const live = tm.sessions.inMemoryTranscriptAgentId === session.id ? updateEntry(record.id, transform) : null;
   const entry = live ?? persisted;

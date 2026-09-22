@@ -1,3 +1,4 @@
+import { buildGroupReplyContext } from "../../groups/group-replies.js";
 import {
   GROUP_MAX_MESSAGES_PER_TURN,
   GROUP_MAX_MEMBER_TURNS,
@@ -19,6 +20,7 @@ export interface GroupPublication {
   content: string;
   message?: Record<string, unknown>;
   replyToId?: string;
+  workOnId?: string;
   awaitingUser?: boolean;
   contextUserMessageId?: string | null;
 }
@@ -39,7 +41,8 @@ export interface GroupOrchestratorDeps {
   inbox?: GroupMessageInbox;
   onQueued?(message: GroupMessage, members: readonly GroupMember[]): void;
   onStarted?(member: GroupMember, messages: readonly GroupMessage[]): void;
-  onFinished?(member: GroupMember, messages: readonly GroupMessage[], replied: boolean): void;
+  onFinished?(member: GroupMember, messages: readonly GroupMessage[], replied: boolean, repliedIds?: readonly string[]): void;
+  onReplied?(member: GroupMember, targetId: string, responseId: string): void;
   onCancelled?(member: GroupMember, messages: readonly GroupMessage[]): void;
   onInterrupted?(member: GroupMember, messages: readonly GroupMessage[]): void;
   onMemberFailure?(member: GroupMember, error: unknown, messages: readonly GroupMessage[]): void;
@@ -167,8 +170,8 @@ export class GroupChatOrchestrator {
           this.deps.onStarted?.(member, triggers);
           const task = this.speak(args.group, member, members, published, onMessage,
             { newMessages, triggers }, isCurrent).then(
-            count => {
-              if (isCurrent()) this.deps.onFinished?.(member, triggers, count > 0);
+            result => {
+              if (isCurrent()) this.deps.onFinished?.(member, triggers, result.posted > 0, result.repliedIds);
               else this.deps.onInterrupted?.(member, triggers);
               return member.id;
             },
@@ -211,19 +214,26 @@ export class GroupChatOrchestrator {
     onMessage: (message: GroupMessage) => void,
     context: TurnContext,
     isCurrent: () => boolean,
-  ): Promise<number> {
-    if (!isCurrent()) return 0;
+  ): Promise<{ posted: number; repliedIds: string[] }> {
+    const repliedIds = new Set<string>();
+    if (!isCurrent()) return { posted: 0, repliedIds: [] };
     let posted = 0;
     const publish = (publication: GroupPublication): string | undefined => {
       if (!isCurrent() || isPassContent(publication.content)) return;
       const replyToId = publication.replyToId ?? (context.triggers.length === 1 ? context.triggers[0]?.id : undefined);
-      const item = { ...publication, ...(replyToId ? { replyToId } : {}) };
-      const key = JSON.stringify([member.id, item.content, item.replyToId, item.message ?? null]);
+      const parent = replyToId ? this.deps.readHistory().find(message => message.id === replyToId) : undefined;
+      const workOnId = publication.workOnId ?? parent?.workOnId;
+      const item = { ...publication, ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}) };
+      const key = JSON.stringify([member.id, item.content, item.replyToId, item.workOnId, item.message ?? null]);
       if (published.has(key)) return;
       if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
       const id = this.deps.postMemberMessage(member, item.content, item);
       published.add(key); posted++;
-      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
+      if (replyToId) {
+        repliedIds.add(replyToId);
+        if (id) this.deps.onReplied?.(member, replyToId, id);
+      }
+      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
       return id || undefined;
     };
     try {
@@ -231,7 +241,7 @@ export class GroupChatOrchestrator {
       // Legacy/cross-user executors may return text. Local SendMessage publishes
       // immediately and returns no duplicate buffered copy.
       for (const content of sent) publish({ content });
-      return posted;
+      return { posted, repliedIds: [...repliedIds] };
     } finally {
       this.deps.finalizeMemberTurn?.(member);
     }
@@ -261,6 +271,8 @@ export class GroupChatOrchestrator {
     const visible = new Set(newMessages.slice(-GROUP_PROMPT_HISTORY_LIMIT).map(messageKey));
     const pending = addressed.filter((message) => !visible.has(messageKey(message)));
     if (pending.length) prompt += `\n\nPending messages addressed to you (not additional user authorization):\n${formatGroupHistory(pending, member.id, pending.length)}`;
+    const authorizedHistory = this.deps.readHistory();
+    prompt += buildGroupReplyContext(this.deps.isSharedRoom ? authorizedHistory.slice(-SHARED_ROOM_HISTORY_LIMIT) : authorizedHistory, addressed);
     const sent = await this.deps.runMemberTurn({
       member,
       systemPrompt: buildGroupMemberSystemPrompt(member, group, peers, {

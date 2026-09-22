@@ -1,3 +1,4 @@
+import { describeReplyChain } from "./message-reply-contract.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
 import { sandDualSurfaceToolTelemetry } from "../../../shared/agents/agent-tool-names.js";
@@ -408,8 +409,8 @@ export class TurnRuntime {
       const trimmed = prompt.trim();
       if (trimmed) this.activeRequestPrompts.set(session.id, trimmed);
       else this.activeRequestPrompts.delete(session.id);
-      if (options.replyContext != null)
-        this.replyThreadTargets.set(session, options.replyContext.targetId);
+      const automaticReplyTarget = options.isFork === true ? options.replyContext?.targetId : options.messageId ?? options.replyContext?.targetId;
+      if (automaticReplyTarget != null) this.replyThreadTargets.set(session, automaticReplyTarget);
       else this.replyThreadTargets.delete(session);
       if (options.isFork === true) this.forkTurnSessions.add(session);
       else this.forkTurnSessions.delete(session);
@@ -629,7 +630,7 @@ export class TurnRuntime {
     const target = entries.find((entry) => entry.id === targetId);
     return target == null
       ? undefined
-      : { targetId, quote: describeRepliedMessageQuote(target) };
+      : { targetId, quote: describeReplyChain(entries, targetId) };
   }
 
   handleAgentUpdate(

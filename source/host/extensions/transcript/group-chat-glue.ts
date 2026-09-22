@@ -1,5 +1,6 @@
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
+import { requireMessageReference } from "./message-reply-contract.js";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -302,9 +303,16 @@ export class GroupChatGlue {
         if (message.id && (members.length || message.speaker.kind === "user")) publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.route(session.dbPath, message.id, members.map(member => member.id)));
       },
       onStarted: (member, messages) => delivery(member, messages, "processing"),
-      onFinished: (member, messages, replied) => {
-        delivery(member, messages, replied ? "replied" : "processed");
-        if (!replied) for (const message of messages) {
+      onReplied: (member, targetId, responseId) => {
+        const record = this.tm.sendPipeline.deliveries.recordResponse(session.dbPath, targetId, member.id, responseId);
+        if (record) publishDelivery(this.tm, session, record);
+      },
+      onFinished: (member, messages, replied, repliedIds = []) => {
+        const records = this.tm.sendPipeline.deliveries.list(session.dbPath);
+        const unanswered = messages.filter(message => !message.id || !(repliedIds.includes(message.id) || records.find((record: import("./conversation-deliveries.js").ConversationDelivery) => record.id === message.id)?.responses?.[member.id]?.length));
+        delivery(member, messages.filter(message => !unanswered.includes(message)), "replied");
+        delivery(member, unanswered, "processed");
+        for (const message of unanswered) {
           if (message.id && message.speaker.kind === "user" && this.tm.sendPipeline.deliveries.list(session.dbPath).find((record: any) => record.id === message.id)?.state === "processed") {
             appendConversationNotice(this.tm, session, "成员已结束本次处理，但没有返回可见答复。你可以引用这条消息追问。 / The addressed members finished without a visible reply. Reply to this message to follow up.", message.id, "delivery_empty");
           }
@@ -618,11 +626,13 @@ export class GroupChatGlue {
   ): string | undefined {
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
     const replyTo = publication?.replyToId;
-    if (replyTo && !entriesInRoom.some((entry: TranscriptEntry) => entry.id === replyTo)) throw new Error("The reply target is not available in this conversation. Nothing was published.");
+    const parent = replyTo ? requireMessageReference(entriesInRoom, replyTo) : undefined;
+    const workOnId = publication?.workOnId ?? (typeof parent?.workOnId === "string" ? parent.workOnId : undefined);
+    if (workOnId) requireMessageReference(entriesInRoom, workOnId, "work_on");
     const message = publication?.message ?? {type: "text", content};
     const latestUser = [...entriesInRoom].reverse().find((entry: TranscriptEntry) => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
     const decisionUserId = publication?.contextUserMessageId !== undefined ? publication.contextUserMessageId : latestUser?.id ?? null;
-    const details = { ...(replyTo ? {replyTo} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive) {
@@ -764,6 +774,7 @@ export class GroupChatGlue {
         messages.push({
           id: entry.id,
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
+          ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
           speaker: name == null ? { kind: "user" } : { kind: "user", name },
           content: String(entry.content),
         });
@@ -778,6 +789,7 @@ export class GroupChatGlue {
         messages.push({
           id: entry.id,
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
+          ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
           speaker: {
             kind: "member",
             id: (entry.author as any).id,

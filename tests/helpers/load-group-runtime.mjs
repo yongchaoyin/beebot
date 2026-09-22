@@ -13,11 +13,13 @@ export async function loadGroupRuntime(t) {
   const root = new URL("../../", import.meta.url);
   const sources = [
     ["source/host/groups/group-chat.ts", "group-chat.mjs"],
+    ["source/host/groups/group-replies.ts", "group-replies.mjs"],
     ["source/host/extensions/transcript/group-chat-orchestrator.ts", "orchestrator.mjs"],
   ];
   for (const [input, output] of sources) {
     const source = (await readFile(new URL(input, root), "utf8"))
-      .replace('"../../groups/group-chat.js"', '"./group-chat.mjs"');
+      .replace('"../../groups/group-chat.js"', '"./group-chat.mjs"')
+      .replace('"../../groups/group-replies.js"', '"./group-replies.mjs"');
     const { code } = await transform(source, {
       loader: "ts", format: "esm", target: "node22", sourcefile: input,
     });
