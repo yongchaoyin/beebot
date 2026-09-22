@@ -25,7 +25,6 @@ import {
   buildGroupRedriveNote,
   isPassContent,
   isPotentialPassPrefix,
-  isSameMemberSet,
   SHARED_ROOM_HISTORY_LIMIT,
   type GroupDescription,
   type GroupMember,
@@ -123,31 +122,19 @@ export class GroupChatGlue {
     );
     const requested = [...new Set(args.memberIds)];
     assertMembersAreNotGroups(requested, (id) => groupIds.has(id));
-    const memberIds = requested
-      .filter((id) => existing.has(id))
-      .slice(0, GROUP_MAX_MEMBERS);
-    if (memberIds.length === 0) {
+    if (requested.length === 0 || requested.length > GROUP_MAX_MEMBERS) {
       throw new SandGroupCreateError(
-        "A group needs at least one existing member agent.",
+        `A group requires 1–${GROUP_MAX_MEMBERS} existing Bots. No members were changed.`,
       );
     }
-
-    const duplicate = allAgents.find(
-      (agent: any) =>
-        agent.isGroup && isSameMemberSet(agent.memberIds, memberIds),
-    );
-    if (duplicate != null) {
-      const transcript = await this.tm.switchAgent(duplicate.id);
-      const stamp = this.tm.roster.reserveSnapshotStamp();
-      const summary =
-        (await this.tm.sessionStore.listAgents(duplicate.id)).find(
-          (agent: any) => agent.id === duplicate.id,
-        ) ?? duplicate;
-      return {
-        agent: this.tm.roster.finalizeSummaryForRpc(summary, stamp),
-        transcript,
-      };
+    if (requested.some((id) => !existing.has(id))) {
+      throw new SandGroupCreateError("A selected Bot is no longer available. Review the selection and try again.");
     }
+    if (!args.name.trim() || args.name.trim().length > 100) {
+      throw new SandGroupCreateError("Use a group name containing 1–100 characters.");
+    }
+    // A team can work on different projects. Membership is not a group identity.
+    const memberIds = requested;
 
     const created = await this.tm.createAgent(
       { name: args.name, description: args.description ?? "" },

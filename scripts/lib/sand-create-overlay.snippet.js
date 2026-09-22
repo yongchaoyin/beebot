@@ -73,8 +73,8 @@ function RListAgents(){
   return out;
 }
 
-// Creation is a section of the existing sidebar, not a modal or an overlay.
-// The conversation DOM, selection, drafts and running work remain untouched.
+// User-initiated management uses a centered dialog. Ordinary conversation
+// interactions remain inline; opening management never cancels running work.
 let RCreateRequestSerial=0;
 function RCreateText(cn,en){return window.__sandUiLanguage==="zh"?cn:en;}
 function RCreateError(error){return String(error?.message||error||"")
@@ -84,7 +84,8 @@ function REnsureInlineCreateStyle(){
   if(document.getElementById("beebot-inline-create-style"))return;
   const style=document.createElement("style");style.id="beebot-inline-create-style";
   style.textContent=`
-    .bb-inline-create{position:static;flex:0 1 auto;min-height:0;min-width:0;max-height:68vh;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;margin:8px;padding:14px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);font:13px/1.5 system-ui,-apple-system,sans-serif;scrollbar-gutter:stable;-webkit-app-region:no-drag}
+    .bb-create-layer{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgb(0 0 0 / .24);-webkit-app-region:no-drag}
+    .bb-inline-create{position:relative;min-height:0;min-width:0;width:min(620px,100%);max-height:calc(100dvh - 48px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;margin:0;padding:24px;box-shadow:0 20px 64px rgb(0 0 0 / .18);border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);font:13px/1.5 system-ui,-apple-system,sans-serif;scrollbar-gutter:stable;-webkit-app-region:no-drag}
     .bb-inline-create *{box-sizing:border-box}
     .bb-inline-create [hidden]{display:none!important}
     .bb-inline-create :is(input,textarea,select){width:100%;min-width:0;max-width:100%;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);color:inherit;padding:9px 10px;font:inherit;min-height:38px}
@@ -92,18 +93,18 @@ function REnsureInlineCreateStyle(){
     .bb-inline-create :is(button,input,select,textarea,summary):focus-visible,#sand-plus-menu button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
     .bb-inline-create button:disabled{cursor:default;opacity:.5}
     .bb-create-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-    .bb-create-head h2{font:600 15px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
+    .bb-create-head h2{font:600 19px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
     .bb-create-close{border:0;border-radius:6px;background:transparent;min-width:32px;min-height:32px;font-size:20px!important}
     .bb-create-subtitle,.bb-create-help{font-size:12px;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px;overflow-wrap:anywhere}
     .bb-create-field{display:grid;gap:6px;margin-bottom:12px}
     .bb-create-field label{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
-    .bb-create-members{display:grid;gap:4px;max-height:210px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
+    .bb-create-members{display:grid;gap:4px;min-height:104px;max-height:288px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
     .bb-create-member{display:flex;align-items:center;gap:8px;min-height:40px;width:100%;border:1px solid transparent;border-radius:8px;background:transparent;text-align:start;padding:6px 8px;overflow-wrap:anywhere}
     .bb-create-member[aria-pressed=true]{border-color:var(--cursor-stroke-secondary,#8884);background:var(--cursor-bg-secondary,Canvas)}
     .bb-create-member[aria-pressed=true]::after{content:'✓';margin-inline-start:auto;flex:none}
     .bb-create-member svg{flex:none}
     .bb-create-member:hover,.bb-create-close:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
-    .bb-create-selected{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+    .bb-create-selected{display:flex;align-content:start;flex-wrap:wrap;gap:6px;margin:8px 0}
     .bb-create-selected button{padding:5px 8px;min-height:30px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:6px;background:transparent;max-width:100%;overflow-wrap:anywhere}
     .bb-create-submit{width:100%;min-height:38px;border:0;border-radius:8px;padding:9px 12px;background:var(--cursor-text-primary,CanvasText)!important;color:var(--cursor-bg-primary,Canvas)!important;font-weight:600;margin-top:8px}
     .bb-create-status{font-size:12px;color:var(--cursor-text-red-primary,#ba3544);white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
@@ -113,6 +114,15 @@ function REnsureInlineCreateStyle(){
     .bb-create-appearance summary::after{content:'⌄';margin-inline-start:auto}
     .bb-create-appearance[open] summary::after{content:'⌃'}
     .bb-create-appearance summary::-webkit-details-marker{display:none}
+    #sand-create-bot-sheet{width:min(480px,100%)}
+    .bb-create-colleagues{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(150px,1fr);gap:20px;margin:4px 0 12px}
+    .bb-create-colleagues>section{min-width:0}
+    .bb-create-selection{padding-left:20px;border-left:1px solid var(--cursor-stroke-secondary,#8884)}
+    .bb-create-selection h3{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px}
+    .bb-create-selection .bb-create-selected{margin:0;display:grid;gap:8px}
+    .bb-create-selection .bb-create-selected button{text-align:start;min-height:36px}
+    .bb-create-selection:has(.bb-create-selected:empty)::after{content:attr(data-empty-label);font-size:12px;line-height:1.6;color:var(--cursor-text-secondary,GrayText)}
+    @media(max-width:520px){.bb-create-layer{padding:12px}.bb-inline-create{padding:18px;max-height:calc(100dvh - 24px)}.bb-create-colleagues{grid-template-columns:1fr;gap:12px}.bb-create-selection{border-left:0;border-top:1px solid var(--cursor-stroke-secondary,#8884);padding:12px 0 0}.bb-create-selection .bb-create-selected{display:flex}.bb-create-members{max-height:200px}}
     #sand-plus-menu{position:static;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px;padding:0;font:12px/1.5 system-ui;color:var(--cursor-text-primary,CanvasText);background:transparent}
     #sand-plus-menu button{min-height:36px;min-width:0;padding:7px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;color:inherit;background:var(--cursor-bg-primary,Canvas);font:inherit;cursor:pointer;overflow-wrap:anywhere;-webkit-app-region:no-drag}
     #sand-plus-menu button:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
@@ -138,22 +148,35 @@ function RMountInlineCreate(root,label){
     const previous=document.getElementById(id);
     if(previous&&previous!==root){
       if(previous.__sandDismiss?.()===false)return false;
-      previous.remove();
+      if(previous.isConnected)RCloseInlineCreate(previous,false);
     }
   }
+  const trigger=document.activeElement;
   document.getElementById("sand-plus-menu")?.__sandDismiss?.();
   REnsureInlineCreateStyle();root.classList.add("bb-inline-create");
-  root.setAttribute("role","region");root.setAttribute("aria-label",label);
+  root.setAttribute("role","dialog");root.setAttribute("aria-modal","true");root.setAttribute("aria-label",label);root.tabIndex=-1;
+  const layer=document.createElement("div");layer.className="bb-create-layer";
+  layer.append(root);root.__sandCreateLayer=layer;root.__sandCreateTrigger=trigger;
+  // Deliberate close only: a background click must not lose a half-composed form.
+  layer.addEventListener("mousedown",event=>{if(event.target===layer){event.preventDefault();root.focus({preventScroll:true});}});
   root.addEventListener("keydown",event=>{
-    if(event.key!=="Escape"||event.isComposing||event.keyCode===229)return;
-    if(root.__sandDismiss?.()!==false){event.preventDefault();event.stopPropagation();}
+    if(event.isComposing||event.keyCode===229)return;
+    if(event.key==="Escape"){
+      event.preventDefault();event.stopPropagation();root.__sandDismiss?.();return;
+    }
+    if(event.key!=="Tab")return;
+    const fields=[...root.querySelectorAll('button,input,textarea,select,summary,[tabindex="0"]')].filter(el=>!el.disabled&&!el.closest("[hidden]")&&!(el.closest("details:not([open])")&&!el.matches("summary")));
+    const first=fields[0],last=fields.at(-1);
+    if(!first){event.preventDefault();root.focus();return;}
+    if(event.shiftKey&&(document.activeElement===first||document.activeElement===root)){event.preventDefault();last.focus();}
+    else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===root)){event.preventDefault();first.focus();}
   });
-  RInsertSidebarSection(root);return true;
+  document.body.append(layer);return true;
 }
 function RCloseInlineCreate(root,restoreFocus){
-  const hadFocus=root.contains(document.activeElement);
-  root.remove();
-  if(restoreFocus&&hadFocus)document.querySelector(".sand-agents-sidebar__new")?.focus({preventScroll:true});
+  const hadFocus=root.contains(document.activeElement),trigger=root.__sandCreateTrigger;
+  root.__sandCreateLayer?.remove();root.remove();
+  if(restoreFocus&&hadFocus)(trigger?.isConnected?trigger:document.querySelector(".sand-agents-sidebar__new"))?.focus({preventScroll:true});
 }
 
 window.__sandPickCreateBot=async function(preset,{onCreate}={}){
@@ -178,6 +201,7 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
   const online=()=>servers.some(server=>server.id===deploymentServerId&&server.status==="online");
   const updateReady=()=>{
     if(!submit)return;
+    if(busy&&root.contains(document.activeElement))root.focus({preventScroll:true});
     submit.disabled=busy||!!deploymentServerId&&!online();submit.textContent=busy?copy.creating:copy.start;submit.style.opacity=submit.disabled?".5":"1";
     for(const field of root.querySelectorAll("input,textarea,select,button"))field.disabled=busy;
     submit.disabled=busy||!!deploymentServerId&&!online();
@@ -287,11 +311,15 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
     };
     const name=field("bb-group-name"),search=field("bb-group-search");name.input.maxLength=100;
     const chips=document.createElement("div");chips.className="bb-create-selected";
+    const colleagues=document.createElement("div");colleagues.className="bb-create-colleagues";
+    const candidates=document.createElement("section"),selection=document.createElement("section");selection.className="bb-create-selection";
+    const selectionTitle=document.createElement("h3");selectionTitle.id="bb-group-selection-title";selection.setAttribute("aria-labelledby",selectionTitle.id);selection.append(selectionTitle,chips);
     const list=document.createElement("div");list.className="bb-create-members";list.setAttribute("role","group");
     const empty=document.createElement("p");empty.className="bb-create-help";
     const status=document.createElement("p");status.className="bb-create-status";status.setAttribute("role","status");
     const submit=document.createElement("button");submit.type="button";submit.className="bb-create-submit";
     const applyReady=()=>{
+      if(busy&&root.contains(document.activeElement))root.focus({preventScroll:true});
       submit.disabled=busy||!name.input.value.trim()||selected.size===0;
       submit.textContent=busy?RUiCopy().creating:RUiCopy().create;
       root.setAttribute("aria-busy",String(busy));
@@ -306,6 +334,7 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       }
       empty.hidden=visible>0;
       empty.textContent=agents.length?RCreateText("没有找到这个 Bot，试试其他名字。","No matching Bot. Try another name."):RCreateText("先创建一个 Bot，再邀请它加入群聊。","Create a Bot first, then invite it to a group.");
+      selectionTitle.textContent=RCreateText("已选同事","Selected colleagues")+` (${selected.size}/6)`;
       chips.replaceChildren();
       for(const id of selected){
         const agent=agents.find(item=>item.id===id),chip=document.createElement("button");chip.type="button";
@@ -319,7 +348,10 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       const profile=RRosterRows().find(item=>item.id===agent.id);
       if(typeof R_PATHS==="object")row.append(RBotSvg(profile?.avatarShape||"blob",profile?.avatarColor||"green",26));
       row.append(document.createTextNode(agent.name));
-      row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else selected.add(agent.id);status.textContent="";renderMembers();};
+      row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else{
+        if(selected.size>=6){status.textContent=RCreateText("每个群最多选择 6 位 Bot。请先移除一位同事。","A group supports up to 6 Bots. Remove a colleague before adding another.");return;}
+        selected.add(agent.id);
+      }status.textContent="";renderMembers();};
       rows.set(agent.id,row);list.append(row);
     }
     name.input.oninput=applyReady;search.input.oninput=renderMembers;
@@ -340,9 +372,10 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       close.setAttribute("aria-label",copy.close);subtitle.textContent=RCreateText("邀请同事，一起讨论和完成工作。","Invite colleagues to discuss and work together.");
       name.label.textContent=copy.groupName;name.input.placeholder=copy.groupName;name.input.setAttribute("aria-label",copy.groupName);
       search.label.textContent=copy.search;search.input.placeholder=copy.search;search.input.setAttribute("aria-label",copy.search);
-      list.setAttribute("aria-label",copy.to);renderMembers();
+      list.setAttribute("aria-label",copy.to);selection.dataset.emptyLabel=RCreateText("从左侧选择一起工作的同事。","Choose colleagues to work with.");renderMembers();
     }
-    root.append(head,subtitle,name.wrap,search.wrap,chips,list,empty,submit,status);
+    candidates.append(search.wrap,list,empty);colleagues.append(candidates,selection);
+    root.append(head,subtitle,name.wrap,colleagues,submit,status);
     if(!RMountInlineCreate(root,copy.groupTitle)){finish(null);return;}
     window.addEventListener("sand-ui-language-changed",localize);localize();name.input.focus({preventScroll:true});
   });
@@ -403,7 +436,7 @@ if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(as
   };
   wrap.append(text,sel); pane.append(wrap);
 },1200)}
-function MOn(n){const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
+function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversationStatus(n);const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
   const {deploymentServerId,connectionId,key,...local}={...r,origin:"user",...i};
   if(deploymentServerId!==undefined&&deploymentServerId!==""){
     const copy=RUiCopy(),api=window.__beebotServerBots;

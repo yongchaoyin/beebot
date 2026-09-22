@@ -64,10 +64,18 @@ async function boot(t) {
   return { window, document, roster, calls, listeners, vendorGate, editor, input, button, open, select };
 }
 
-function assertInline(document, node) {
-  assert.ok(node.closest(".sand-agents-sidebar"), "the section belongs to the sidebar, not a body overlay");
-  assert.equal(document.querySelector('[role="dialog"],[aria-modal="true"]'), null);
-  assert.ok(!["fixed", "absolute"].includes(node.style.position));
+function assertInline(document, root) {
+  assert.ok(root);
+  if(root.id === "sand-plus-menu") {
+    assert.ok(root.closest(".sand-agents-sidebar"));
+    assert.equal(root.getAttribute("role"), "group");
+  } else {
+    assert.equal(root.closest(".sand-agents-sidebar"), null, "management must not be squeezed into navigation");
+    assert.equal(root.getAttribute("role"), "dialog");
+    assert.equal(root.getAttribute("aria-modal"), "true");
+    assert.equal(root.parentElement.className, "bb-create-layer");
+    assert.equal(root.parentElement.parentElement, document.body);
+  }
 }
 
 test("plus choices expand in the sidebar without replacing the current chat or draft", async t => {
@@ -81,7 +89,7 @@ test("plus choices expand in the sidebar without replacing the current chat or d
   assert.equal(plus.getAttribute("aria-expanded"), "false");
 });
 
-test("Bot and Group creation use the same in-flow surface and settle replaced pickers", async t => {
+test("Bot and Group creation use the same centered management surface and settle replaced pickers", async t => {
   const ui = await boot(t), first = await ui.open("group"); assertInline(ui.document, first.root);
   const second = await ui.open("bot"); assert.equal(await first.result, null);
   assert.equal(first.root.isConnected, false); assertInline(ui.document, second.root);
@@ -219,8 +227,45 @@ test("switching from a group to a single Bot clears group-only controls and rest
   assert.equal(ui.editor.getAttribute("aria-controls"), "original-controls"); assert.equal(ui.editor.value, "@");
 });
 
-test("inline controls never introduce modal positioning or browser confirmation APIs", () => {
+test("only user-initiated management is modal; chat controls stay inline without browser prompts", () => {
   const creation = createSource.slice(createSource.indexOf("let RCreateRequestSerial"), createSource.indexOf("if(!window.__sandVendorPaneBound)"));
-  assert.doesNotMatch(creation, /position:\s*fixed|aria-modal|showModal\(|window\.(?:alert|confirm|prompt)\(/);
+  assert.match(creation, /aria-modal/);
+  assert.match(creation, /bb-create-layer/);
+  assert.doesNotMatch(creation, /window\.(?:alert|confirm|prompt)\(/);
   assert.doesNotMatch(groupSource, /position:\s*fixed|aria-modal|showModal\(/);
+});
+
+test("management keyboard traversal stays in the centered dialog and Escape closes only management", async t => {
+  const ui = await boot(t), {root} = await ui.open("group");
+  ui.input(root.querySelector("#bb-group-name"), "Team"); root.querySelector('[data-member-id="a"]').click();
+  const first=root.querySelector("button"), last=root.querySelector(".bb-create-submit");
+  last.focus(); last.dispatchEvent(new ui.window.KeyboardEvent("keydown", {key:"Tab",bubbles:true,cancelable:true}));
+  assert.equal(ui.document.activeElement,first);
+  first.dispatchEvent(new ui.window.KeyboardEvent("keydown", {key:"Tab",shiftKey:true,bubbles:true,cancelable:true}));
+  assert.equal(ui.document.activeElement,last);
+  last.dispatchEvent(new ui.window.KeyboardEvent("keydown", {key:"Escape",isComposing:true,bubbles:true,cancelable:true}));
+  assert.equal(root.isConnected,true,"IME Escape does not close the form");
+  last.dispatchEvent(new ui.window.KeyboardEvent("keydown", {key:"Escape",bubbles:true,cancelable:true}));
+  assert.equal(root.isConnected,false);assert.equal(ui.document.querySelector(".bb-create-layer"),null);
+  assert.ok(ui.document.querySelector(".history"));
+});
+
+test("clicking outside management keeps the half-written group and its selection", async t => {
+  const ui=await boot(t),{root}=await ui.open("group");
+  ui.input(root.querySelector("#bb-group-name"),"Keep this");root.querySelector('[data-member-id="b"]').click();
+  root.parentElement.dispatchEvent(new ui.window.MouseEvent("mousedown",{bubbles:true,cancelable:true}));
+  assert.equal(root.isConnected,true);assert.equal(root.querySelector("#bb-group-name").value,"Keep this");
+  assert.equal(root.querySelector('[data-member-id="b"]').getAttribute("aria-pressed"),"true");
+  assert.equal(ui.document.activeElement,root);
+});
+
+test("group member limit is explicit and does not silently change the selection", async t => {
+  const ui=await boot(t);
+  for(let i=0;i<6;i++) {const el=ui.document.createElement("button");el.dataset.agentId="extra-"+i;el.textContent="Extra "+i;ui.document.querySelector(".sand-agents-list").append(el);}
+  const {root}=await ui.open("group");ui.input(root.querySelector("#bb-group-name"),"Six colleagues");
+  const choices=[...root.querySelectorAll("[data-member-id]")];for(const el of choices.slice(0,7))el.click();
+  assert.equal(root.querySelectorAll('[aria-pressed="true"]').length,6);
+  assert.equal(choices[6].getAttribute("aria-pressed"),"false");
+  assert.match(root.querySelector("[role=status]").textContent,/up to 6/);
+  assert.match(root.querySelector(".bb-create-selection h3").textContent,/6\/6/);
 });
