@@ -1,0 +1,28 @@
+name: Honeyline source snapshot
+on:
+  push:
+    branches: [feat/honeyline-theme-20260922]
+    paths: [.github/workflows/honeyline-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - name: Export tracked Git objects only
+        run: |
+          mkdir /tmp/honeyline-source
+          git bundle create /tmp/honeyline-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/honeyline-source/commit.txt
+          sha256sum /tmp/honeyline-source/source.bundle > /tmp/honeyline-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: honeyline-source
+          path: /tmp/honeyline-source/
+          retention-days: 1
