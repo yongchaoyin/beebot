@@ -1,0 +1,29 @@
+name: Bot role source
+on:
+  push:
+    branches: [work/bot-role-validation-20260922]
+    paths: [.github/workflows/bot-role-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fdeadd4532cca4762f9ff14d530e6123938944b6
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - name: Export tracked Git history only
+        run: |
+          mkdir /tmp/bot-role-source
+          git bundle create /tmp/bot-role-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/bot-role-source/commit.txt
+          sha256sum /tmp/bot-role-source/source.bundle > /tmp/bot-role-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bot-role-source
+          path: /tmp/bot-role-source/
+          retention-days: 1
