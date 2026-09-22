@@ -1,0 +1,33 @@
+name: Presence development toolchain
+on:
+  push:
+    branches: [work/presence-validation-20260922]
+    paths: [.github/workflows/presence-validation.yml]
+permissions:
+  contents: read
+jobs:
+  toolchain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a11209cb1620e96470ec16363d8858b830592bcb
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Export exact locked test dependencies without credentials
+        run: |
+          mkdir -p /tmp/beebot-toolchain/bin
+          cp "$(command -v node)" /tmp/beebot-toolchain/bin/node
+          sha256sum package-lock.json > /tmp/beebot-toolchain/lock.sha256
+          tar -czf /tmp/beebot-toolchain/dependencies.tar.gz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: presence-linux-toolchain
+          path: /tmp/beebot-toolchain
+          retention-days: 1
+          include-hidden-files: false
