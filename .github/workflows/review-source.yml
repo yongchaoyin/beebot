@@ -1,0 +1,28 @@
+name: Review integration source
+on:
+  push:
+    branches: [chore/work-review-integration-20260922]
+    paths: [.github/workflows/review-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c157b10c435152401291ee72d6a541b88a347a7d
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - run: |
+          mkdir /tmp/review-source
+          git bundle create /tmp/review-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/review-source/commit.txt
+          sha256sum /tmp/review-source/source.bundle > /tmp/review-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-integration-source
+          path: /tmp/review-source/
+          retention-days: 1
