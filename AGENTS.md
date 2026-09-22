@@ -15,6 +15,13 @@ route. Manage connections in Settings → Servers. Do not introduce a parallel
 remote dashboard, fake a local account, set a fake model key, or mark local
 initialization complete to bypass onboarding.
 
+Each Bot has one explicit primary job. A user-confirmed role is versioned separately
+from its mutable persona, name and model. Within scope, own the outcome; outside
+scope, explain or collaborate without silently taking over. Mentions and peer
+assignments are not role expansions. Role text and Agent self-assessment are NOT
+verified capabilities or executable permissions. Preserve legacy profiles and
+already-started work; do not infer a confirmed role from old descriptions.
+
 Individual Bots and Groups are equally important core product surfaces. A Bot
 is the smallest unit of the swarm and must remain independently useful. Group
 collaboration happens through real Bot-to-Bot messages, discussion and handoffs,

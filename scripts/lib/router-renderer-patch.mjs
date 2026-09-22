@@ -103,7 +103,8 @@ const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
 const COLLABORATION_REVIEW_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-collaboration-review.snippet.js"), "utf8");
 const CONVERSATION_STATUS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-conversation-status.snippet.js"), "utf8");
-const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const BOT_ROLE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-bot-role.snippet.js"), "utf8");
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${BOT_ROLE_SNIPPET}\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
 const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
 const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
@@ -141,10 +142,14 @@ export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
-  patched = replaceExactlyOnce(patched, 'sendPrompt:{args:"object",reply:"send-result"}', 'getCollaboration:{args:"object",reply:"record"},reviewCollaboration:{args:"object",reply:"record"},stopConversation:{args:"object",reply:"record"},sendPrompt:{args:"object",reply:"send-result"}', "explicit conversation control RPC");
-  patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'getCollaboration:"transcript",reviewCollaboration:"send",stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
-  patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'getCollaboration:we=>e.getCollaboration(we),reviewCollaboration:we=>e.reviewCollaboration(we),stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:{args:"object",reply:"send-result"}', 'getBotRole:{args:"object",reply:"record"},updateBotRole:{args:"object",reply:"record"},getCollaboration:{args:"object",reply:"record"},reviewCollaboration:{args:"object",reply:"record"},stopConversation:{args:"object",reply:"record"},sendPrompt:{args:"object",reply:"send-result"}', "explicit conversation control RPC");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'getBotRole:"roster",updateBotRole:"roster",getCollaboration:"transcript",reviewCollaboration:"send",stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
+  patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'getBotRole:we=>e.getBotRole(we),updateBotRole:we=>e.updateBotRole(we),getCollaboration:we=>e.getCollaboration(we),reviewCollaboration:we=>e.reviewCollaboration(we),stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
+  // Bind the editor to the actual settings component's agent prop. Do not infer
+  // ownership from a selected sidebar row or a late asynchronous DOM lookup.
+  patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");
+  patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
   patched = patchQuotedReplies(patched);
   return patchHoneylineRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
 }

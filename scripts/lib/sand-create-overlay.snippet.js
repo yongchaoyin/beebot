@@ -184,7 +184,10 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
   return new Promise(resolve=>{
   const root=document.createElement("div"); root.id="sand-create-bot-sheet";
   root.style.cssText="display:flex;flex-direction:column;align-items:stretch";
-  let appearanceOpen=false;
+  let appearanceOpen=false,roleDetailsOpen=false,roleForm,composingField=false,repaintAfterComposition=false;
+  root.addEventListener("compositionstart",()=>{composingField=true;});
+  root.addEventListener("compositionend",()=>{composingField=false;if(repaintAfterComposition){repaintAfterComposition=false;paint();}});
+  let role=preset?.role||{primaryJob:"",responsibilities:[],outOfScope:[],deliverables:[],workingStyle:""};
   let color=R_COLORS.some(c=>c.id===preset?.avatarColor)?preset.avatarColor:"green";
   let shape=R_SHAPES.includes(preset?.avatarShape)?preset.avatarShape:"blob";
   let name=typeof preset?.name==="string"?preset.name:"";
@@ -193,7 +196,7 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
   let servers=[],busy=false,alive=true,refreshSerial=0,unsubscribe;
   const operationKeys=new Map();
   let vendors=[]; let vendorId=typeof preset?.inferenceVendorId==="string"?preset.inferenceVendorId:"";
-  const finish=(v,restoreFocus=v===null)=>{if(!alive)return;alive=false;refreshSerial++;unsubscribe?.();window.removeEventListener("sand-ui-language-changed",localizeBot);RCloseInlineCreate(root,restoreFocus);resolve(v)};
+  const finish=(v,restoreFocus=v===null)=>{if(!alive)return;alive=false;roleForm?.dispose();refreshSerial++;unsubscribe?.();window.removeEventListener("sand-ui-language-changed",localizeBot);RCloseInlineCreate(root,restoreFocus);resolve(v)};
   root.__sandDismiss=()=>{if(busy)return false;finish(null);return true};
   const status=document.createElement("div");status.setAttribute("role","status");status.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-red-primary,#ba3544);white-space:pre-wrap;margin-top:12px";
   const setError=error=>{status.textContent=error?RCreateError(error):""};
@@ -220,10 +223,12 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
     catch(error){if(!alive||serial!==refreshSerial)return;servers=[];renderServers();if(deploymentServerId)setError(error)}
   };
   const paint=()=>{
+    if(composingField){repaintAfterComposition=true;return;}
     const hex=R_COLORS.find(c=>c.id===color)?.hex||"#00C972";
     const active=document.activeElement;
     const focused=root.contains(active)?{key:active.dataset.createField,label:active.getAttribute("aria-label"),title:active.getAttribute("title"),start:active.selectionStart,end:active.selectionEnd}:null;
-    appearanceOpen=root.querySelector("details")?.open??appearanceOpen;
+    appearanceOpen=root.querySelector(".bb-create-appearance")?.open??appearanceOpen;
+    if(roleForm){role=roleForm.read();roleDetailsOpen=roleForm.details.open;roleForm.dispose();roleForm=null;}
     root.innerHTML="";
     const bar=document.createElement("div"); bar.style.cssText="width:min(420px,100%);display:flex;align-items:center;gap:12px;margin-bottom:20px";
     close=document.createElement("button"); close.type="button";close.dataset.createField="close"; close.textContent="×";close.setAttribute("aria-label",copy.close); close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:var(--cursor-bg-secondary,Canvas);font-size:22px;cursor:pointer"; close.onclick=()=>{if(!busy)finish(null)};
@@ -253,6 +258,9 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
       if(busy||!alive)return;
       const draft={name:name.trim()||copy.ph,avatarColor:color,avatarShape:shape,inferenceVendorId:vendorId||vendorSelect.value,isKickstartRequested:!0,deploymentServerId:""};
       if(!deploymentServerId){
+        if(!roleForm){setError(RCreateText("此版本未加载岗位编辑器，请更新客户端。","The role editor is unavailable in this build. Update the client."));return;}
+        const error=roleForm.validate();if(error){status.textContent=error;return;}
+        draft.role=roleForm.read();
         if(typeof onCreate!=="function"){finish(draft);return;}
         busy=true;setError(null);updateReady();
         try{await onCreate(draft);finish(null,false);}catch(error){if(alive)setError(error);}finally{busy=false;if(alive)updateReady();}
@@ -274,8 +282,16 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
     const summary=document.createElement("summary");summary.dataset.createField="appearance";summary.append(preview,document.createTextNode(RCreateText("头像与颜色","Appearance")));
     appearance.append(summary,colors,shapes);
     submit.dataset.createField="submit";submit.className="bb-create-submit";status.className="bb-create-status";
-    root.append(bar,label,input,appearance,deploymentLabel,deployment);
-    if(deploymentServerId)root.append(descriptionLabel,responsibilities,hint);else root.append(vendorLabel,vendorSelect);
+    root.append(bar,label,input);
+    if(!deploymentServerId&&typeof window.__beebotRoleFields==="function"){
+      roleForm=window.__beebotRoleFields({value:role,onChange:next=>{role=next;setError(null);}});
+      roleForm.root.style.width="min(420px,100%)";roleForm.details.open=roleDetailsOpen;root.append(roleForm.root);
+    }
+    root.append(appearance,deploymentLabel,deployment);
+    if(deploymentServerId){
+      hint.textContent+=RCreateText(" 当前服务器仅保存职责描述，不支持本机的版本化岗位约定。"," This server currently saves a description only, not a versioned local role contract.");
+      root.append(descriptionLabel,responsibilities,hint);
+    }else root.append(vendorLabel,vendorSelect);
     root.append(submit,status);renderServers();
     if(focused){
       const target=[...root.querySelectorAll("input,textarea,select,button,summary")].find(item=>focused.key?item.dataset.createField===focused.key:focused.label?item.getAttribute("aria-label")===focused.label:focused.title&&item.getAttribute("title")===focused.title);

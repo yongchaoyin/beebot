@@ -1,3 +1,4 @@
+import type { BotRoleDraft } from "../../../source/shared/bot-role";
 import { locateQuotedMessage } from "../recovered/features/conversation/workspace/quoted-message-navigation";
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import type { CoordinatorPortBridge, CursorAuthStatus, DesktopAutoReviewInstructions, DesktopBridge, SidebarSection, ThemePreference } from "../recovered/contracts/desktop-bridge";
@@ -2913,17 +2914,17 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     setCreateBotOpen(true);
   };
 
-  const submitCreateBot = async (draft: { name: string; avatarColor: string; avatarShape: string; inferenceVendorId?: string }) => {
+  const submitCreateBot = async (draft: { name: string; avatarColor: string; avatarShape: string; inferenceVendorId?: string; role: BotRoleDraft }) => {
     if (client == null) return;
-    setCreateBotOpen(false);
     setBusy(true);
     try {
-      const result = await client.call("createAgent", { name: draft.name, description: "", origin: "user", avatarColor: draft.avatarColor, avatarShape: draft.avatarShape, ...(draft.inferenceVendorId ? { inferenceVendorId: draft.inferenceVendorId } : {}), isKickstartRequested: true, clientNonce: makeClientNonce() });
+      const result = await client.call("createAgent", { name: draft.name, description: "", role: draft.role, origin: "user", avatarColor: draft.avatarColor, avatarShape: draft.avatarShape, ...(draft.inferenceVendorId ? { inferenceVendorId: draft.inferenceVendorId } : {}), isKickstartRequested: true, clientNonce: makeClientNonce() });
       const created = result && typeof result === "object" && "agent" in result ? (result as { agent: unknown }).agent : result;
       const projected = projectRendererAgent(created);
+      setCreateBotOpen(false);
       await refreshRoster();
       if (projected != null) await openAgent(projected.id);
-    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); throw error; }
     finally { setBusy(false); }
   };
 
@@ -3824,7 +3825,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         isVisible={accessCoverComposition.isVisible}
       /> : null}
       {showSignIn && bridge != null && account != null ? <SignInLanding account={account} bridge={bridge} onStatus={setAccount} /> : null}
-      {createBotOpen ? <CreateBotSheet defaultVendorId={defaultInferenceVendorId} language={uiLanguage} vendors={inferenceVendors} onCancel={() => setCreateBotOpen(false)} onCreate={(draft) => void submitCreateBot(draft)} /> : null}
+      {createBotOpen ? <CreateBotSheet defaultVendorId={defaultInferenceVendorId} language={uiLanguage} vendors={inferenceVendors} onCancel={() => setCreateBotOpen(false)} onCreate={submitCreateBot} /> : null}
       {onboardingOpen && account?.kind === "logged-in" && bridge != null ? <SignedInOnboarding
         accountSlot={account.authId ?? account.email ?? "account"}
         bridge={bridge}

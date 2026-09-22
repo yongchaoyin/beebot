@@ -4,6 +4,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 const createSource = await readFile(new URL("../scripts/lib/sand-create-overlay.snippet.js", import.meta.url), "utf8");
+const roleSource = await readFile(new URL("../scripts/lib/beebot-bot-role.snippet.js", import.meta.url), "utf8");
 const groupSource = await readFile(new URL("../scripts/lib/sand-group-ui.snippet.js", import.meta.url), "utf8");
 const paths = await readFile(new URL("../scripts/lib/persona-shape-paths.json", import.meta.url), "utf8");
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
@@ -45,7 +46,7 @@ async function boot(t) {
   window.__sandCreateAgent = async draft => { calls.push({ kind: "bot", draft }); };
   window.__sandCreateGroup = async draft => { calls.push({ kind: "group", draft }); };
   const prefix = createSource.slice(0, createSource.indexOf("function MOn("));
-  window.eval(`const R_PATHS=${paths};\n${prefix}\n${groupSource}`);
+  window.eval(`const R_PATHS=${paths};\n${roleSource}\n${prefix}\n${groupSource}`);
   const editor = document.querySelector("textarea");
   // Happy DOM has no layout; only the adapter's visibility query is stubbed.
   editor.getClientRects = () => [{ width: 400, height: 100 }];
@@ -143,6 +144,7 @@ test("local Bot creation from the + entry executes once and reports failures in 
   await until(() => ui.document.getElementById("sand-create-bot-sheet"));
   const root = ui.document.getElementById("sand-create-bot-sheet");
   ui.input(root.querySelector('[aria-label="Name"]'), "Colleague");
+  ui.input(root.querySelector('[data-role-field="primaryJob"]'), "Chat interactions");
   root.querySelector(".bb-create-submit").click(); root.querySelector(".bb-create-submit").click();
   await until(() => root.querySelector("[role=status]").textContent.includes("failed"));
   assert.equal(attempts, 1); assert.equal(root.querySelector('[aria-label="Name"]').value, "Colleague"); assertInline(ui.document, root);
@@ -152,6 +154,7 @@ test("Bot name IME confirmation does not submit the form", async t => {
   const ui = await boot(t); let calls = 0;
   const { root } = await ui.open("bot", async () => { calls++; });
   const name = root.querySelector('[aria-label="Name"]'); ui.input(name, "中文同事");
+  ui.input(root.querySelector('[data-role-field="primaryJob"]'), "Chat interactions");
   name.dispatchEvent(new ui.window.CompositionEvent("compositionstart", { bubbles: true }));
   name.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   assert.equal(calls, 0);

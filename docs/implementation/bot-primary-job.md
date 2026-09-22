@@ -54,3 +54,40 @@ new dialogs. The pinned renderer bridge must expose the same role methods as the
 readable client. Remote Node creation remains on its existing description-only
 protocol until an explicit structured-role capability is negotiated. Do not send
 unsupported role fields or label remote descriptions as enforced role records.
+
+## Creation and role editing
+
+New local Bot asks for a primary job before deployment/model options. Optional
+scope, exclusions, deliverables and working agreements use one item per line.
+Appearance still uses the existing avatar system. Local-to-remote switching keeps
+separate role/description drafts; remote creation does not send unsupported role
+fields and explicitly explains its description-only protocol.
+
+The Bot settings editor is bound to the settings component's **agent prop**, not
+inferred from sidebar selection. Edit is user-initiated; ordinary chat gets no new
+modal. A saved role is confirmed only by a valid response for the same Bot/version.
+An old replay is re-read before offering the next edit. Missing/late replies do not
+replace another Bot's settings, steal chat focus, or unlock automatic overwrite.
+Timed-out saves preserve the exact request for retry. Version conflicts preserve
+the draft and require an explicit reload/reconfirmation. Both creation and role
+fields preserve input-method composition during localization.
+
+The readable frontend creation path forwards the same role payload and awaits the
+actual create callback. The checksum-pinned renderer receives the user RPC table,
+roster bridge and an explicit settings-component mount. Legacy Agent profile tools
+remain separate. It is not enough to edit the readable React tree alone.
+
+## Checks during development
+
+20 role persistence/runtime contract tests and 16 role UI/bridge tests were added.
+The existing group test loader now bundles real module dependencies rather than
+copying only isolated transformed files; the new shared role import otherwise
+could not resolve from temporary test directories. No old assertions were removed.
+The full local run also retains the installer/LFS check: this source-only checkout
+contains pointers, not the original installers. Full macOS verification fetches
+LFS data and remains authoritative for that check.
+
+Browser evidence runs the actual adapters with a simulated outer chat and gateway.
+This environment blocks file URL navigation; policy is unchanged. Our own fixture
+DOM was tested offline in Chromium on about:blank. This is component evidence,
+not a native installed app or a production-model evaluation.
