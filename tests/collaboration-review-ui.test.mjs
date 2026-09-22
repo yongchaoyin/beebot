@@ -96,3 +96,14 @@ test("legacy evidence review is shown as re-verification, not falsely blamed on 
  ui.choose();ui.root().querySelector('.bb-work-actions button').click();await tick();
  assert.equal(ui.calls.length,1);
 });
+
+test("declined work shows its reason inline without offering acceptance or leaking markup",async t=>{
+ const ui=await boot(t);const reason='<img src=x onerror="window.bad=1"> Native test environment unavailable';
+ ui.tasks([task({state:"declined",reason,canReview:false,submission:undefined,evidence:[]})]);
+ ui.refresh();await tick();ui.expand();
+ assert.match(ui.root().textContent,/暂未接手/);assert.match(ui.root().textContent,/原派给/);assert.equal(ui.root().querySelector('.bb-work-reason').textContent,reason);
+ assert.equal(ui.root().querySelector('img'),null);assert.equal(ui.root().querySelector('.bb-work-actions').hidden,true);
+ assert.equal(ui.window.document.querySelector('#chat').value,'Keep my draft');assert.equal(ui.calls.length,0);
+ ui.window.__sandUiLanguage="en";ui.window.dispatchEvent(new ui.window.Event('sand-ui-language-changed'));
+ assert.match(ui.root().textContent,/Declined/);assert.equal(ui.window.document.querySelectorAll('[role="dialog"]').length,0);
+});

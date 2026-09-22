@@ -14,7 +14,7 @@ function RBindCollaborationReview(runtime) {
   const remote=()=>document.body?.dataset.beebotRemoteActive==="true";
   const down=()=>runtime.connection?.snapshots?.get?.()?.transport==="down";
   const selected=()=>runtime.selection.snapshots.get()?.currentAgentId??null;
-  const labels=()=>({offered:t("等待接手","Offered"),claimed:t("已接手","Claimed"),waiting:t("等待依赖","Waiting"),blocked:t("需要协助","Blocked"),review:t("待验收","Awaiting review"),"changes-requested":t("需要修改","Changes requested"),accepted:t("此版本已验收","Version accepted")});
+  const labels=()=>({offered:t("等待接手","Offered"),declined:t("暂未接手","Declined"),claimed:t("已接手","Claimed"),waiting:t("等待依赖","Waiting"),blocked:t("需要协助","Blocked"),review:t("待验收","Awaiting review"),"changes-requested":t("需要修改","Changes requested"),accepted:t("此版本已验收","Version accepted")});
   if(!document.getElementById("bb-work-style")){
     const style=node("style");style.id="bb-work-style";style.textContent=`
       .bb-work{font:13px/1.6 system-ui;min-width:0;color:var(--bee-text-primary,var(--cursor-text-primary,CanvasText));-webkit-app-region:no-drag}
@@ -60,9 +60,9 @@ function RBindCollaborationReview(runtime) {
   function card(task){
     const key=JSON.stringify([room,task.id,task.version,task.submission?.id]);let c=cards.get(key);
     if(c)return c;
-    const box=node("article","bb-work-card"),title=node("h3"),state=node("small"),owner=node("small"),basis=node("details"),heading=node("summary"),body=node("div"),form=node("div"),actions=node("div","bb-work-actions"),accept=node("button"),changes=node("button"),status=node("p");
-    accept.type=changes.type="button";status.setAttribute("role","status");basis.append(heading,body);actions.append(accept,changes);box.append(title,state,owner,basis,form,actions,status);
-    c={key,root:box,title,state,owner,basis,heading,body,form,actions,accept,changes,status,fields:[],pending:false,task,at:epoch,id:room,intent:null};
+    const box=node("article","bb-work-card"),title=node("h3"),state=node("small"),owner=node("small"),reason=node("p","bb-work-reason"),basis=node("details"),heading=node("summary"),body=node("div"),form=node("div"),actions=node("div","bb-work-actions"),accept=node("button"),changes=node("button"),status=node("p");
+    accept.type=changes.type="button";status.setAttribute("role","status");basis.append(heading,body);actions.append(accept,changes);box.append(title,state,owner,reason,basis,form,actions,status);
+    c={key,root:box,title,state,owner,reason,basis,heading,body,form,actions,accept,changes,status,fields:[],pending:false,task,at:epoch,id:room,intent:null};
     task.criteria.forEach((criterion,index)=>{
       const field=node("div","bb-work-check"),label=node("label"),select=node("select"),note=node("textarea");
       const selectId=`bb-criterion-${epoch}-${cards.size}-${index}`;select.id=selectId;label.htmlFor=selectId;label.textContent=`${index+1}. ${criterion}`;
@@ -117,8 +117,9 @@ function RBindCollaborationReview(runtime) {
     feedback.textContent=down()?t("连接中断，暂不能验收。","Disconnected. Reviews are unavailable."):error;
     const wanted=new Set();
     for(const task of data.tasks){const c=card(task);wanted.add(c.key);c.task=task;
-      c.owner.textContent=t(`${name(task.assignee)} 负责 · ${name(task.reviewer)} 验收`,`${name(task.assignee)} owns · ${name(task.reviewer)} reviews`);
+      c.owner.textContent=task.state==="declined"?t(`原派给 ${name(task.assignee)} · ${name(task.reviewer)} 验收`,`Originally offered to ${name(task.assignee)} · ${name(task.reviewer)} reviews`):t(`${name(task.assignee)} 负责 · ${name(task.reviewer)} 验收`,`${name(task.assignee)} owns · ${name(task.reviewer)} reviews`);
       c.title.textContent=task.title;c.state.textContent=`${task.state==="accepted"&&!task.acceptedForCurrentInputs?t("需要重新核对","Re-verification required"):(labels()[task.state]||task.state)} · v${task.version}`+(task.state==="accepted"&&!task.acceptedForCurrentInputs?(task.reviewNeedsRefresh?t(" · 历史验收缺少版本依据，请重新核对"," · Historical review needs evidence verification"):t(" · 依赖已变化，需要重查"," · Changed dependencies; recheck needed")):"");
+      c.reason.hidden=!task.reason;c.reason.textContent=task.reason||"";
       c.heading.textContent=t("查看已提交的成果与依据","Inspect submitted results and evidence");c.basis.hidden=!task.submission;
       c.form.hidden=c.actions.hidden=!task.canReview;c.accept.textContent=t("确认此版本通过","Accept this version");c.changes.textContent=t("提出修改","Request changes");
       c.accept.disabled=c.changes.disabled=!trusted||down()||c.pending;

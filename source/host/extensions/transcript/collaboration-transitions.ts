@@ -1,6 +1,7 @@
 import type { CollaborationAction, CollaborationTask } from "../../../shared/collaboration.js";
 import { requireMessageReference } from "./message-reply-contract.js";
 import { captureWorkEvidence, verifyWorkEvidence } from "./collaboration-evidence.js";
+import { transferUnstartedWork } from "./collaboration-reassignment.js";
 import type { TranscriptEntry } from "./transcript-hub.js";
 
 const check = (ok: unknown, code: string, detail: string): void => { if (!ok) throw new Error(`${code}: ${detail}`); };
@@ -50,6 +51,9 @@ export function advanceWork(args: {
 }): {task: CollaborationTask; wake: string[]} {
   const {prior, action, actor, tasks, entries, messageId, members, dbPath} = args;
   check(prior.version === action.expected_version, "work_version_conflict", `Refresh work ${prior.id}; current version is ${prior.version}.`);
+  if (action.action === "decline" || action.action === "reassign") {
+    return transferUnstartedWork({prior, action, actor, members, entries, messageId});
+  }
   const next = structuredClone({...prior, version: prior.version + 1, updatedBy: actor, updatedMessageId: messageId});
   let wake: string[] = [];
   if (action.action === "revise") {
