@@ -1,0 +1,23 @@
+name: Honeyline development source snapshot
+on:
+  push:
+    branches: [work/honeyline-reliability-snapshot-20260922]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8bd4703edf0e75196d308b31b5b3c4ea9e34d74
+          persist-credentials: false
+          lfs: false
+      - name: Export tracked source without credentials or runtime binaries
+        run: git archive --format=tar.gz HEAD > "$RUNNER_TEMP/beebot-source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: honeyline-source-a8bd470
+          path: ${{ runner.temp }}/beebot-source.tar.gz
+          retention-days: 1
