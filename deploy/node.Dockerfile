@@ -16,6 +16,7 @@ RUN node scripts/build-node.mjs
 RUN npm prune --omit=dev --ignore-scripts
 
 FROM node:26.5.0-bookworm-slim AS runtime
+LABEL io.beebot.node.install-api="1"
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends bash git curl ca-certificates python3 procps && rm -rf /var/lib/apt/lists/*
