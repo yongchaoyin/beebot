@@ -1,0 +1,29 @@
+name: Responsibility hardening source
+on:
+  push:
+    branches: [chore/collaboration-contracts-dev-20260922]
+    paths: [.github/workflows/responsibility-hardening-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 639ff091652c6455bd68c1554a78c81f907fefe8
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked source objects only
+        run: |
+          mkdir /tmp/responsibility-source
+          git bundle create /tmp/responsibility-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/responsibility-source/commit.txt
+          sha256sum /tmp/responsibility-source/source.bundle > /tmp/responsibility-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: responsibility-hardening-source
+          path: /tmp/responsibility-source/
+          retention-days: 1
