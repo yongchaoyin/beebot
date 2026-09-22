@@ -24,9 +24,9 @@ test('account invalidation fences receipt callbacks and the pre-dispatch attachm
   assert.ok(send.indexOf('accountScopeGenerationRef.current !== accountGeneration') < send.indexOf('await client.call("sendPrompt"'));
   assert.match(source,/sendPrompt: \(submission\) => sendComposerPromptRef.current\(submission\)/);
 });
-test('native adapters still build shared Honeyline CSS and status, rather than an alternate theme copy',async()=>{
-  const text=(await Promise.all(['build-honeyline.mjs','honeyline-renderer-patch.mjs'].map(name=>readFile(new URL('../scripts/lib/'+name,import.meta.url),'utf8')))).join('\n');
-  assert.match(text,/honeyline\/packaged-ui/);assert.match(text,/honeyline\/honeyline.css/);
+test('native adapters still build shared Presence CSS and status, rather than an alternate theme copy',async()=>{
+  const text=(await Promise.all(['build-presence.mjs','presence-renderer-patch.mjs'].map(name=>readFile(new URL('../scripts/lib/'+name,import.meta.url),'utf8')))).join('\n');
+  assert.match(text,/presence\/packaged-ui/);assert.match(text,/presence\/presence.css/);
 });
 test('a stale queued-cancel action cannot remove an already dispatched message',()=>{
   const cancel=source.slice(source.indexOf('  const cancelQueuedSend ='),source.indexOf('  const setAgentHiddenFromSidebar ='));

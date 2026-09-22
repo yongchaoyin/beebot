@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
-import { buildHoneylineTranscriptHarness } from "./helpers/honeyline-transcript-harness.mjs";
-const code = await buildHoneylineTranscriptHarness();
+import { buildPresenceTranscriptHarness } from "./helpers/presence-transcript-harness.mjs";
+const code = await buildPresenceTranscriptHarness();
 async function rig(t) {
   const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
   t.after(() => window.happyDOM.close());
@@ -10,8 +10,8 @@ async function rig(t) {
   window.console.timeStamp = () => {};
   const errors=[]; window.addEventListener("error",event=>errors.push(event.message));
   window.document.body.innerHTML='<main id="root"></main>';
-  window.eval(code + "\nwindow.HoneylineTestUI=HoneylineTestUI;");
-  const host=window.document.getElementById("root"); const app=window.HoneylineTestUI.mountTranscript(host);
+  window.eval(code + "\nwindow.PresenceTestUI=PresenceTestUI;");
+  const host=window.document.getElementById("root"); const app=window.PresenceTestUI.mountTranscript(host);
   t.after(()=>app.unmount());
   return {window,host,app,errors};
 }

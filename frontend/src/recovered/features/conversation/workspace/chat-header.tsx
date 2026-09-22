@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { RendererAgent } from "../../../../production/model";
 import { ComputerHeaderControl } from "../../computer/shell/view";
 import { SharedRoomHeaderTrigger, type SharedRoomHeaderTriggerProps } from "../../agent-info/shared-room/trigger";
-import { HoneylineWorkStatus } from "../../../../honeyline/components";
+import { PresenceWorkStatus } from "../../../../presence/components";
 import { AgentAvatar } from "./agent-avatar";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4886695 (ChatHeader aSn)
@@ -11,7 +11,8 @@ import { AgentAvatar } from "./agent-avatar";
 // owned by the separate agent-info surface and is intentionally not mounted here.
 
 export interface ConversationAgentHeaderProps {
-  agent: Pick<RendererAgent, "id" | "name" | "isRunning" | "isComposingMessage" | "awaitingUserResponse" | "currentActivity" | "avatarDataUrl" | "avatarShape" | "avatarColor" | "isSharedRoom" | "memberIds"> & { isGroup?: boolean };
+  agent: Pick<RendererAgent, "id" | "name" | "isRunning" | "isComposingMessage" | "awaitingUserResponse" | "currentActivity" | "waitingReason" | "avatarDataUrl" | "avatarShape" | "avatarColor" | "isSharedRoom" | "memberIds"> & { isGroup?: boolean };
+  isTransportDown?: boolean;
   isComputerActive: boolean;
   isInfoOpen: boolean;
   onToggleInfo(): void;
@@ -22,12 +23,12 @@ export interface ConversationAgentHeaderProps {
   showComputerControl?: boolean;
 }
 
-export function ConversationAgentHeader({ agent, isComputerActive, isInfoOpen, onToggleInfo, onToggleSettings, sharedRoomTrigger, trailing, showComputerControl = true }: ConversationAgentHeaderProps) {
+export function ConversationAgentHeader({ agent, isComputerActive, isInfoOpen, onToggleInfo, onToggleSettings, sharedRoomTrigger, trailing, showComputerControl = true, isTransportDown = false }: ConversationAgentHeaderProps) {
   const avatarKind = agent.isSharedRoom === true ? "shared-room" : agent.isGroup === true ? "group" : "agent";
   const identity = <>
-    <span className="sand-chat-header__avatar"><AgentAvatar agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size="md" /></span>
+    <span className="sand-chat-header__avatar"><AgentAvatar isTransportDown={isTransportDown} agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} waitingReason={agent.waitingReason} size="md" /></span>
     <span id="sand-conversation-heading">{agent.name}</span>
-    <HoneylineWorkStatus agent={agent} />
+    <PresenceWorkStatus agent={{ ...agent, isTransportDown }} />
   </>;
   return <div aria-labelledby="sand-conversation-heading" className="sand-chat-header" role="group">
     {onToggleSettings == null

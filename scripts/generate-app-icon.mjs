@@ -1,4 +1,4 @@
-import { honeylineIconSvg } from "./lib/honeyline-icon.mjs";
+import { presenceIconSvg } from "./lib/presence-icon.mjs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { repoRoot } from "./lib/config.mjs";
@@ -9,7 +9,7 @@ const svgPath = path.join(branding, "beebot-app-icon.svg");
 const pngPath = path.join(branding, "beebot-app-icon.png");
 const icnsPath = path.join(branding, "beebot-app-icon.icns");
 const svg = await readFile(path.join(repoRoot, "branding", "beebot-app-icon.svg"), "utf8");
-if (svg !== honeylineIconSvg()) throw new Error("Honeyline icon SVG is stale; regenerate it from honeyline-icon.mjs.");
+if (svg !== presenceIconSvg()) throw new Error("Presence icon SVG is stale; regenerate it from presence-icon.mjs.");
 await mkdir(branding, { recursive: true });
 await writeFile(svgPath, svg);
 

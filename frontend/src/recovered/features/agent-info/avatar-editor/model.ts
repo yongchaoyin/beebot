@@ -1,3 +1,4 @@
+import { COLORS as PRESENCE_COLORS } from "../../../../presence/avatar-art";
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2747995 (Amt image normalization; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2748503 (qUe file decoding; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2748774 (jUe 256px PNG export; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
@@ -15,17 +16,17 @@ export const AVATAR_MAX_ZOOM = 5;
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=22574 (PQ character palette; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=22574 (PQ character palette; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
 export const AVATAR_COLORS = [
-  { id: "black", label: "Black", value: "#000" },
-  { id: "brown", label: "Brown", value: "#936439" },
-  { id: "red", label: "Red", value: "#FF263C" },
-  { id: "orange", label: "Orange", value: "#FF6700" },
-  { id: "yellow", label: "Yellow", value: "#FF9800" },
-  { id: "green", label: "Green", value: "#00C972" },
-  { id: "cyan", label: "Cyan", value: "#00BCA6" },
-  { id: "blue", label: "Blue", value: "#1084FE" },
-  { id: "violet", label: "Violet", value: "#9159FE" },
-  { id: "magenta", label: "Magenta", value: "#FF309B" },
-  { id: "gray", label: "Gray", value: "#777777" },
+  { id: "black", label: "Slate", value: PRESENCE_COLORS.black },
+  { id: "brown", label: "Stone", value: PRESENCE_COLORS.brown },
+  { id: "red", label: "Rose", value: PRESENCE_COLORS.red },
+  { id: "orange", label: "Dusk", value: PRESENCE_COLORS.orange },
+  { id: "yellow", label: "Cloud", value: PRESENCE_COLORS.yellow },
+  { id: "green", label: "Sage", value: PRESENCE_COLORS.green },
+  { id: "cyan", label: "Mist", value: PRESENCE_COLORS.cyan },
+  { id: "blue", label: "Blue", value: PRESENCE_COLORS.blue },
+  { id: "violet", label: "Lilac", value: PRESENCE_COLORS.violet },
+  { id: "magenta", label: "Blush", value: PRESENCE_COLORS.magenta },
+  { id: "gray", label: "Gray", value: PRESENCE_COLORS.gray },
 ] as const;
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=22691 (Ij character shapes; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)

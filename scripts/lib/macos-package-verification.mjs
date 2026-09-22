@@ -1,4 +1,4 @@
-import { verifyHoneylineRendererArchive } from "./honeyline-package-verification.mjs";
+import { verifyPresenceRendererArchive } from "./presence-package-verification.mjs";
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -98,8 +98,8 @@ export async function verifyChecksumPinnedRendererPackage({
     if (parsed?.schemaVersion !== 1 || parsed?.mode !== "original-renderer-settings-extension" || !Array.isArray(parsed.chunks)) {
       throw new Error("Renderer extension provenance contract is invalid");
     }
-    if (parsed.honeyline?.version === 1) {
-      const verified = await verifyHoneylineRendererArchive({ archivePath, sourceRendererRoot, extension: parsed });
+    if (parsed.presence?.version === 1) {
+      const verified = await verifyPresenceRendererArchive({ archivePath, sourceRendererRoot, extension: parsed });
       return {
         mode: renderer.mode, provenancePath, provenanceSha256: sha256(provenanceBytes),
         fileCount: expectedFiles.size, inventorySha256: provenance.inventorySha256,

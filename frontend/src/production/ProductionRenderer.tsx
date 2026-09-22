@@ -1648,6 +1648,16 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       : liveEntries,
     [activeAgentId, liveEntries, transcriptAccountSlot, transcriptPaginationSnapshot.accountSlot, transcriptPaginationSnapshot.agentId, transcriptPaginationSnapshot.entries]
   );
+  // Presentation-only identity enrichment. A group/conversation id must never
+  // masquerade as an individual sender; card entries retain their own author data.
+  const presentedEntries = useMemo(() => entries.map((entry) => {
+    if (entry.kind !== "message" || entry.role !== "assistant") return entry;
+    const author = entry.authorId ? agents.find((candidate) => candidate.id === entry.authorId)
+      : activeAgent?.isGroup || activeAgent?.isSharedRoom ? undefined : activeAgent;
+    if (!author) return entry;
+    return { ...entry, author: author.name, authorId: author.id,
+      authorAvatar: { color: author.avatarColor ?? undefined, shape: author.avatarShape ?? undefined, dataUrl: author.avatarDataUrl ?? undefined } };
+  }), [entries, agents, activeAgent]);
   useEffect(() => {
     findInChatController.setScope(transcriptAccountSlot, activeAgentId.length > 0 ? activeAgentId : null);
     if (account?.kind !== "logged-in" || activeAgentId.length === 0) setFindInChatOpen(false);
@@ -3578,6 +3588,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
           <main className="sand-chat-stage">
           <ConversationAgentHeader
             agent={activeAgent}
+            isTransportDown={transport === "down"}
             isComputerActive={computer.isComputerUseActive}
             isInfoOpen={activeAgent.isGroup ? groupInfoPaneOpen : computerInfoOpen}
             onToggleInfo={() => { setGroupInfoPaneOpen(false); setAgentSettingsOpen(false); setRoutinesInfoPaneOpen(false); setChannelsInfoPaneOpen(false); setManageSharedRoomId(null); setComputerInfoOpen((open) => !open); }}
@@ -3591,7 +3602,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
           {showTranscriptLoadError
             ? <TranscriptLoadErrorSurface onRetry={() => void openAgent(activeAgent.id)} />
             : <ConversationTranscript
-                entries={entries}
+                entries={presentedEntries}
                 hasOlder={transcriptPaginationSnapshot.hasOlder}
                 isLoadingOlder={transcriptPaginationSnapshot.isLoadingOlder}
                 isAgentRunning={activeAgent.isRunning}
