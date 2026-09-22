@@ -1,3 +1,4 @@
+import { understandUserWorkMessage, formatWorkUnderstanding } from "./work-understanding.js";
 import { workContextView, workFocus, NATURAL_WORK_GUIDANCE } from "./collaboration-context.js";
 import { prepareCompletion, projectCompletions, completionIsCurrent } from "./collaboration-completion.js";
 import { advanceWork, workDependenciesReady, workIsAccepted } from "./collaboration-transitions.js";
@@ -90,14 +91,30 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
   return { event, wake, replyTo: action.action === "assign" ? action.goal_message_id : action.task_id };
 }
 
+/** Resolve against only the history that existed when this message arrived.
+ * Later assignments/renames cannot retroactively change what a user referred to.
+ * No mutable focus singleton, extra journal or migration is required. */
+export function understandWorkMessage(entries: readonly TranscriptEntry[], messageId: string) {
+  const at = entries.findIndex(entry => entry.id === messageId);
+  if (at < 0) return undefined;
+  return understandUserWorkMessage(entries[at]!, projectCollaboration(entries.slice(0, at)));
+}
+
 export function collaborationContext(entries: readonly TranscriptEntry[], actor: string, focusMessageIds: readonly string[] = []): string {
   const projected = projectCollaboration(entries);
   const tasks = [...projected.values()].filter(task => task.assignee === actor || task.creator === actor || task.reviewer === actor);
-  if (!tasks.length) return "";
-  const view = workContextView(projected, actor, workFocus(entries, focusMessageIds));
+  const understood = [...new Set(focusMessageIds)].map(id => understandWorkMessage(entries, id))
+    .filter((item): item is NonNullable<typeof item> => item != null);
+  const understanding = formatWorkUnderstanding(understood);
+  if (!tasks.length) return understanding;
+  const focus = workFocus(entries, focusMessageIds);
+  for (const item of understood) if (item.relation === "named-work") {
+    for (const ref of item.references) { focus.add(ref.id); focus.add(ref.goalId); }
+  }
+  const view = workContextView(projected, actor, focus);
   const receipts = [...projectCompletions(entries).values()].filter(item => item.actor === actor).slice(-32)
     .map(item => ({goalId:item.goalId, id:item.id, currentForKnownWork:completionIsCurrent(item, projected)}));
-  return `\n\nRecent completion receipts (up to 32, all-known-work checks only): ${JSON.stringify(receipts)}\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${view.details.map(task => JSON.stringify(task)).join("\n")}
+  return understanding + `\n\nRecent completion receipts (up to 32, all-known-work checks only): ${JSON.stringify(receipts)}\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${view.details.map(task => JSON.stringify(task)).join("\n")}
 Pending work beyond the detail budget (inspect exact source messages before acting):
 ${view.pendingIndex.map(task => JSON.stringify(task)).join("\n")}
 Context coverage: ${JSON.stringify(view.coverage)}

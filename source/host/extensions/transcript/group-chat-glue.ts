@@ -1,4 +1,4 @@
-import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
+import { understandWorkMessage, prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -289,6 +289,7 @@ export class GroupChatGlue {
       isSharedRoom: config?.sharedRoomId != null,
       localAttention: config?.sharedRoomId == null && !config?.remoteMembers?.length,
       memberLoad: id => this.tm.runLifecycle.inFlightRunCounts.get(id) ?? 0,
+      workUnderstanding: messageId => understandWorkMessage(session.db.getTranscriptEntries(), messageId),
       priorRecipients: messageId => {
         const record = this.tm.sendPipeline.deliveries.list(session.dbPath)
           .find((entry: import("./conversation-deliveries.js").ConversationDelivery) => entry.id === messageId);
@@ -326,7 +327,7 @@ export class GroupChatGlue {
           }
         }
         appendConversationNotice(this.tm, session,
-          "被引用的同事已不在此群，消息已保留，未自动转派。请明确 @ 其他成员。 / The quoted colleague is no longer in this group. Your message is retained; no work was reassigned. Explicitly @ another member to continue.",
+          "被引用或关联的同事已不在此群，消息已保留，未自动转派。请明确 @ 其他成员。 / The referenced colleague is no longer in this group. Your message is retained; no work was reassigned. Explicitly @ another member to continue.",
           message.id, "quoted_colleague_unavailable");
       },
       onStarted: (member, messages) => delivery(member, messages, "processing"),

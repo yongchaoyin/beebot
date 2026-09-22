@@ -1,10 +1,11 @@
+import type { WorkUnderstanding } from "../extensions/transcript/work-understanding.js";
 import {
   isPassContent, parseGroupMentions, resolveMessageResponders,
   type GroupMember, type GroupMessage,
 } from "./group-chat.js";
 
 export type AttentionReason = "explicit-recipients" | "quiet" | "directed" | "discussion"
-  | "pending-conversation" | "unavailable" | "quoted-request" | "answer-to-user" | "first-listener";
+  | "pending-conversation" | "unavailable" | "quoted-request" | "answer-to-user" | "first-listener" | "named-work" | "new-topic" | "ambiguous-work";
 export interface GroupAttention {
   reason: AttentionReason;
   members: GroupMember[];
@@ -12,6 +13,8 @@ export interface GroupAttention {
 }
 export interface AttentionContext {
   history: readonly GroupMessage[];
+  /** Computed from the trusted room transcript, never the incoming Bot payload. */
+  workUnderstanding?: (messageId: string) => WorkUnderstanding | undefined;
   load?: (id: string) => number;
   /** Only persisted, room-local delivery identities; never model-provided IDs. */
   priorRecipients?: (messageId: string) => readonly string[] | undefined;
@@ -57,7 +60,16 @@ export function selectGroupAttention(
     // external work to someone else, even when a different member is idle.
     if (prior.length) return { reason: "unavailable", members: [], unavailableIds: prior };
   }
-  if (message.speaker.kind === "user" && !message.replyToId) {
+  const understanding = message.speaker.kind === "user" && message.id && !message.replyToId
+    ? context.workUnderstanding?.(message.id) : undefined;
+  if (understanding?.relation === "named-work" && understanding.references.length === 1) {
+    const owner = understanding.references[0]!.assignee;
+    const targets = eligible.filter(member => member.id === owner);
+    return targets.length ? { reason: "named-work", members: targets }
+      : { reason: "unavailable", members: [], unavailableIds: [owner] };
+  }
+  const separate = understanding?.relation === "new-topic" || understanding?.relation === "ambiguous-work";
+  if (message.speaker.kind === "user" && !message.replyToId && !separate) {
     const at = context.history.findIndex(entry => entry.id === message.id);
     const before = at >= 0 ? context.history.slice(0, at) : context.history;
     const previous = [...before].reverse().find(entry => entry.speaker.kind === "user");
@@ -82,7 +94,7 @@ export function selectGroupAttention(
   };
   const ordered = [...eligible].sort((a, b) => load(a.id) - load(b.id)
     || rank(a.id) - rank(b.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { reason: "first-listener", members: ordered.slice(0, 1) };
+  return { reason: separate ? understanding!.relation as "new-topic" | "ambiguous-work" : "first-listener", members: ordered.slice(0, 1) };
 }
 
-export const LOCAL_ATTENTION_GUIDANCE = `Local group attention: not every colleague runs on every message. A new open user request has one first listener, selected for current availability, not seniority or verified skill. Unquoted follow-ups to the latest pending user request stay with its recipients; this is attention continuity, NOT an inferred scope change. Read every new message and clarify important ambiguity. Only explicit user instructions and validated work revisions change execution boundaries. Being that listener does NOT appoint you coordinator or give you new permissions. Answer simple questions directly. For genuine help, quote the relevant message and @ the colleague who can answer with purpose:request. A request for advice is not a transfer of the original responsibility. Use purpose:update for progress that needs no response; use purpose:discussion or @everyone deliberately when you need group input. An answer quoted to the user does not automatically summon peers. Speak only for yourself and never simulate colleagues' replies. If you cannot handle a directed request, state the limitation or ask a targeted question instead of silently assuming another member will respond. Ordinary questions and discussion do not require creating a formal task. Do not interpret a review request as permission to edit, send or deploy. Task claim, version, review and external-action authorization checks still apply.`;
+export const LOCAL_ATTENTION_GUIDANCE = `Local group attention: not every colleague runs on every message. A new open user request has one first listener, selected for current availability, not seniority or verified skill. An exact recorded work title can recover its original addressee. Explicit new-topic markers start separate attention without cancelling older work. Duplicate titles require clarification. These are bounded hints, not general semantic understanding. Other unquoted follow-ups to the latest pending user request stay with its recipients; this is attention continuity, NOT an inferred scope change. Read every new message and clarify important ambiguity. Only explicit user instructions and validated work revisions change execution boundaries. Being that listener does NOT appoint you coordinator or give you new permissions. Answer simple questions directly. For genuine help, quote the relevant message and @ the colleague who can answer with purpose:request. A request for advice is not a transfer of the original responsibility. Use purpose:update for progress that needs no response; use purpose:discussion or @everyone deliberately when you need group input. An answer quoted to the user does not automatically summon peers. Speak only for yourself and never simulate colleagues' replies. If you cannot handle a directed request, state the limitation or ask a targeted question instead of silently assuming another member will respond. Ordinary questions and discussion do not require creating a formal task. Do not interpret a review request as permission to edit, send or deploy. Task claim, version, review and external-action authorization checks still apply.`;

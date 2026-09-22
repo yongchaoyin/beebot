@@ -1,3 +1,4 @@
+import type { WorkUnderstanding } from "./work-understanding.js";
 import { selectGroupAttention, LOCAL_ATTENTION_GUIDANCE } from "../../groups/group-attention.js";
 import { buildGroupReplyContext } from "../../groups/group-replies.js";
 import {
@@ -43,6 +44,7 @@ export interface GroupOrchestratorDeps {
   /** Local host policy only; cross-user room routing remains protocol-compatible. */
   localAttention?: boolean;
   memberLoad?(id: string): number;
+  workUnderstanding?(messageId: string): WorkUnderstanding | undefined;
   priorRecipients?(messageId: string): readonly string[] | undefined;
   pendingRecipients?(messageId: string): readonly string[] | undefined;
   inbox?: GroupMessageInbox;
@@ -126,6 +128,7 @@ export class GroupChatOrchestrator {
         const attention = this.deps.localAttention && !this.deps.isSharedRoom
           ? selectGroupAttention(members, routed, {
               history: this.deps.readHistory(),
+              ...(this.deps.workUnderstanding ? { workUnderstanding: this.deps.workUnderstanding } : {}),
               load: id => Math.max(active.has(id) ? 1 : 0, this.deps.memberLoad?.(id) ?? 0)
                 + (inboxes.get(id)?.length ?? 0),
               ...(this.deps.priorRecipients ? { priorRecipients: this.deps.priorRecipients } : {}),

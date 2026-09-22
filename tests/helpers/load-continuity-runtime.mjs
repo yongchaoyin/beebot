@@ -15,6 +15,8 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
+      export { understandUserWorkMessage, formatWorkUnderstanding } from "./source/host/extensions/transcript/work-understanding.ts";
+      export { understandWorkMessage } from "./source/host/extensions/transcript/collaboration.ts";
       export { workContextView, workFocus, NATURAL_WORK_GUIDANCE } from "./source/host/extensions/transcript/collaboration-context.ts";
       export { CollaborationControls } from './source/host/extensions/transcript/collaboration-controls.ts';
       export { projectCompletions, completionIsCurrent } from './source/host/extensions/transcript/collaboration-completion.ts';
