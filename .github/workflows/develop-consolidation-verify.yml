@@ -1,0 +1,126 @@
+name: Verify develop consolidation
+on:
+  push:
+    branches: [work/develop-consolidation-validation-20260922]
+    paths: [.github/workflows/develop-consolidation-verify.yml, '.dev-submit/develop-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify exact reconciled tree and all source histories
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/develop-{i:02}.bin').read_bytes() for i in range(9))
+          assert len(raw)==20212
+          assert hashlib.sha256(raw).hexdigest()=='485855527c726d414ee14219c2ac34e9cfa0142f91f515336d8bec87b6f56350'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          manifest=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          def safe(name):
+              p=pathlib.PurePosixPath(name)
+              assert not p.is_absolute() and '..' not in p.parts
+              assert name in ['README.md','README.zh.md','AGENTS.md','.github/workflows/check.yml'] or name.startswith(('source/','frontend/','scripts/','tests/','docs/'))
+          base='253a460e8f1c0c6f735237f3334ebb3c67a517f6'
+          assert manifest['base']==base
+          parents=['f713067e8773d0e53af661784d04e4a288531fb6','5217957de163d5e6ca23f90582031e2d69945e98','253a460e8f1c0c6f735237f3334ebb3c67a517f6','276ba91f0c1f2496638787a8957e7cee35e0f7d6','7fab604ebbc926150e64964c0d79aeb2d3860acf','ec7384d1246ed45e46c7668ad13b2f49f0078019','c4f38ebc8c72863f761a3a9bcfb30d024a6439d9','ddd0d0f6715b35cca04f126b3ef9a8b7041bef5d']
+          assert manifest['parents']==parents
+          git('read-tree',base)
+          for name,mode,blob in manifest['entries']:
+              safe(name)
+              if blob is None:
+                  git('update-index','--force-remove','--',name)
+              else:
+                  assert mode in ['100644','100755']
+                  assert git('cat-file','-t',blob).strip()==b'blob'
+                  git('update-index','--add','--cacheinfo',mode,blob,name)
+          for change in manifest['files']:
+              name=change['path'];safe(name)
+              assert change['mode'] in ['100644','100755']
+              lines=[] if change['old'] is None else git('cat-file','blob',change['old']).decode().splitlines(keepends=True)
+              for start,end,replacement in reversed(change['ops']):
+                  assert 0<=start<=end<=len(lines)
+                  lines[start:end]=replacement.splitlines(keepends=True)
+              blob=git('hash-object','-w','--stdin',data=''.join(lines).encode()).decode().strip()
+              assert blob==change['new'],name
+              git('update-index','--add','--cacheinfo',change['mode'],blob,name)
+          tree=git('write-tree').decode().strip()
+          assert tree==manifest['tree']=='21739a999a8b4d3dc11f271aafb934c73124484a'
+          paths=git('ls-tree','-r','--name-only',tree).decode().splitlines()
+          assert not any(p.startswith('.dev-submit/') for p in paths)
+          assert [p for p in paths if p.startswith('.github/workflows/')]==['.github/workflows/check.yml']
+          commit=manifest['commit'].encode()
+          assert commit.startswith(('tree '+tree+'\n'+''.join('parent '+p+'\n' for p in parents)).encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha==manifest['sha']=='b855d8e170efe1b051a3de83ad58f20a425f4b53'
+          for name,head in manifest['heads']:
+              git('merge-base','--is-ancestor',head,sha)
+              print('Included product history:',name,head)
+          git('merge-base','--is-ancestor',parents[0],sha)
+          git('push','origin',sha+':refs/heads/integrate/recent-changes-20260922')
+          print('Verified candidate:',sha,'tree:',tree,'; develop remains unchanged')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b855d8e170efe1b051a3de83ad58f20a425f4b53
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Record exact source and environment
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = b855d8e170efe1b051a3de83ad58f20a425f4b53
+          test "$(git rev-parse HEAD^{tree})" = 21739a999a8b4d3dc11f271aafb934c73124484a
+          mkdir -p /tmp/develop-consolidation-verification
+          git show -s --format=fuller HEAD > /tmp/develop-consolidation-verification/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/develop-consolidation-verification/tree.txt
+          node --version > /tmp/develop-consolidation-verification/node.txt
+          sw_vers > /tmp/develop-consolidation-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regression suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/develop-consolidation-verification/check.log
+      - name: Shipped frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/develop-consolidation-verification/frontend.log
+      - name: Lossless publication export
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/develop-consolidation-verification/publication.log
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/develop-consolidation-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: develop-consolidation-verification
+          path: /tmp/develop-consolidation-verification/
+          retention-days: 7
