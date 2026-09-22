@@ -10,7 +10,7 @@ export function mount(host){const root=createRoot(host);let flags={};const rende
 `}});
 function rig(t){
  const window=new Window({url:'https://beebot.test',settings:{enableJavaScriptEvaluation:true}});window.console.timeStamp=()=>{};
- const errors=[];window.addEventListener('error',event=>errors.append(event.message));window.document.body.innerHTML='<main></main>';
+ const errors=[];window.addEventListener('error',event=>errors.push(event.message));window.document.body.innerHTML='<main></main>';
  window.eval(result.outputFiles[0].text+';window.HeaderRig=HeaderRig');const host=window.document.querySelector('main'),app=window.HeaderRig.mount(host);
  t.after(async()=>{app.unmount();await window.happyDOM.close()});return{window,host,app,errors};
 }
