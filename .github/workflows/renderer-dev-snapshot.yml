@@ -1,0 +1,33 @@
+name: Renderer development snapshot
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/renderer-dev-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  renderer:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 28f0da1ec95043f6bfa37f6b7cd309f83c10c444
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci
+      - run: npm run bootstrap
+      - name: Export only pinned build inputs
+        run: |
+          mkdir -p /tmp/beebot-renderer
+          tar -cf /tmp/beebot-renderer/pinned-renderer.tar src/app/dist/renderer
+          git rev-parse HEAD > /tmp/beebot-renderer/commit.txt
+          shasum -a 256 /tmp/beebot-renderer/* > /tmp/beebot-renderer/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beebot-pinned-renderer
+          path: /tmp/beebot-renderer/
+          retention-days: 1
