@@ -28,7 +28,7 @@ function RBindConversationStatus(runtime) {
       #beebot-conversation-status button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
       .bb-conversation-summary{flex:1;min-width:120px}.bb-conversation-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%;padding:8px 0;border-top:1px solid var(--cursor-stroke-secondary,#8884)}
       .bb-conversation-confirm>span{flex:1;min-width:180px}.bb-conversation-feedback{flex-basis:100%;overflow-wrap:anywhere}.bb-conversation-feedback:empty{display:none}
-      [data-bb-delivery]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
+      [data-bb-delivery],[data-bb-publication]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
       [data-bb-delivery][data-state="failed"],[data-bb-delivery][data-state="needs-review"]{font-weight:550}
     `;document.head.append(style);
   }
@@ -41,7 +41,7 @@ function RBindConversationStatus(runtime) {
     if(current!==id){
       id=current;epoch++;intent=null;pending=false;feedback="";offEntries?.();offEntries=undefined;entryStore=null;
       if(id){entryStore=runtime.transcript.snapshotsFor(id);offEntries=entryStore.subscribe(schedule);}
-      for(const node of document.querySelectorAll("[data-bb-delivery]"))node.remove();
+      for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication]"))node.remove();
     }
     const remote=document.body?.dataset.beebotRemoteActive==="true";
     const state=snapshot(),entries=!remote&&id&&Array.isArray(state?.entries)?state.entries:[];
@@ -58,6 +58,19 @@ function RBindConversationStatus(runtime) {
       const value=detail||copy[entry.delivery.state];
       if(badge.textContent!==value)badge.textContent=value;
       badge.dataset.state=entry.delivery.state;
+    }
+    const publications=new Map(entries.filter(e=>e?.message?.artifact||e?.decisionStatus==="stale"||e?.message?.images?.some(image=>image.artifact)).map(e=>[e.id,e]));
+    for(const row of document.querySelectorAll("[data-row-key]")){
+      const entry=publications.get(row.getAttribute("data-row-key"));let badge=row.querySelector(":scope > [data-bb-publication]");
+      if(!entry){badge?.remove();continue;}
+      if(!badge){badge=document.createElement("span");badge.dataset.bbPublication=entry.id;row.append(badge);}
+      const files=entry.message?.artifact?[entry.message.artifact]:(entry.message?.images||[]).map(image=>image.artifact).filter(Boolean);
+      const value=entry.decisionStatus==="stale"?t("要求已变化，这个旧问题已失效；请在会话中重新确认。","Requirements changed. This old question is inactive; clarify in this conversation."):
+        files.map(file=>file.availability==="snapshot"&&/^[a-f0-9]{64}$/.test(file.sha256||"")
+          ?t(`成果快照 · ${Number(file.bytes).toLocaleString()} 字节 · SHA-256 ${file.sha256.slice(0,12)}…（不代表验收通过）`,`Artifact snapshot · ${Number(file.bytes).toLocaleString()} bytes · SHA-256 ${file.sha256.slice(0,12)}… (not an acceptance result)`)
+          :t("外部文件链接，未在本机验证。","External file link, not locally verified.")).join("；");
+      if(badge.textContent!==value)badge.textContent=value;
+      badge.title=files.map(file=>file.sha256||"").filter(Boolean).join("\n");
     }
     const unresolved=entries.filter(entry=>["queued","processing","needs-review"].includes(entry?.delivery?.state));
     const processing=unresolved.filter(entry=>["queued","processing"].includes(entry.delivery.state)).length;
@@ -95,8 +108,8 @@ function RBindConversationStatus(runtime) {
   window.addEventListener("sand-ui-language-changed",schedule);window.addEventListener("beebot-node-selection",schedule);
   // Virtualization mounts rows independently of data arrival. Child changes only
   // (not attributes/text) prevent our own badge updates from creating a loop.
-  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery]'))))schedule();});
+  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery],[data-bb-publication]'))))schedule();});
   observer.observe(document.body,{subtree:true,childList:true});
-  window.__beebotConversationStatus={runtime,dispose(){disposed=true;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
+  window.__beebotConversationStatus={runtime,dispose(){disposed=true;if(window.__beebotConversationStatus?.runtime===runtime)delete window.__beebotConversationStatus;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery],[data-bb-publication]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
   render();
 }

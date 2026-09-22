@@ -30,7 +30,7 @@ import {
   validateAiReplyTarget,
 } from "./send-thread-stamping.js";
 import { nextEntryId } from "./transcript-entry-ids.js";
-import { getTranscript, removeEntry } from "./transcript-store.js";
+import { getTranscript, removeEntry, updateEntry } from "./transcript-store.js";
 import { sendInputDigest, PromptAcceptanceDigestMismatchError } from "./prompt-acceptance-ledger.js";
 import {
   dispatchUserTurn,
@@ -109,6 +109,12 @@ export class SendPipeline {
       interrupted = (runner?.interruptAll?.("user stopped this conversation") ?? runner?.interrupt?.("user stopped this conversation") ?? false) || interrupted;
     }
     for (const record of this.deliveries.pause(session.dbPath)) publishDelivery(this.tm, session, record);
+    for (const entry of session.db.getTranscriptEntries()) {
+      if (entry.kind !== "send-message" || (entry.message as any)?.type !== "widget" || entry.respondedValue != null) continue;
+      const stale = (current: TranscriptEntry): TranscriptEntry => ({...current, decisionStatus: "stale", widgetDismissed: true});
+      const saved = session.db.updateTranscriptEntry(entry.id, stale);
+      if (saved) { if (this.tm.sessions.activeSession?.id === session.id) updateEntry(entry.id, stale); this.tm.roster.emit({type: "updated", entry: saved}, session.id); }
+    }
     appendConversationNotice(this.tm, session, "已请求停止本会话的当前工作并撤销待处理请求。已发生的外部操作不会自动撤销，请核查结果后继续。 / Stop requested for this conversation. Pending requests were cancelled; prior external effects are not undone. Review before continuing.", undefined, "conversation_stop_requested");
     return { accepted: true, interrupted, externalEffectsUndone: false };
   }
@@ -455,7 +461,8 @@ export class SendPipeline {
           videoAttachmentPaths,
           fileAttachmentPaths,
           clientNonce: options.clientNonce,
-          userMessageId,
+          userMessageId: userMessageId ?? echoes[0]?.entry.id,
+          replyToId: threading.replyToId,
           awaitTurn,
           acceptedAtMs,
           traceCtx: sendTrace?.context,

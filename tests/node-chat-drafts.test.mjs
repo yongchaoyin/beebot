@@ -25,19 +25,19 @@ async function boot(t, status) {
   await open("a");
   return { controller, profiles, work, open, state: () => controller.getSnapshot(), sends: () => calls.filter(c => c.action === "submitGoal") };
 }
-for (const status of ["queued", "running", "cancelling"]) test(`editable drafts do not amend or create tasks while work is ${status}`, async t => {
+for (const status of ["queued", "running"]) test(`explicit follow-ups queue while remote work is ${status} without interrupting it`, async t => {
   const ui = await boot(t, status);
-  ui.controller.setDraft("请保持原来的 UI 风格");
-  await ui.controller.send(ui.state().draft);
-  assert.equal(ui.sends().length, 0);
-  assert.equal(ui.state().draft, "请保持原来的 UI 风格");
-  assert.match(ui.state().error, /draft was not sent/);
-  await ui.open("b"); ui.controller.setDraft("B independent draft");
-  await ui.open("a"); assert.equal(ui.state().draft, "请保持原来的 UI 风格");
-  ui.work.status = "review"; await ui.controller.refresh();
-  assert.equal(ui.sends().length, 0, "completion does not auto-send a draft");
-  await ui.controller.send(ui.state().draft);
-  assert.equal(ui.sends().length, 1, "only an explicit later send creates new work");
+  for (const text of ["第二个问题", "第三个问题"]) { ui.controller.setDraft(text); await ui.controller.send(text); }
+  assert.deepEqual(ui.sends().map(item=>item.prompt), ["第二个问题", "第三个问题"]);
+  assert.equal(new Set(ui.sends().map(item=>item.key)).size, 2);
+  assert.equal(ui.work.status, status, "ordinary sending does not cancel or amend the existing action");
+  ui.controller.setDraft("仍未发送的草稿");await ui.open("b");ui.controller.setDraft("B independent draft");
+  await ui.open("a");assert.equal(ui.state().draft,"仍未发送的草稿");
+  ui.work.status="review";await ui.controller.refresh();assert.equal(ui.sends().length,2,"completion never auto-sends a draft");
+});
+test("remote cancellation must resolve before new work is submitted", async t => {
+  const ui=await boot(t,"cancelling");ui.controller.setDraft("Later");await ui.controller.send("Later");
+  assert.equal(ui.sends().length,0);assert.equal(ui.state().draft,"Later");assert.match(ui.state().error,/Stop is still being confirmed/);
 });
 
 test("offline drafts stay editable and are never sent automatically after reconnect", async t => {

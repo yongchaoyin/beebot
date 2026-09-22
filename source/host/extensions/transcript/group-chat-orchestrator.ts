@@ -15,6 +15,13 @@ import {
   type GroupMessage,
 } from "../../groups/group-chat.js";
 
+export interface GroupPublication {
+  content: string;
+  message?: Record<string, unknown>;
+  replyToId?: string;
+  awaitingUser?: boolean;
+  contextUserMessageId?: string | null;
+}
 export interface GroupOrchestratorDeps {
   resolveMembers(ids: readonly string[]): Promise<GroupMember[]>;
   readHistory(): readonly GroupMessage[];
@@ -23,8 +30,10 @@ export interface GroupOrchestratorDeps {
     member: GroupMember;
     systemPrompt: string;
     prompt: string;
+    sourceMessageIds?: readonly string[];
+    publish?: (publication: GroupPublication) => string | undefined;
   }): Promise<readonly string[]>;
-  postMemberMessage(member: GroupMember, content: string): string | void;
+  postMemberMessage(member: GroupMember, content: string, publication?: GroupPublication): string | void;
   finalizeMemberTurn?(member: GroupMember): void;
   isSharedRoom?: boolean;
   inbox?: GroupMessageInbox;
@@ -95,12 +104,15 @@ export class GroupChatOrchestrator {
     const published = new Set<string>();
     const limited = new Set<string>();
     let open = true;
+    let publicationWake = Promise.withResolvers<void>();
     let routingFailure: { error: unknown } | undefined;
     const isCurrent = () => open && this.deps.isCurrent();
 
     const enqueue = (messages: readonly GroupMessage[]) => {
       for (const message of messages) {
-        const targets = resolveMessageResponders(members, [message]);
+        const parent = message.replyToId ? this.deps.readHistory().find(entry => entry.id === message.replyToId) : undefined;
+        const routed = parent?.speaker.kind === "member" ? { ...message, replyToMemberId: parent.speaker.id } : message;
+        const targets = resolveMessageResponders(members, [routed]);
         this.deps.onQueued?.(message, targets);
         for (const member of targets) {
           const inbox = inboxes.get(member.id) || [];
@@ -113,7 +125,7 @@ export class GroupChatOrchestrator {
       // Enqueue at publication, not after the promise race: peers finishing in
       // the same event-loop turn must not wake a recipient twice for messages
       // that were already included in its first context snapshot.
-      try { enqueue([message]); }
+      try { enqueue([message]); publicationWake.resolve(); }
       catch (error) { routingFailure = { error }; open = false; }
     };
     const initial = this.deps.readHistory();
@@ -122,6 +134,7 @@ export class GroupChatOrchestrator {
 
     try {
       while (isCurrent()) {
+        publicationWake = Promise.withResolvers<void>();
         const incoming = this.deps.inbox?.take() ?? [];
         if (incoming.some(message => message.speaker.kind === "user")) {
           // Human follow-ups begin a fresh discussion budget; Bot chatter cannot.
@@ -170,6 +183,7 @@ export class GroupChatOrchestrator {
         if (!active.size) break;
         const finished = await Promise.race([
           ...active.values(),
+          publicationWake.promise.then(() => null),
           ...(this.deps.inbox ? [this.deps.inbox.wait().then(() => null)] : []),
         ]);
         if (finished !== null) active.delete(finished);
@@ -199,18 +213,24 @@ export class GroupChatOrchestrator {
     isCurrent: () => boolean,
   ): Promise<number> {
     if (!isCurrent()) return 0;
+    let posted = 0;
+    const publish = (publication: GroupPublication): string | undefined => {
+      if (!isCurrent() || isPassContent(publication.content)) return;
+      const replyToId = publication.replyToId ?? (context.triggers.length === 1 ? context.triggers[0]?.id : undefined);
+      const item = { ...publication, ...(replyToId ? { replyToId } : {}) };
+      const key = JSON.stringify([member.id, item.content, item.replyToId, item.message ?? null]);
+      if (published.has(key)) return;
+      if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
+      const id = this.deps.postMemberMessage(member, item.content, item);
+      published.add(key); posted++;
+      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
+      return id || undefined;
+    };
     try {
-      const sent = await this.runOneTurn(group, member, members, context);
-      let posted = 0;
-      for (const content of sent) {
-        if (!isCurrent()) break;
-        const key = JSON.stringify([member.id, content]);
-        if (published.has(key)) continue;
-        const id = this.deps.postMemberMessage(member, content);
-        published.add(key);
-        onMessage({ ...(id ? { id } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content });
-        posted += 1;
-      }
+      const sent = await this.runOneTurn(group, member, members, context, publish);
+      // Legacy/cross-user executors may return text. Local SendMessage publishes
+      // immediately and returns no duplicate buffered copy.
+      for (const content of sent) publish({ content });
       return posted;
     } finally {
       this.deps.finalizeMemberTurn?.(member);
@@ -222,6 +242,7 @@ export class GroupChatOrchestrator {
     member: GroupMember,
     members: readonly GroupMember[],
     context?: TurnContext,
+    publish?: (publication: GroupPublication) => string | undefined,
   ): Promise<string[]> {
     const peers = members.filter((other) => other.id !== member.id);
     const history = context ? [] : this.deps.readHistory();
@@ -246,6 +267,8 @@ export class GroupChatOrchestrator {
         isSharedRoom: this.deps.isSharedRoom === true,
       }),
       prompt,
+      sourceMessageIds: addressed.flatMap(message => message.id ? [message.id] : []),
+      ...(publish ? { publish } : {}),
     });
 
     const spoken: string[] = [];

@@ -15,8 +15,12 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
+      export { prepareGroupPublication } from './source/host/extensions/transcript/group-publications.ts';
+      export { readAttachmentText } from './source/host/extensions/attachments/attachments-service.ts';
+      export { WidgetResponses } from './source/host/extensions/transcript/widget-responses.ts';
       export { SendPipeline } from './source/host/extensions/transcript/send-pipeline.ts';
       export { GroupChatGlue } from './source/host/extensions/transcript/group-chat-glue.ts';
+      export { SandRunScheduler } from './source/host/extensions/transcript/run-scheduler.ts';
       export { RunLifecycle } from './source/host/extensions/transcript/run-lifecycle.ts';
       export { ConversationDeliveries } from './source/host/extensions/transcript/conversation-deliveries.ts';
       export { PromptAcceptanceLedger } from './source/host/extensions/transcript/prompt-acceptance-ledger.ts';

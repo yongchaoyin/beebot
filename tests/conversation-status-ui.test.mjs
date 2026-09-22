@@ -62,3 +62,19 @@ test("failed stop stays retryable and never repeats automatically",async t=>{
  ui.root().querySelector(":scope > button").click();ui.root().querySelector(".bb-conversation-confirm button").click();await tick();
  assert.match(ui.root().textContent,/Stopping was not confirmed/);assert.equal(calls,1);assert.equal(ui.root().querySelector(".bb-conversation-confirm button").disabled,false);
 });
+
+test("artifact and stale-question hints are inline, truthful, and scoped to the current chat",async t=>{
+ const ui=await setup(t);const hash="a".repeat(64);
+ ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"attachment",artifact:{availability:"snapshot",bytes:100,sha256:hash}}}]});await tick();
+ const badge=ui.document.querySelector("[data-bb-publication]");assert.match(badge.textContent,/Artifact snapshot/);assert.match(badge.textContent,/not an acceptance result/);assert.equal(badge.title,hash);
+ ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"attachment",artifact:{availability:"external-link"}}}]});await tick();assert.match(badge.textContent,/not locally verified/);
+ ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"widget"},decisionStatus:"stale"}]});await tick();assert.match(badge.textContent,/old question is inactive/);assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
+ ui.selected.set({currentAgentId:"other"});await tick();assert.equal(ui.document.querySelectorAll("[data-bb-publication]").length,0);
+});
+
+test("a disposed status binding can mount again on the same live runtime",async t=>{
+ const ui=await setup(t);ui.window.__beebotConversationStatus.dispose();
+ ui.window.eval("RBindConversationStatus(window.fixtureRuntime)");await tick();
+ assert.equal(ui.document.querySelectorAll("#beebot-conversation-status").length,1);
+ assert.ok(ui.document.querySelector("[data-bb-delivery]"));
+});

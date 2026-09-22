@@ -39,11 +39,15 @@ export async function continuityHarness(t, { runMember = async () => ["(pass)"],
   for (const id of ["room", ...extraGroups]) runtime.writeSandGroupConfig(path.dirname(sessions.get(id).dbPath), { version: 1, memberIds: members });
   const tm = {
     sessions: { activeSession: null, inMemoryTranscriptAgentId: null, liveSessions: new Map(sessions), pendingSessionOpens: new Map(),
-      isAgentGone: () => false, ensureActionTarget: async () => {}, ensureSession: async () => sessions.get("a"),
+      isAgentGone: () => false, ensureActionTarget: async id => {
+        const session = sessions.get(id);tm.sessions.activeSession = session;tm.sessions.inMemoryTranscriptAgentId = id;
+        runtime.setTranscript(session.db.getTranscriptEntries());
+      }, markActiveSessionArrival: noop, ensureSession: async () => sessions.get("a"),
       openSessionOnce: async id => sessions.get(id), settledOpen: async value => value,
     },
     sessionStore: { getAgentDir: id => path.dirname(sessions.get(id).dbPath), markSessionActivity: noop },
     roster: { lastKnownAgentNames: new Map(), resolveAgentProfile: session => ({ name: session.id, description: "Work within the user boundary" }), emit: (event, id) => events.push({ ...event, conversationId: id }), emitAgentUpdate: async () => {}, appendOutlineItem: noop },
+    attachments: {readImageDimensions: async () => null},
     telemetry, productAnalytics: { trackEvent: noop }, trayErrors: { clearForAgent: noop, pushError: error => errors.push(error) },
     sharedRooms: { sharedRoomConfigOf: () => null, publishSharedRoomEntryIfNeeded: noop },
     ackObligations: { recordAckObligationSend: noop, armSendGuard: () => ({ disarm: noop }), mintAckRunToken: () => randomUUID(), retireAckRunToken: noop, scheduleAckRedriveAfterIdle: noop },
@@ -70,16 +74,27 @@ export async function continuityHarness(t, { runMember = async () => ["(pass)"],
         return {
           interrupt: reason => { interrupts.push({ id: session.id, reason }); return true; },
           async run(prompt) {
-            const call = { id: session.id, prompt, systemPrompt: overrides.systemPrompt }; calls.push(call);
+            const call = { id: session.id, prompt, systemPrompt: overrides.systemPrompt,
+              publish(message) { hooks.onUpdate({type: "send-message", message: typeof message === "string" ? {type: "text", content: message} : message}); return hooks.lastSentMessageId?.(); },
+              update: update => hooks.onUpdate(update),
+            }; calls.push(call);
             const output = await runMember(call, calls.filter(item => item.id === session.id).length);
-            for (const content of output) hooks.onUpdate({ type: "send-message", message: { type: "text", content } });
+            for (const content of output) call.publish(content);
             return { aborted: false, sentMessageCount: output.length };
           },
         };
       },
     },
   };
+  tm.appendEntry = (entry, options = {}) => {
+    const durable = tm.sessions.activeSession.db.appendTranscriptEntry(entry);
+    options.onPersistOutcome?.(durable);
+    if (!durable) throw new Error("Test database could not persist the active entry");
+    runtime.appendEntry(entry);return entry;
+  };
   tm.sendPipeline = new runtime.SendPipeline(tm);
+  tm.sendPrompt = (...args) => tm.sendPipeline.sendPrompt(...args);
+  tm.widgetResponses = new runtime.WidgetResponses(tm);
   tm.groupChat = new runtime.GroupChatGlue(tm);
   tm.runLifecycle = new runtime.RunLifecycle(tm);
   t.after(() => tm.runLifecycle.runScheduler?.dispose());

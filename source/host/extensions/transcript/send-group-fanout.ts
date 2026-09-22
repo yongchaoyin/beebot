@@ -14,6 +14,7 @@ export async function dispatchMirrorOrGroupSend(
     fileAttachmentPaths,
     clientNonce,
     userMessageId,
+    replyToId,
     awaitTurn,
     acceptedAtMs,
     traceCtx,
@@ -42,10 +43,13 @@ export async function dispatchMirrorOrGroupSend(
     if (userEntry != null)
       tm.xuserDelegate?.publishRoomEntry(sharedRoomId, userEntry);
   }
+  const userEntry = readAddressedTranscript().find((entry: any) => entry.id === userMessageId);
+  const content = trimmedPrompt || (userEntry?.kind === "user-attachment" ? "The user shared an attachment. Inspect the attached material before responding." : "");
   const done = tm.groupChat.enqueueRoomMessage(session, {
     id: userMessageId ?? clientNonce ?? crypto.randomUUID(),
     speaker: { kind: "user" },
-    content: trimmedPrompt,
+    content,
+    ...(typeof (replyToId ?? userEntry?.replyTo) === "string" ? { replyToId: replyToId ?? userEntry.replyTo } : {}),
   }, traceCtx, "user");
   markSendAccepted(clientNonce);
   if (awaitTurn) await done;
