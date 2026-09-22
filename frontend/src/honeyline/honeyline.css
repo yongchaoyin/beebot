@@ -146,4 +146,5 @@ html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice { display: flex;
 html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button { color: var(--bee-link); text-decoration: underline; text-underline-offset: 3px; }
 html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button:disabled { cursor: progress; }
 
-html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions) { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+/* Upstream atomic utilities carry ID specificity; keep this override scoped. */
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions) { display: flex; flex-wrap: wrap; gap: 8px !important; align-items: center; margin-top: 6px !important; }
