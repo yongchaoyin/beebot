@@ -1,0 +1,35 @@
+name: presence source snapshot
+on:
+  push:
+    branches: [work/presence-source-20260922]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Archive exact tracked source and isolated browser dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/presence-source /tmp/presence-qa
+          git archive HEAD | gzip > /tmp/presence-source/source.tar.gz
+          git ls-tree -r HEAD > /tmp/presence-source/git-tree.txt
+          git rev-parse HEAD > /tmp/presence-source/commit.txt
+          npm install --prefix /tmp/presence-qa --no-audit --no-fund --ignore-scripts react@19.2.1 react-dom@19.2.1 esbuild@0.28.2 typescript@7.0.2
+          tar -czf /tmp/presence-source/qa-deps.tar.gz -C /tmp/presence-qa node_modules
+          cd /tmp/presence-source
+          sha256sum *.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: presence-source-6ca9d5e
+          path: /tmp/presence-source
+          retention-days: 3
