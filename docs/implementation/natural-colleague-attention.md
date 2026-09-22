@@ -43,3 +43,25 @@ open-message fanout remains covered in the legacy/shared orchestrator tests.
 The local Host opt-in is separately covered through the real send entry.
 
 No new chat dialogs, task dashboards or dependency changes are introduced.
+
+## Stage: outstanding work before recent chatter
+
+`collaborationContext` now receives the actual triggering message IDs from both
+single-Bot and Group runtime entrypoints. It follows only their same-room quote
+links. Explicit work focus, unresolved obligations, review requests and coordinator
+blockers are selected before recent accepted tasks; other members' dependencies
+are marked context-only, never silently assigned to the reader.
+
+The detailed view is at most 32 records / 28,000 characters and omits large evidence
+manifests, exposing their source message IDs and pinned-version presence instead.
+A separate pending index has a 12,000-character budget. Coverage reports include
+pending totals, omitted details and pending entries that could not fit. Missing
+detail is not completion. Current ledger/version/permission/evidence checks remain
+authoritative and unchanged. Reading a context view has no side effects.
+
+Natural-language guidance distinguishes discussion from execution and asking for
+help from handing over ownership. It does not add a classifier, verified capability
+ranking, permanent coordinator, live tool steering or production-model evaluation.
+The policy is deterministic attention selection, not a guarantee that arbitrary
+models understand every instruction. Real-model task-quality comparisons and
+native Mac interaction/package acceptance are still required.

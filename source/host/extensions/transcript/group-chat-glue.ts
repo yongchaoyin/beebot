@@ -526,7 +526,7 @@ export class GroupChatGlue {
               const anchor = latestHistory.findLastIndex(message => !!message.id && sourceIds.has(message.id));
               const newerUserMessages = anchor >= 0 ? latestHistory.slice(anchor + 1).filter(message => message.speaker.kind === "user") : [];
               const currentPrompt = newerUserMessages.length ? `${prompt}\n\nUser messages received while waiting for execution (constraints apply, but these are not peer authorization):\n${newerUserMessages.map(message => `[${message.id}] ${message.content}`).join("\n")}` : prompt;
-              const memberResult = await registeredRunner.run(currentPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null ? collaborationContext(roomSession.db.getTranscriptEntries(), memberSession.id) : ""), {
+              const memberResult = await registeredRunner.run(currentPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null ? collaborationContext(roomSession.db.getTranscriptEntries(), memberSession.id, request.sourceMessageIds ?? []) : ""), {
                 traceCtx: memberTurnTrace?.context ?? traceCtx,
                 requestSource,
               });

@@ -427,7 +427,7 @@ export class TurnRuntime {
       try {
         const unansweredPrompts =
           this.tm.widgetResponses.collectUnansweredQuestionPrompts(session);
-        const result = await runner.run(prompt + "\n\n" + COLLABORATION_GUIDANCE + collaborationContext(session.db.getTranscriptEntries(), session.id), {
+        const result = await runner.run(prompt + "\n\n" + COLLABORATION_GUIDANCE + collaborationContext(session.db.getTranscriptEntries(), session.id, [options.messageId, options.replyContext?.targetId].filter((id): id is string => typeof id === "string")), {
           ...options,
           ...unansweredPrompts,
           traceCtx: turnCtx,
