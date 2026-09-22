@@ -1,0 +1,71 @@
+name: Quoted reply UI import and runtime validation
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/quote-ui-stage.yml, '.dev-submit/quote-ui-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Reconstruct exact reviewed UI stage without changing product refs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess,zlib
+          raw=b''.join(pathlib.Path(f'.dev-submit/quote-ui-{i:02}.bin').read_bytes() for i in range(23))
+          assert len(raw)==16926
+          assert hashlib.sha256(raw).hexdigest()=='d522fc385456d414a649ee973f723baa277636d62852ff43b27ff30e8052e9d7'
+          decoder=zlib.decompressobj()
+          decoded=decoder.decompress(raw,1000000)
+          assert decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail
+          stage=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='94ddbff8d0d1dff59f679a8c1b6839d027fd84dd'
+          git('checkout','--detach',parent)
+          patch=stage['patch'].encode()
+          git('apply','--check','--index','--unidiff-zero',data=patch)
+          git('apply','--index','--unidiff-zero',data=patch)
+          for name in filter(None,git('diff','--cached','--name-only','-z').decode().split('\0')):
+              assert name.startswith(('frontend/','scripts/','tests/','docs/')),name
+              assert '..' not in pathlib.PurePosixPath(name).parts
+          tree=git('write-tree').decode().strip()
+          assert tree=='d86a8b47af556aeaa5b7c0149ec14d39cc6c6942'
+          commit=stage['commit'].encode()
+          assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha=='34e363a9d32ec9742c09fdf521ebe69191bd68b7'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/quoted-stage-candidate-20260922')
+          print('Verified source stage:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 34e363a9d32ec9742c09fdf521ebe69191bd68b7
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Verify exact stage
+        run: test "$(git rev-parse HEAD)" = 34e363a9d32ec9742c09fdf521ebe69191bd68b7
+      - name: Real Host and Shell integration with deterministic model
+        run: npm run node:test:integration
