@@ -71,7 +71,19 @@ const KV = {
 } as const;
 
 const agentMetadataSerde = new AgentMetadataSerde();
+import { commitCollaborationWork, readCollaborationWorks, type WorkPublicationInput } from "./agent-db-work.js";
 export class SandAgentDb {
+  getCollaborationWorks() { this.assertOpen(); return readCollaborationWorks(this.db); }
+  commitCollaborationMessage(input: WorkPublicationInput) {
+    this.assertOpen();
+    // Do not use corruption auto-recovery/retry for responsibility mutations.
+    const result = commitCollaborationWork(this.db, input);
+    if (!result.replay) {
+      bumpDbWriteGeneration(this.resolvedDbPath);
+      publishTranscriptMutation({kind: "entries-upserted", agentId: this.agentDirName, entries: [result.entry]});
+    }
+    return result;
+  }
   private db: DatabaseSync;
   private statements: Record<string, PreparedStatement>;
   private closed = false;

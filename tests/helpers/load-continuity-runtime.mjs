@@ -15,6 +15,9 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
+      export { SandAgentDb } from './source/host/extensions/session/agent-db.ts';
+      export { commitWorkInConversation, workContext } from './source/host/extensions/transcript/conversation-work.ts';
+      export { collaborationCommandSchema } from './source/shared/collaboration-work.ts';
       export { buildGroupReplyContext } from './source/host/groups/group-replies.ts';
       export { requireMessageReference, describeReplyChain } from './source/host/extensions/transcript/message-reply-contract.ts';
       export { validateAiReplyTarget, applyAutoReplyThread } from './source/host/extensions/transcript/send-thread-stamping.ts';

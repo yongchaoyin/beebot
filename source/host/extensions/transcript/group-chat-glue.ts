@@ -1,3 +1,4 @@
+import { commitWorkInConversation, workContext } from "./conversation-work.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -492,7 +493,7 @@ export class GroupChatGlue {
               const anchor = latestHistory.findLastIndex(message => !!message.id && sourceIds.has(message.id));
               const newerUserMessages = anchor >= 0 ? latestHistory.slice(anchor + 1).filter(message => message.speaker.kind === "user") : [];
               const currentPrompt = newerUserMessages.length ? `${prompt}\n\nUser messages received while waiting for execution (constraints apply, but these are not peer authorization):\n${newerUserMessages.map(message => `[${message.id}] ${message.content}`).join("\n")}` : prompt;
-              const memberResult = await registeredRunner.run(currentPrompt, {
+              const memberResult = await registeredRunner.run(currentPrompt + workContext(roomSession, memberSession.id, effective.sourceMessageIds), {
                 traceCtx: memberTurnTrace?.context ?? traceCtx,
                 requestSource,
               });
@@ -624,6 +625,11 @@ export class GroupChatGlue {
     live?: GroupMemberStream,
     publication?: GroupPublication,
   ): string | undefined {
+    if (publication?.message?.collaboration) {
+      const result = commitWorkInConversation(this.tm, session, publication.message, member, publication.replyToId, publication.workOnId);
+      publication.replayed = result.replay;
+      return result.entry.id;
+    }
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
     const replyTo = publication?.replyToId;
     const parent = replyTo ? requireMessageReference(entriesInRoom, replyTo) : undefined;
@@ -795,6 +801,7 @@ export class GroupChatGlue {
             id: (entry.author as any).id,
             name: (entry.author as any).name,
           },
+          ...(entry.workEvent ? {actionRecipientIds: (entry.workEvent as any).recipients} : (entry.message as any).notify === "none" ? {actionRecipientIds: []} : {}),
           content: publicationText(entry.message as any) + (typeof entry.respondedValue === "string" ? `\nThe user answered this question: ${JSON.stringify(entry.respondedValue)}` : entry.widgetDismissed === true ? "\nThis question was dismissed or became stale; do not treat it as authorization." : ""),
           ...((entry.message as any).type === "widget" ? {awaitingUser: true} : {}),
         });

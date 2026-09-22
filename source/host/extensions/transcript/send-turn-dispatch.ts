@@ -1,3 +1,4 @@
+import { workContext } from "./conversation-work.js";
 import { publishDelivery } from "./conversation-deliveries.js";
 import { buildComposedOfflineNote } from "./send-message-shaping.js";
 import type {
@@ -136,7 +137,7 @@ export async function dispatchUserTurn(
       return await tm.turnRuntime.runTurn(
         session,
         runner,
-        promptForRun,
+        promptForRun + workContext(session, session.id, userMessageId ? [userMessageId] : []),
         {
           richText,
           selectedImages,

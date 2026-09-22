@@ -53,6 +53,7 @@ export function publicationText(message: Record<string, any>): string {
 export function prepareGroupPublication(dbPath: string, raw: unknown, sharedRoom: boolean): GroupPublication {
   const message = sendMessageParameters.parse(raw);
   if (message.channel) throw new Error("This SendMessage belongs to the current group. Use an authorized connector for an external channel.");
+  if (sharedRoom && (message.collaboration || message.notify)) throw new Error("Structured work and quiet notifications are not supported in cross-user rooms. Nothing was shared.");
   if (sharedRoom && (message.type !== "text" || message.images?.length)) throw new Error("Cross-user rooms support plain text only. This attachment or question was not shared.");
   if (message.type === "secret-request") throw new Error("Request credentials in a private Bot conversation, not a shared group. Nothing was published.");
   if (message.type === "widget" && !message.widget) throw new Error("A group question needs a prompt and answer options. Nothing was published.");

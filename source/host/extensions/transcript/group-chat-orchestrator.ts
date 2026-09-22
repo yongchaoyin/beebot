@@ -23,6 +23,7 @@ export interface GroupPublication {
   workOnId?: string;
   awaitingUser?: boolean;
   contextUserMessageId?: string | null;
+  replayed?: boolean;
 }
 export interface GroupOrchestratorDeps {
   resolveMembers(ids: readonly string[]): Promise<GroupMember[]>;
@@ -228,12 +229,13 @@ export class GroupChatOrchestrator {
       if (published.has(key)) return;
       if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
       const id = this.deps.postMemberMessage(member, item.content, item);
+      if (item.replayed) return id || undefined;
       published.add(key); posted++;
       if (replyToId) {
         repliedIds.add(replyToId);
         if (id) this.deps.onReplied?.(member, replyToId, id);
       }
-      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
+      onMessage((id ? this.deps.readHistory().find(message => message.id === id) : undefined) ?? { ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
       return id || undefined;
     };
     try {

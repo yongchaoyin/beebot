@@ -1,7 +1,9 @@
 export const WINDOW_ENTRY_FILTER_SQL = `json_extract(entry, '$.kind') != 'tool-call'
         AND COALESCE(json_extract(entry, '$.branched'), 0) != 1`;
 export const BRANCHED_ENTRY_FILTER_SQL = `COALESCE(json_extract(entry, '$.branched'), 0) = 1`;
+import { WORK_TABLES } from "./agent-db-work.js";
 export const SCHEMA = `
+${WORK_TABLES}
 CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL

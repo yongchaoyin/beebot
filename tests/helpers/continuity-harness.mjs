@@ -13,7 +13,7 @@ export async function until(predicate, message = "Expected progress without rele
   }
 }
 
-export async function continuityHarness(t, { runMember = async () => ["(pass)"], runDirect = async () => {}, members = ["a", "b"], extraGroups = [] } = {}) {
+export async function continuityHarness(t, { runMember = async () => ["(pass)"], runDirect = async () => {}, members = ["a", "b"], extraGroups = [], realDatabase = false } = {}) {
   const runtime = await loadContinuityRuntime(t);
   const calls = [], directCalls = [], events = [], errors = [], interrupts = [], sessions = new Map(), sqls = [];
   t.after(() => { for (const db of sqls) db.close(); });
@@ -32,7 +32,16 @@ export async function continuityHarness(t, { runMember = async () => ["(pass)"],
       setIntroductionPending: noop, getAwaitingUserResponse: () => null, setAwaitingUserResponse: noop,
       close: noop,
     };
-    const session = { id, dbPath, db, agentStore: { dispose: async () => {} } };
+    const persistent = realDatabase ? new runtime.SandAgentDb(dbPath) : null;
+    if (persistent) sqls.push(persistent);
+    // This fixture retains its fixed session map. Exercise real SQLite methods,
+    // while deferring physical disposal to teardown (not a lifecycle test).
+    const productionDb = persistent ? new Proxy(persistent, {get(target, key) {
+      if (key === "close") return noop;
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }}) : null;
+    const session = { id, dbPath, db: productionDb || db, agentStore: { dispose: async () => {} } };
     sessions.set(id, session);
     runtime.writeSandProfileFile(runtime.getSandProfilePath(dir), { name: id.toUpperCase(), description: "Persistent colleague", title: "", avatarShape: "blob", avatarColor: "green", inferenceVendorId: "fixture" });
   }

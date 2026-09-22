@@ -1,3 +1,4 @@
+import { commitWorkInConversation } from "./conversation-work.js";
 import { describeReplyChain } from "./message-reply-contract.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
@@ -727,6 +728,13 @@ export class TurnRuntime {
         return undefined;
       case "send-message": {
         const incoming = update.message as SendMessage;
+        if (incoming.collaboration) {
+          if (!runSession || this.forkTurnSessions.has(runSession)) throw new Error("Work records require an active main conversation, not a detached thread.");
+          const result = commitWorkInConversation(this.tm, runSession, incoming,
+            {id: runSession.id, name: this.tm.roster.resolveAgentProfile(runSession).name}, incoming.reply_to, incoming.work_on);
+          this.tm.ackObligations.fulfillAckObligation(runSession.id, update.ackToken);
+          return result.entry.id;
+        }
         if (
           (incoming.type === "text" || incoming.type === "attachment") &&
           typeof incoming.channel === "string" &&
