@@ -1,0 +1,29 @@
+name: Collaboration contract source
+on:
+  push:
+    branches: [chore/collaboration-contracts-dev-20260922]
+    paths: [.github/workflows/collaboration-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 02be4fec11cd4eb01a8e9f3864eb359427784c44
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked history only
+        run: |
+          mkdir /tmp/collaboration-source
+          git bundle create /tmp/collaboration-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/collaboration-source/commit.txt
+          sha256sum /tmp/collaboration-source/source.bundle > /tmp/collaboration-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collaboration-contract-source
+          path: /tmp/collaboration-source/
+          retention-days: 1
