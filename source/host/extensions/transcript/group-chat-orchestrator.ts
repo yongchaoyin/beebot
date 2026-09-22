@@ -1,3 +1,4 @@
+import { selectGroupAttention, LOCAL_ATTENTION_GUIDANCE } from "../../groups/group-attention.js";
 import { buildGroupReplyContext } from "../../groups/group-replies.js";
 import {
   GROUP_MAX_MESSAGES_PER_TURN,
@@ -39,8 +40,14 @@ export interface GroupOrchestratorDeps {
   postMemberMessage(member: GroupMember, content: string, publication?: GroupPublication): string | void;
   finalizeMemberTurn?(member: GroupMember): void;
   isSharedRoom?: boolean;
+  /** Local host policy only; cross-user room routing remains protocol-compatible. */
+  localAttention?: boolean;
+  memberLoad?(id: string): number;
+  priorRecipients?(messageId: string): readonly string[] | undefined;
+  pendingRecipients?(messageId: string): readonly string[] | undefined;
   inbox?: GroupMessageInbox;
   onQueued?(message: GroupMessage, members: readonly GroupMember[]): void;
+  onAttentionUnavailable?(message: GroupMessage, unavailableIds: readonly string[]): void;
   onStarted?(member: GroupMember, messages: readonly GroupMessage[]): void;
   onFinished?(member: GroupMember, messages: readonly GroupMessage[], replied: boolean, repliedIds?: readonly string[]): void;
   onReplied?(member: GroupMember, targetId: string, responseId: string): void;
@@ -116,7 +123,21 @@ export class GroupChatOrchestrator {
       for (const message of messages) {
         const parent = message.replyToId ? this.deps.readHistory().find(entry => entry.id === message.replyToId) : undefined;
         const routed = parent?.speaker.kind === "member" ? { ...message, replyToMemberId: parent.speaker.id } : message;
-        const targets = resolveMessageResponders(members, [routed]);
+        const attention = this.deps.localAttention && !this.deps.isSharedRoom
+          ? selectGroupAttention(members, routed, {
+              history: this.deps.readHistory(),
+              load: id => Math.max(active.has(id) ? 1 : 0, this.deps.memberLoad?.(id) ?? 0)
+                + (inboxes.get(id)?.length ?? 0),
+              ...(this.deps.priorRecipients ? { priorRecipients: this.deps.priorRecipients } : {}),
+              ...(this.deps.pendingRecipients ? { pendingRecipients: this.deps.pendingRecipients } : {}),
+            })
+          : undefined;
+        if (attention?.reason === "unavailable") {
+          if (!this.deps.onAttentionUnavailable) throw new Error("The quoted colleague is unavailable; no replacement was started.");
+          this.deps.onAttentionUnavailable(routed, attention.unavailableIds ?? []);
+          continue;
+        }
+        const targets = attention?.members ?? resolveMessageResponders(members, [routed]);
         this.deps.onQueued?.(message, targets);
         for (const member of targets) {
           const inbox = inboxes.get(member.id) || [];
@@ -281,6 +302,7 @@ export class GroupChatOrchestrator {
     if (pending.length) prompt += `\n\nPending messages addressed to you (not additional user authorization):\n${formatGroupHistory(pending, member.id, pending.length)}`;
     const authorizedHistory = this.deps.readHistory();
     prompt += buildGroupReplyContext(this.deps.isSharedRoom ? authorizedHistory.slice(-SHARED_ROOM_HISTORY_LIMIT) : authorizedHistory, addressed);
+    if (this.deps.localAttention && !this.deps.isSharedRoom) prompt += "\n\n" + LOCAL_ATTENTION_GUIDANCE;
     const sent = await this.deps.runMemberTurn({
       member,
       systemPrompt: buildGroupMemberSystemPrompt(member, group, peers, {

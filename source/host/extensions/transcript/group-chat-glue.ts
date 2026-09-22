@@ -287,6 +287,19 @@ export class GroupChatGlue {
     };
     return {
       isSharedRoom: config?.sharedRoomId != null,
+      localAttention: config?.sharedRoomId == null && !config?.remoteMembers?.length,
+      memberLoad: id => this.tm.runLifecycle.inFlightRunCounts.get(id) ?? 0,
+      priorRecipients: messageId => {
+        const record = this.tm.sendPipeline.deliveries.list(session.dbPath)
+          .find((entry: import("./conversation-deliveries.js").ConversationDelivery) => entry.id === messageId);
+        return record ? Object.keys(record.recipients) : undefined;
+      },
+      pendingRecipients: messageId => {
+        const record = this.tm.sendPipeline.deliveries.list(session.dbPath)
+          .find((entry: import("./conversation-deliveries.js").ConversationDelivery) => entry.id === messageId);
+        return record ? Object.entries(record.recipients)
+          .filter(([, state]) => state === "queued" || state === "processing").map(([id]) => id) : undefined;
+      },
       resolveMembers: (ids) => this.resolveGroupMembers(ids, remoteMembers),
       readHistory: () => this.readGroupHistory(session),
       runMemberTurn: (request) =>
@@ -302,6 +315,19 @@ export class GroupChatGlue {
       postMemberMessage: (member, content, publication) => this.postGroupMemberMessage(session, member, content, streamFor(member), publication),
       onQueued: (message, members) => {
         if (message.id && (members.length || message.speaker.kind === "user")) publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.route(session.dbPath, message.id, members.map(member => member.id)));
+      },
+      onAttentionUnavailable: (message, unavailableIds) => {
+        if (message.id) {
+          const prior = [...new Set(unavailableIds)];
+          if (prior.length) {
+            this.tm.sendPipeline.deliveries.route(session.dbPath, message.id, prior);
+            for (const id of prior) publishDelivery(this.tm, session,
+              this.tm.sendPipeline.deliveries.settle(session.dbPath, message.id, id, "failed"));
+          }
+        }
+        appendConversationNotice(this.tm, session,
+          "被引用的同事已不在此群，消息已保留，未自动转派。请明确 @ 其他成员。 / The quoted colleague is no longer in this group. Your message is retained; no work was reassigned. Explicitly @ another member to continue.",
+          message.id, "quoted_colleague_unavailable");
       },
       onStarted: (member, messages) => delivery(member, messages, "processing"),
       onReplied: (member, targetId, responseId) => {

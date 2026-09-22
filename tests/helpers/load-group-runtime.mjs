@@ -13,11 +13,14 @@ export async function loadGroupRuntime(t) {
   const root = new URL("../../", import.meta.url);
   const sources = [
     ["source/host/groups/group-chat.ts", "group-chat.mjs"],
+    ["source/host/groups/group-attention.ts", "group-attention.mjs"],
     ["source/host/groups/group-replies.ts", "group-replies.mjs"],
     ["source/host/extensions/transcript/group-chat-orchestrator.ts", "orchestrator.mjs"],
   ];
   for (const [input, output] of sources) {
     const source = (await readFile(new URL(input, root), "utf8"))
+      .replace('"../../groups/group-attention.js"', '"./group-attention.mjs"')
+      .replace('"./group-chat.js"', '"./group-chat.mjs"')
       .replace('"../../groups/group-chat.js"', '"./group-chat.mjs"')
       .replace('"../../groups/group-replies.js"', '"./group-replies.mjs"');
     const { code } = await transform(source, {
@@ -28,5 +31,6 @@ export async function loadGroupRuntime(t) {
   return {
     ...await import(pathToFileURL(path.join(temporary, "group-chat.mjs")).href),
     ...await import(pathToFileURL(path.join(temporary, "orchestrator.mjs")).href),
+    ...await import(pathToFileURL(path.join(temporary, "group-attention.mjs")).href),
   };
 }
