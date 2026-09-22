@@ -1,0 +1,30 @@
+name: Develop consolidation source
+on:
+  push:
+    branches: [work/develop-consolidation-validation-20260922]
+    paths: [.github/workflows/develop-consolidation-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export Git objects and ref manifest only
+        shell: bash
+        run: |
+          mkdir /tmp/develop-consolidation-source
+          git bundle create /tmp/develop-consolidation-source/history.bundle --all
+          git for-each-ref --format='%(refname) %(objectname)' refs/remotes/origin/ > /tmp/develop-consolidation-source/refs.txt
+          git rev-parse HEAD > /tmp/develop-consolidation-source/export-commit.txt
+          sha256sum /tmp/develop-consolidation-source/history.bundle > /tmp/develop-consolidation-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: develop-consolidation-source
+          path: /tmp/develop-consolidation-source/
+          retention-days: 1
