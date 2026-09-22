@@ -1,0 +1,68 @@
+name: Import and validate human review closure
+on:
+  push:
+    branches: [chore/work-review-integration-20260922]
+    paths: [.github/workflows/import-review.yml, '.dev-review/**']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Reconstruct exact reviewed commit on candidate branch only
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,subprocess
+          def git(*args,data=None): return subprocess.check_output(['git',*args],input=data)
+          changes=json.loads(pathlib.Path('.dev-review/changes.json').read_text())
+          new={p.relative_to('.dev-review/new').as_posix():p.read_bytes() for p in pathlib.Path('.dev-review/new').rglob('*') if p.is_file()}
+          parent='c157b10c435152401291ee72d6a541b88a347a7d'
+          git('checkout','--detach',parent)
+          for change in changes:
+              name=change['path']
+              assert name.startswith(('source/','frontend/','scripts/','tests/','docs/')) and '..' not in pathlib.PurePosixPath(name).parts
+              assert git('hash-object',name).decode().strip()==change['old_blob']
+              lines=pathlib.Path(name).read_text().splitlines(keepends=True)
+              for start,end,text in reversed(change['ops']):
+                  assert 0 <= start <= end <= len(lines)
+                  lines[start:end]=text.splitlines(keepends=True)
+              pathlib.Path(name).write_text(''.join(lines));git('add',name)
+          for name,data in new.items():
+              assert name.startswith(('source/','frontend/','scripts/','tests/','docs/')) and '..' not in pathlib.PurePosixPath(name).parts
+              p=pathlib.Path(name);assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data);git('add',name)
+          tree=git('write-tree').decode().strip()
+          assert tree=='7cc61214e8c4361575300dda4bb5d60b20567fb6',tree
+          raw=f'tree {tree}\nparent {parent}\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790065570 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790065570 +0000\n\nfeat(collaboration): close human review and rework inside quoted conversations\n\nReuse the existing message work ledger. Authenticate human acceptance, verify exact submission and evidence, persist the user reply atomically, and wake only relevant colleagues. Keep review controls inline and reject stale or uncertain retries.\n\nBoth typechecks, 25 new service/UI/packaging regressions and 5 existing renderer tests pass locally. Browser fixtures passed 15 checks. The full source-only Linux run retains the original Git LFS installer failure; exact macOS source/build/publication and gated Host integration remain required.\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=raw.encode()).decode().strip()
+          assert sha=='8227dec80caa943f7817901c3d7fc4ad5db4653c',sha
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/work-review-candidate-20260922')
+          print('Verified source stage:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8227dec80caa943f7817901c3d7fc4ad5db4653c
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Assert exact reviewed revision
+        run: test "$(git rev-parse HEAD)" = 8227dec80caa943f7817901c3d7fc4ad5db4653c
+      - name: Real Host and Shell integration with deterministic model responses
+        run: npm run node:test:integration
