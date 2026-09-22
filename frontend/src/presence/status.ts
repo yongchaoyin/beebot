@@ -1,19 +1,16 @@
-export interface WorkState {
-  isRunning?: boolean;
-  isComposingMessage?: boolean;
-  awaitingUserResponse?: unknown;
-  currentActivity?: unknown;
-  waitingReason?: string;
-}
-export interface WorkLabel { state: "working" | "attention" | "waiting"; zh: string; en: string }
+import { avatarStateFromAgent, type AvatarActivity } from "./avatar-state.ts";
+export interface WorkState extends AvatarActivity {}
+export interface WorkLabel { state: "working" | "attention" | "waiting" | "offline" | "paused" | "error"; zh: string; en: string }
 /** Presentation of real roster events only. No timer-driven claims or progress. */
 export function workLabel(agent: WorkState): WorkLabel | null {
-  // A free-text reason does not establish who must act. Only an explicit user
-  // request can make an attention claim; legacy/unknown waits remain neutral.
-  const request = agent.awaitingUserResponse;
-  if (request === true || (request != null && typeof request === "object" && !Array.isArray(request))) return { state: "attention", zh: "需要你确认", en: "Needs your input" };
-  if (typeof agent.waitingReason === "string" && agent.waitingReason.trim().length > 0) return { state: "waiting", zh: "正在等待", en: "Waiting" };
-  if (!agent.isRunning && !agent.isComposingMessage) return null;
+  const state = avatarStateFromAgent(agent);
+  if (state === "offline") return { state: "offline", zh: "连接已断开", en: "Disconnected" };
+  if (state === "error") return { state: "error", zh: "执行异常", en: "Action failed" };
+  if (state === "paused") return { state: "paused", zh: "已暂停", en: "Paused" };
+  if (state === "needs_user") return { state: "attention", zh: "需要你确认", en: "Needs your input" };
+  if (state === "waiting") return { state: "waiting", zh: "正在等待", en: "Waiting" };
+  if (state === "speaking") return { state: "working", zh: "正在回复", en: "Writing a reply" };
+  if (state === "idle") return null;
   const activity = agent.currentActivity != null && typeof agent.currentActivity === "object" ? agent.currentActivity as Record<string, unknown> : {};
   const verb = typeof activity.verb === "string" ? activity.verb : "";
   const tool = typeof activity.tool === "string" ? activity.tool : "";

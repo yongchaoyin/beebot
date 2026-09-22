@@ -1,3 +1,5 @@
+> 历史实现记录：本页描述的配色、头像和主题名称已由 [中性界面与动态头像](presence-theme.md) 取代。可靠性约束继续有效，本文保留用于审计，不是当前设计规范。
+
 # Honeyline: BeeBot's owned visual layer
 
 Author: BeeBot development · 2026-09-22

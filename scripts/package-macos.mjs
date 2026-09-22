@@ -17,7 +17,7 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Preserve the checksum-pinned compatibility runtime; Honeyline owns the visual
+// Preserve the checksum-pinned compatibility runtime; Presence owns the visual
 // layer. Every staged transformation and added asset is recorded and reproduced
 // during package verification. The immutable source archive is never edited.
 const { builtAsar, builtAsarUnpacked, runtimeApp } = await buildFidelityReconstructedAsar();

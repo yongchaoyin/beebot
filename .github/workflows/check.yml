@@ -25,7 +25,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Hydrate the checksum-pinned runtime for package regressions
         run: npm run bootstrap
-      - name: Generate the owned Honeyline macOS icon
+      - name: Generate the neutral BeeBot macOS icon
         run: npm run icon:generate
       - name: Run source and publication checks
         run: npm run check

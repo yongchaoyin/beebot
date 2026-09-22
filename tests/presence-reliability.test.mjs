@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createComposerSubmissionQueue, ComposerSubmissionRejectedError, ComposerSubmissionConflictError } from "../frontend/src/recovered/features/conversation/workspace/submission.ts";
-import { workLabel } from "../frontend/src/honeyline/status.ts";
+import { workLabel } from "../frontend/src/presence/status.ts";
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
