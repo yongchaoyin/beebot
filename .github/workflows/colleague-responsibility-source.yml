@@ -1,0 +1,29 @@
+name: Colleague responsibility source
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/colleague-responsibility-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 02be4fec11cd4eb01a8e9f3864eb359427784c44
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - name: Export tracked Git objects only
+        run: |
+          mkdir /tmp/colleague-source
+          git bundle create /tmp/colleague-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/colleague-source/commit.txt
+          sha256sum /tmp/colleague-source/source.bundle > /tmp/colleague-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colleague-responsibility-source
+          path: /tmp/colleague-source/
+          retention-days: 1
