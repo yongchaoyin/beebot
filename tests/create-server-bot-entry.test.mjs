@@ -59,8 +59,8 @@ async function boot(t, { create, open } = {}) {
   ];
   window.__testRoster = {
     snapshots: { get: () => ({ agents: { rows: rosterRows } }) },
-    createAgent: async (request) => { assert.ok(calls.closed > 0, "close the remote pane before local creation");calls.local.push(plain(request)); return { agent: { id: "created-local" } }; },
-    createGroup: async (request) => { assert.ok(calls.closed > 0, "close the remote pane before local group creation");calls.group.push(plain(request)); return { id: "created-group" }; },
+    createAgent: async (request) => { assert.equal(calls.closed, 0, "preserve the current remote conversation until creation succeeds");calls.local.push(plain(request)); return { agent: { id: "created-local" } }; },
+    createGroup: async (request) => { assert.equal(calls.closed, 0, "preserve the current conversation until group creation succeeds");calls.group.push(plain(request)); return { id: "created-group" }; },
     updateAgent: async (request) => { calls.update.push(plain(request)); },
     deleteAgents: async () => {},
   };
@@ -215,8 +215,9 @@ test("main + New group chat includes only local Bots and preserves local group c
   }
   const name = sheet.querySelector("input[placeholder='Group name']");name.value = "Local collaboration";name.dispatchEvent(new ui.window.Event("input", { bubbles: true }));
   const submit = [...sheet.querySelectorAll("button")].find((button) => button.textContent === "Create");assert.equal(submit.disabled, false);submit.click();
-  await until(() => ui.calls.group.length === 1);
-  assert.deepEqual(ui.calls.group, [{ name: "Local collaboration", memberAgentIds: ["local-writer", "local-reviewer"] }]);
+  await until(() => ui.calls.group.length === 1 && !sheet.isConnected);
+  assert.deepEqual(ui.calls.group.map(({ clientNonce, ...draft }) => draft), [{ name: "Local collaboration", memberAgentIds: ["local-writer", "local-reviewer"] }]);
+  assert.match(ui.calls.group[0].clientNonce, /^[0-9a-f-]{36}$/);
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.local.length, 0);assert.equal(ui.calls.update.length, 0);
   assert.equal(ui.calls.closed, 1);
 });
@@ -246,4 +247,12 @@ test("inline local creation stays busy until the real dispatcher registers the s
   assert.equal(ui.window.__sandAgentVendors["delayed-local"], "vendor-b");
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.opened.length, 0);
   assert.equal(ui.listeners.size, 0);
+});
+
+
+test("a failed local creation does not close an existing remote conversation", async t => {
+  const ui = await boot(t);
+  ui.window.__testRoster.createAgent = async () => { throw new Error("Disk unavailable"); };
+  await assert.rejects(ui.window.__sandCreateAgent({ name: "Local", avatarShape: "hex" }), /Disk unavailable/);
+  assert.equal(ui.calls.closed, 0);
 });

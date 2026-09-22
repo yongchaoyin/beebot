@@ -65,7 +65,7 @@ async function closeWindow(window) {
   await window.happyDOM.close();
 }
 
-test("Create stays disabled until both a group name and members exist", async () => {
+test("Create requires at least one colleague, not an arbitrary group name", async () => {
   const { window, document } = await openGroupSheet();
   try {
     assert.equal(createButton(document)?.disabled, true);
@@ -86,7 +86,7 @@ test("Create enables after selecting bots and then typing the group name", async
       assert.ok(row, `missing agent row for ${agent.name}`);
       row.click();
     }
-    assert.equal(createButton(document)?.disabled, true, "Create should stay disabled until the group is named");
+    assert.equal(createButton(document)?.disabled, false, "A sensible default name keeps creation lightweight");
 
     const nameInput = document.querySelector("input[placeholder='Group name']");
     nameInput.value = "测试12133";
@@ -175,4 +175,16 @@ test("Create enables after naming the group and then selecting bots", async () =
   } finally {
     await closeWindow(window);
   }
+});
+
+
+test("an unnamed group receives a member-derived name and stable creation identity", async () => {
+  const { window, document, resultPromise } = await openGroupSheet();
+  try {
+    visibleAgentButtons(document)[0].click();
+    createButton(document).click();
+    const created = await resultPromise;
+    assert.equal(created.name, "测试");
+    assert.match(created.clientNonce, /^[0-9a-f-]{36}$/);
+  } finally { await closeWindow(window); }
 });

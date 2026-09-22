@@ -100,6 +100,7 @@ const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
 const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
+const CONVERSATION_UI_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-conversation-ui.snippet.js"), "utf8");
 const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
 const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
 
@@ -133,11 +134,17 @@ export const LANDING_ABOUT_WRAP = `;(function(){
 `;
 
 export function patchOriginalLanding(source) {
+  const registryAnchor = 'sendPrompt:{args:"object",reply:"send-result"},';
+  const categoriesAnchor = 'sendPrompt:"send",promptAcceptanceStatus:';
+  if (!source.includes(registryAnchor) || !source.includes(categoriesAnchor)) throw new Error("Conversation coordinator registry drifted");
+  source = source.replace(registryAnchor, registryAnchor + 'stopConversation:{args:"object",reply:"record"},getConversationActivity:{args:"object",reply:"record"},cancelQueuedConversationMessage:{args:"object",reply:"record"},')
+    .replace(categoriesAnchor, 'sendPrompt:"send",stopConversation:"send",getConversationActivity:"transcript",cancelQueuedConversationMessage:"send",promptAcceptanceStatus:');
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
-  return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
+  return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${CONVERSATION_UI_SNIPPET}
+${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
 }
 
 function sha256(bytes) {

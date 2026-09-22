@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -24,7 +25,6 @@ import {
   buildGroupRedriveNote,
   isPassContent,
   isPotentialPassPrefix,
-  isSameMemberSet,
   SHARED_ROOM_HISTORY_LIMIT,
   type GroupDescription,
   type GroupMember,
@@ -77,6 +77,8 @@ export class GroupChatGlue {
   readonly remoteTurnMemberIdsByRoom = new Map<string, string>();
   readonly activeMemberRooms = new Map<string, string>();
 
+  private readonly groupCreations = new Map<string, { digest: string; promise: Promise<any> }>();
+
   constructor(readonly tm: TranscriptManagerLike) {}
 
   async pinMemberSessionForGroupTurn(memberId: string): Promise<LiveSession> {
@@ -89,69 +91,65 @@ export class GroupChatGlue {
   }
 
   async createGroup(args: {
-    name: string;
-    description?: string;
-    memberIds: string[];
+    name: string; description?: string; memberIds: string[]; clientNonce?: string;
   }): Promise<any> {
+    if (!args || typeof args.name !== "string" || !args.name.trim() || args.name.length > 100
+      || (args.description !== undefined && (typeof args.description !== "string" || args.description.length > 8000)))
+      throw new SandGroupCreateError("Provide a group name of 1–100 characters and a valid description.");
+    const requested = this.validateGroupMemberIds(args.memberIds);
+    const nonce = args.clientNonce;
+    if (nonce !== undefined && (typeof nonce !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)))
+      throw new SandGroupCreateError("Invalid group creation identity.");
+    const digest = createHash("sha256").update(JSON.stringify([args.name.trim(), args.description ?? "", [...requested].sort()])).digest("hex");
+    const pending = nonce ? this.groupCreations.get(nonce) : undefined;
+    if (pending) {
+      if (pending.digest !== digest) throw new SandGroupCreateError("This creation identity belongs to different group details.");
+      return pending.promise;
+    }
+    const promise = this.createValidatedGroup(args, requested, nonce, digest);
+    if (nonce) this.groupCreations.set(nonce, { digest, promise });
+    try { return await promise; }
+    finally { if (nonce && this.groupCreations.get(nonce)?.promise === promise) this.groupCreations.delete(nonce); }
+  }
+
+  private validateGroupMemberIds(raw: unknown): string[] {
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > GROUP_MAX_MEMBERS
+      || raw.some(id => typeof id !== "string" || !id.trim() || id !== id.trim())
+      || new Set(raw).size !== raw.length)
+      throw new SandGroupCreateError(`Choose 1–${GROUP_MAX_MEMBERS} distinct, available Bot members.`);
+    return [...raw];
+  }
+
+  private async createValidatedGroup(
+    args: { name: string; description?: string }, memberIds: string[], nonce: string | undefined, digest: string,
+  ): Promise<any> {
     const allAgents = await this.tm.sessionStore.listAgents();
+    if (nonce) {
+      const duplicate = allAgents.find((agent: any) => readSandGroupConfig(this.tm.sessionStore.getAgentDir(agent.id))?.creation?.nonce === nonce);
+      if (duplicate) {
+        const receipt = readSandGroupConfig(this.tm.sessionStore.getAgentDir(duplicate.id))!.creation!;
+        if (receipt.digest !== digest) throw new SandGroupCreateError("This creation identity belongs to different group details.");
+        const transcript = await this.tm.switchAgent(duplicate.id);
+        const stamp = this.tm.roster.reserveSnapshotStamp();
+        return { agent: this.tm.roster.finalizeSummaryForRpc(duplicate, stamp), transcript };
+      }
+    }
     const existing = new Set<string>(allAgents.map((agent: any) => agent.id));
-    const groupIds = new Set<string>(
-      allAgents
-        .filter((agent: any) => agent.isGroup)
-        .map((agent: any) => agent.id),
-    );
-    const requested = [...new Set(args.memberIds)];
-    assertMembersAreNotGroups(requested, (id) => groupIds.has(id));
-    const memberIds = requested
-      .filter((id) => existing.has(id))
-      .slice(0, GROUP_MAX_MEMBERS);
-    if (memberIds.length === 0) {
-      throw new SandGroupCreateError(
-        "A group needs at least one existing member agent.",
-      );
-    }
-
-    const duplicate = allAgents.find(
-      (agent: any) =>
-        agent.isGroup && isSameMemberSet(agent.memberIds, memberIds),
-    );
-    if (duplicate != null) {
-      const transcript = await this.tm.switchAgent(duplicate.id);
-      const stamp = this.tm.roster.reserveSnapshotStamp();
-      const summary =
-        (await this.tm.sessionStore.listAgents(duplicate.id)).find(
-          (agent: any) => agent.id === duplicate.id,
-        ) ?? duplicate;
-      return {
-        agent: this.tm.roster.finalizeSummaryForRpc(summary, stamp),
-        transcript,
-      };
-    }
-
+    const groupIds = new Set<string>(allAgents.filter((agent: any) => agent.isGroup).map((agent: any) => agent.id));
+    assertMembersAreNotGroups(memberIds, id => groupIds.has(id));
+    if (memberIds.some(id => !existing.has(id))) throw new SandGroupCreateError("A selected Bot is no longer available. Refresh the members and try again.");
+    // Different projects may have exactly the same colleagues. Only an explicit
+    // creation nonce deduplicates retries, never the membership set itself.
+    const config = { version: GROUP_CONFIG_VERSION, memberIds, ...(nonce ? { creation: { nonce, digest } } : {}) };
     const created = await this.tm.createAgent(
-      { name: args.name, description: args.description ?? "" },
-      "user",
+      { name: args.name.trim(), description: args.description ?? "" }, "user",
+      { isIntroductionSuppressed: true, configureAgentDir: (dir: string) => writeSandGroupConfig(dir, config) },
     );
-    writeSandGroupConfig(this.tm.sessionStore.getAgentDir(created.agent.id), {
-      version: GROUP_CONFIG_VERSION,
-      memberIds,
-    });
-    this.tm.productAnalytics.trackEvent("sand.group.created", {
-      group_id: created.agent.id,
-      member_count: memberIds.length,
-    });
+    this.tm.productAnalytics.trackEvent("sand.group.created", { group_id: created.agent.id, member_count: memberIds.length });
     await this.tm.roster.emitAgents();
     const stamp = this.tm.roster.reserveSnapshotStamp();
-    const refreshed = (
-      await this.tm.sessionStore.listAgents(created.agent.id)
-    ).find((agent: any) => agent.id === created.agent.id);
-    return {
-      agent:
-        refreshed == null
-          ? created.agent
-          : this.tm.roster.finalizeSummaryForRpc(refreshed, stamp),
-      transcript: created.transcript,
-    };
+    const refreshed = (await this.tm.sessionStore.listAgents(created.agent.id)).find((agent: any) => agent.id === created.agent.id);
+    return { agent: refreshed == null ? created.agent : this.tm.roster.finalizeSummaryForRpc(refreshed, stamp), transcript: created.transcript };
   }
 
   async setGroupMembers(
@@ -171,18 +169,12 @@ export class GroupChatGlue {
         .filter((agent: any) => agent.isGroup)
         .map((agent: any) => agent.id),
     );
-    const requested = [...new Set(memberIds)];
-    assertMembersAreNotGroups(requested, (id) => groupIds.has(id));
-    const cleaned = requested
-      .filter((id) => id !== groupId && existing.has(id))
-      .slice(0, GROUP_MAX_MEMBERS);
-    if (cleaned.length > 0) {
-      writeSandGroupConfig(dir, {
-        version: GROUP_CONFIG_VERSION,
-        memberIds: cleaned,
-      });
-      await this.tm.roster.emitAgents();
-    }
+    const requested = this.validateGroupMemberIds(memberIds);
+    assertMembersAreNotGroups(requested, id => groupIds.has(id));
+    if (requested.some(id => id === groupId || !existing.has(id)))
+      throw new SandGroupCreateError("A selected Bot is no longer available. No members were changed.");
+    writeSandGroupConfig(dir, { ...current, version: GROUP_CONFIG_VERSION, memberIds: requested });
+    await this.tm.roster.emitAgents();
     return this.currentStampedSummary(groupId);
   }
 

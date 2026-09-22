@@ -1,3 +1,4 @@
+import { getConversationActivity, cancelQueuedConversationMessage } from "./conversation-activity.js";
 import { recoverConversationDeliveries, stopConversation } from "./conversation-recovery.js";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -402,6 +403,8 @@ export class TranscriptManager {
 
   recoverConversationDeliveries(): Promise<void> { return recoverConversationDeliveries(this); }
   stopConversation(args: unknown) { return stopConversation(this, args); }
+  getConversationActivity(args: unknown) { return getConversationActivity(this, args); }
+  cancelQueuedConversationMessage(args: unknown) { return cancelQueuedConversationMessage(this, args); }
 
   promptAcceptanceStatus(...args: any[]) {
     return invoke(this.sendPipeline, "promptAcceptanceStatus", args);

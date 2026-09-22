@@ -76,6 +76,9 @@ test("packaging preserves Settings registration when landing and registry share 
     }
     const result = await applyOriginalRendererRouterPatch({ stageRoot });
     const main = await readFile(path.join(assets, "index-UbX-y3il.js"), "utf8");
+    await transform(main, { loader: "js", format: "esm", target: "es2022" });
+    assert.match(main, /getConversationActivity:\{args:"object",reply:"record"\}/);
+    assert.match(main, /function RConversationActivity/);
     const sections = new Function(`${main.match(/const wDn=\[[^;]+?\]/)[0]};return wDn;`)();
     assert.deepEqual(sections.map((section) => section.id), ["general", "servers", "router", "usage", "beta"]);
     assert.ok(main.includes("function RLocalChatLayout(n)"), "the landing/chat transform is also retained");

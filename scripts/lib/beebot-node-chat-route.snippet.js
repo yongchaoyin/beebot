@@ -12,6 +12,11 @@ function qLn(props){
     import("./beebot-node-chat.js").then(module=>{if(!disposed)cleanup=module.mountNodeChat(target,store);}).catch(error=>{if(!disposed)target.textContent=String(error.message||error);});
     return()=>{disposed=true;cleanup?.();};
   },[active]);
-  if(!active)return S.createElement(RLocalChatLayout,props);
+  if(!active){
+    const id=props.interactions?.agentId;
+    const activity=typeof id==="string"&&id&&!props.isReadOnlyExchange&&!props.isNewAgentOpen&&!props.isNewChatOpen
+      ?S.createElement(RConversationActivity,{key:id,conversationId:id,entries:props.entries,interactions:props.interactions}):null;
+    return S.createElement(RLocalChatLayout,{...props,trays:S.createElement(S.Fragment,null,props.trays,activity)});
+  }
   return S.createElement("div",{id:"beebot-node-chat",ref:mount,style:{display:"flex",flexDirection:"column",flex:"1 1 0",minWidth:0,minHeight:0,width:"100%",height:"100%",overflow:"hidden"}});
 }

@@ -37,7 +37,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
   const working = snapshot.runningGoal?.status === "running";
   const online = snapshot.server.status === "online";
   const busy = snapshot.busy || actionBusy;
-  const blocked = busy || snapshot.loading || !online || snapshot.runningGoal != null || snapshot.uncertainGoal != null;
+  const blocked = busy || snapshot.loading || !online || snapshot.uncertainGoal != null;
   const entries = useMemo<TranscriptMessage[]>(() => snapshot.messages.filter((message) => !(message.role === "assistant" && !message.text.trim() && ["queued", "running", "cancelling"].includes(message.status ?? ""))).map((message) => ({
     kind: "message",
     id: message.id,
@@ -135,10 +135,10 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
         acceptedSendGeneration={clearGeneration}
         disabled={false}
         submitDisabled={blocked}
-        notice={blocked ? snapshot.runningGoal ? t(
-          "Draft only — not sent. This server cannot apply changes to running work yet.",
-          "可先写草稿，尚未发送；当前服务器暂不支持执行中追加要求。",
-        ) : t("Draft only — not sent and never sent automatically.", "草稿尚未发送，恢复后也不会自动发送。") : null}
+        notice={blocked ? t("Draft only — not sent and never sent automatically.", "草稿尚未发送，恢复后也不会自动发送。") : snapshot.runningGoal ? t(
+          "New messages are queued for this Bot. They do not cancel or change the current execution.",
+          "新消息会排队交给这位 Bot，不会取消或改写当前执行。",
+        ) : null}
         draft={{ prompt: snapshot.draft, attachments: [] }}
         enableAttachments={false}
         enableVoice={false}

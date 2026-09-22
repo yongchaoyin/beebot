@@ -215,6 +215,8 @@ export function createHostGatewayApi(
       return { accepted: true };
     },
     stopConversation: (args: unknown) => method(manager, "stopConversation")(args),
+    getConversationActivity: (args: unknown) => method(manager, "getConversationActivity")(args),
+    cancelQueuedConversationMessage: (args: unknown) => method(manager, "cancelQueuedConversationMessage")(args),
     promptAcceptanceStatus: (args: any) =>
       method(manager, "promptAcceptanceStatus")(args),
     respondToWidget: (args: any) => {
@@ -300,7 +302,8 @@ export function createHostGatewayApi(
     createGroup: (args: any) => method(manager, "createGroup")({
       name: args.name,
       description: args.description,
-      memberIds: args.memberAgentIds
+      memberIds: args.memberAgentIds,
+      clientNonce: args.clientNonce
     }),
     setGroupMembers: (args: any) =>
       method(manager, "setGroupMembers")(args.id, args.memberAgentIds),

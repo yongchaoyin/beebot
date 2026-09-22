@@ -63,6 +63,10 @@ function RIsGroupId(id){
   return !!(row&&(row.isGroup===true||row.kind==="group"));
 }
 function RListAgents(){
+  const roster=RRosterRows();
+  if(roster.length)return roster.filter(row=>row&&typeof row.id==="string"&&row.id&&row.isGroup!==true&&row.kind!=="group"&&!row.nodeConnectionId)
+    .map(row=>({id:row.id,name:typeof row.name==="string"?row.name:row.id,description:row.description||"",avatarShape:row.avatarShape,avatarColor:row.avatarColor}));
+  // Legacy shells without a roster snapshot retain their existing local-Bot list.
   const seen=new Set(); const out=[];
   for(const el of document.querySelectorAll("[data-agent-id]")){
     if(el.closest("[data-node-bot-id], [data-node-connection-id]"))continue;
@@ -73,31 +77,43 @@ function RListAgents(){
   return out;
 }
 
-// Creation is a section of the existing sidebar, not a modal or an overlay.
-// The conversation DOM, selection, drafts and running work remain untouched.
+// Explicit application management uses a centered dialog. Routine chat stays inline.
+// Opening management never destroys the conversation DOM, drafts or running work.
 let RCreateRequestSerial=0;
 function RCreateText(cn,en){return window.__sandUiLanguage==="zh"?cn:en;}
 function RCreateError(error){return String(error?.message||error||"")
   .replace(/(Bearer\s+)\S+/gi,"$1[redacted]")
   .replace(/((?:access_token|refresh_token|api_key|code|state)=)[^&\s]+/gi,"$1[redacted]").slice(0,400);}
-function REnsureInlineCreateStyle(){
-  if(document.getElementById("beebot-inline-create-style"))return;
-  const style=document.createElement("style");style.id="beebot-inline-create-style";
+function REnsureCreateStyle(){
+  if(document.getElementById("beebot-create-style"))return;
+  const style=document.createElement("style");style.id="beebot-create-style";
   style.textContent=`
-    .bb-inline-create{position:static;flex:0 1 auto;min-height:0;min-width:0;max-height:68vh;overflow:auto;overscroll-behavior:contain;box-sizing:border-box;margin:8px;padding:14px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);font:13px/1.5 system-ui,-apple-system,sans-serif;scrollbar-gutter:stable;-webkit-app-region:no-drag}
-    .bb-inline-create *{box-sizing:border-box}
-    .bb-inline-create [hidden]{display:none!important}
-    .bb-inline-create :is(input,textarea,select){width:100%;min-width:0;max-width:100%;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);color:inherit;padding:9px 10px;font:inherit;min-height:38px}
-    .bb-inline-create button{font:inherit;color:inherit;cursor:pointer;-webkit-app-region:no-drag}
-    .bb-inline-create :is(button,input,select,textarea,summary):focus-visible,#sand-plus-menu button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
-    .bb-inline-create button:disabled{cursor:default;opacity:.5}
+    .bb-create-dialog{position:fixed;inset:0;margin:auto;width:min(720px,calc(100vw - 40px));max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:16px;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);box-shadow:0 18px 70px #0003;overflow:hidden;-webkit-app-region:no-drag}
+    .bb-create-dialog[data-kind=bot]{width:min(500px,calc(100vw - 40px))}
+    .bb-create-dialog::backdrop{background:#0005}
+    .bb-create-panel{min-height:0;min-width:0;max-height:calc(100dvh - 50px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;padding:24px;background:inherit;color:inherit;font:14px/1.55 system-ui,-apple-system,sans-serif;scrollbar-gutter:stable;-webkit-app-region:no-drag}
+    .bb-create-columns{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px;align-items:start}
+    .bb-create-choice-column{min-width:0;padding-inline-end:24px;border-inline-end:1px solid var(--cursor-stroke-secondary,#8884)}
+    .bb-create-selection-column{min-width:0}
+    .bb-create-count{font-size:12px;color:var(--cursor-text-secondary,GrayText);margin:0 0 8px}
+    .bb-create-member-copy{display:grid;min-width:0;gap:2px}
+    .bb-create-member-copy strong{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+    .bb-create-member-copy small{font-size:12px;color:var(--cursor-text-secondary,GrayText);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px}
+    @media(max-width:600px){.bb-create-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.bb-create-panel{padding:18px;max-height:calc(100dvh - 26px)}.bb-create-columns{grid-template-columns:minmax(0,1fr);gap:12px}.bb-create-choice-column{padding:0;border:0}.bb-create-members{max-height:200px!important}}
+
+    .bb-create-panel *{box-sizing:border-box}
+    .bb-create-panel [hidden]{display:none!important}
+    .bb-create-panel :is(input,textarea,select){width:100%;min-width:0;max-width:100%;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);color:inherit;padding:9px 10px;font:inherit;min-height:38px}
+    .bb-create-panel button{font:inherit;color:inherit;cursor:pointer;-webkit-app-region:no-drag}
+    .bb-create-panel :is(button,input,select,textarea,summary):focus-visible,#sand-plus-menu button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
+    .bb-create-panel button:disabled{cursor:default;opacity:.5}
     .bb-create-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
-    .bb-create-head h2{font:600 15px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
+    .bb-create-head h2{font:600 19px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
     .bb-create-close{border:0;border-radius:6px;background:transparent;min-width:32px;min-height:32px;font-size:20px!important}
     .bb-create-subtitle,.bb-create-help{font-size:12px;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px;overflow-wrap:anywhere}
     .bb-create-field{display:grid;gap:6px;margin-bottom:12px}
     .bb-create-field label{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
-    .bb-create-members{display:grid;gap:4px;max-height:210px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
+    .bb-create-members{display:grid;gap:4px;max-height:320px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
     .bb-create-member{display:flex;align-items:center;gap:8px;min-height:40px;width:100%;border:1px solid transparent;border-radius:8px;background:transparent;text-align:start;padding:6px 8px;overflow-wrap:anywhere}
     .bb-create-member[aria-pressed=true]{border-color:var(--cursor-stroke-secondary,#8884);background:var(--cursor-bg-secondary,Canvas)}
     .bb-create-member[aria-pressed=true]::after{content:'✓';margin-inline-start:auto;flex:none}
@@ -116,8 +132,8 @@ function REnsureInlineCreateStyle(){
     #sand-plus-menu{position:static;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px;padding:0;font:12px/1.5 system-ui;color:var(--cursor-text-primary,CanvasText);background:transparent}
     #sand-plus-menu button{min-height:36px;min-width:0;padding:7px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;color:inherit;background:var(--cursor-bg-primary,Canvas);font:inherit;cursor:pointer;overflow-wrap:anywhere;-webkit-app-region:no-drag}
     #sand-plus-menu button:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
-    @media(prefers-reduced-motion:reduce){.bb-inline-create *,#sand-plus-menu *{scroll-behavior:auto;transition:none}}
-    @media(forced-colors:active){.bb-inline-create button{border:1px solid ButtonText}.bb-create-submit{background:ButtonFace!important;color:ButtonText!important}}
+    @media(prefers-reduced-motion:reduce){.bb-create-panel *,#sand-plus-menu *{scroll-behavior:auto;transition:none}}
+    @media(forced-colors:active){.bb-create-panel button{border:1px solid ButtonText}.bb-create-submit{background:ButtonFace!important;color:ButtonText!important}}
   `;document.head.append(style);
 }
 function RInsertSidebarSection(section){
@@ -133,27 +149,56 @@ function RInsertSidebarSection(section){
     if(header)header.insertAdjacentElement("afterend",section);else document.body.prepend(section);
   }
 }
-function RMountInlineCreate(root,label){
+// Only explicit application-management actions open this dialog. Chat replies,
+// mentions, decisions and failure recovery stay in their current conversation.
+function RMountCreateDialog(root,label){
+  const previousFocus=document.activeElement;
   for(const id of ["sand-create-bot-sheet","sand-create-group-sheet"]){
     const previous=document.getElementById(id);
-    if(previous&&previous!==root){
-      if(previous.__sandDismiss?.()===false)return false;
-      previous.remove();
-    }
+    if(previous&&previous!==root&&previous.__sandDismiss?.()===false)return false;
   }
   document.getElementById("sand-plus-menu")?.__sandDismiss?.();
-  REnsureInlineCreateStyle();root.classList.add("bb-inline-create");
-  root.setAttribute("role","region");root.setAttribute("aria-label",label);
-  root.addEventListener("keydown",event=>{
-    if(event.key!=="Escape"||event.isComposing||event.keyCode===229)return;
-    if(root.__sandDismiss?.()!==false){event.preventDefault();event.stopPropagation();}
+  REnsureCreateStyle();root.classList.add("bb-create-panel");
+  root.setAttribute("role","group");root.setAttribute("aria-label",label);
+  const dialog=document.createElement("dialog");dialog.className="bb-create-dialog";
+  dialog.dataset.kind=root.id.includes("group")?"group":"bot";
+  dialog.setAttribute("aria-label",label);dialog.setAttribute("aria-modal","true");
+  root.__sandCreateDialog=dialog;root.__sandPreviousFocus=previousFocus;
+  let composing=false,backdropDown=false;
+  root.addEventListener("compositionstart",()=>{composing=true});
+  root.addEventListener("compositionend",()=>{composing=false});
+  dialog.addEventListener("cancel",event=>{event.preventDefault();if(!composing)root.__sandDismiss?.();});
+  dialog.addEventListener("keydown",event=>{
+    if(event.key==="Escape"){
+      event.preventDefault();event.stopPropagation();
+      if(!composing&&!event.isComposing&&event.keyCode!==229)root.__sandDismiss?.();
+    }
+    if(event.key==="Tab"){
+      const nodes=[...root.querySelectorAll("button,input,select,textarea,summary,[tabindex]")].filter(node=>!node.disabled&&!node.closest("[hidden]")&&node.tabIndex>=0&&!([...root.querySelectorAll("details:not([open])")].some(details=>details.contains(node)&&node!==details.querySelector("summary"))));
+      const first=nodes[0],last=nodes.at(-1);
+      if(nodes.length===0){event.preventDefault();return;}
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    }
   });
-  RInsertSidebarSection(root);return true;
+  dialog.addEventListener("pointerdown",event=>{backdropDown=event.target===dialog});
+  dialog.addEventListener("click",event=>{if(backdropDown&&event.target===dialog)root.__sandDismiss?.();backdropDown=false;});
+  dialog.append(root);document.body.append(dialog);
+  // showModal provides native focus containment and inert background in Electron.
+  if(typeof dialog.showModal==="function")dialog.showModal();else dialog.setAttribute("open","");
+  return true;
 }
-function RCloseInlineCreate(root,restoreFocus){
-  const hadFocus=root.contains(document.activeElement);
-  root.remove();
-  if(restoreFocus&&hadFocus)document.querySelector(".sand-agents-sidebar__new")?.focus({preventScroll:true});
+function RCloseCreateDialog(root,restoreFocus){
+  const dialog=root.__sandCreateDialog;
+  const chosen=document.activeElement;
+  const outside=chosen&&chosen!==document.body&&!dialog?.contains(chosen)?chosen:null;
+  dialog?.close?.();dialog?.remove();root.remove();
+  if(restoreFocus){
+    const previous=root.__sandPreviousFocus;
+    if(previous?.isConnected&&previous!==document.body)previous.focus({preventScroll:true});
+    else document.querySelector(".sand-agents-sidebar__new")?.focus({preventScroll:true});
+  }else if(outside?.isConnected)outside.focus({preventScroll:true});
+  else document.querySelector('.sand-chat-input-dock textarea,.sand-chat-input-dock [contenteditable="true"]')?.focus({preventScroll:true});
 }
 
 window.__sandPickCreateBot=async function(preset,{onCreate}={}){
@@ -170,7 +215,7 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
   let servers=[],busy=false,alive=true,refreshSerial=0,unsubscribe;
   const operationKeys=new Map();
   let vendors=[]; let vendorId=typeof preset?.inferenceVendorId==="string"?preset.inferenceVendorId:"";
-  const finish=(v,restoreFocus=v===null)=>{if(!alive)return;alive=false;refreshSerial++;unsubscribe?.();window.removeEventListener("sand-ui-language-changed",localizeBot);RCloseInlineCreate(root,restoreFocus);resolve(v)};
+  const finish=(v,restoreFocus=v===null)=>{if(!alive)return;alive=false;refreshSerial++;unsubscribe?.();window.removeEventListener("sand-ui-language-changed",localizeBot);RCloseCreateDialog(root,restoreFocus);resolve(v)};
   root.__sandDismiss=()=>{if(busy)return false;finish(null);return true};
   const status=document.createElement("div");status.setAttribute("role","status");status.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-red-primary,#ba3544);white-space:pre-wrap;margin-top:12px";
   const setError=error=>{status.textContent=error?RCreateError(error):""};
@@ -258,8 +303,8 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
       if(target){target.focus({preventScroll:true});if(typeof focused.start==="number"&&typeof target.setSelectionRange==="function")try{target.setSelectionRange(focused.start,focused.end)}catch{}}
     }
   };
-  function localizeBot(){Object.assign(copy,RUiCopy());paint();root.setAttribute("aria-label",copy.title);}
-  if(!RMountInlineCreate(root,copy.title)){finish(null);return;}
+  function localizeBot(){Object.assign(copy,RUiCopy());paint();root.setAttribute("aria-label",copy.title);root.__sandCreateDialog?.setAttribute("aria-label",copy.title);}
+  if(!RMountCreateDialog(root,copy.title)){finish(null);return;}
   window.addEventListener("sand-ui-language-changed",localizeBot);paint();input.focus({preventScroll:true});void refreshServers();
   try{unsubscribe=window.desktop?.nodes?.onChanged?.(()=>void refreshServers())}catch{}
   Promise.resolve().then(()=>window.desktop.agent.getInferenceVendors()).then(listed=>{if(!alive)return;vendors=Array.isArray(listed?.vendors)?listed.vendors:[];if(!vendorId)vendorId=listed?.defaultVendorId||vendors[0]?.id||"";
@@ -271,8 +316,8 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
   const copy=RUiCopy(),agents=RListAgents();
   return new Promise(resolve=>{
     const root=document.createElement("section");root.id="sand-create-group-sheet";
-    let alive=true,busy=false;const selected=new Set(),rows=new Map();
-    const finish=(value,restoreFocus=value===null)=>{if(!alive)return;alive=false;window.removeEventListener("sand-ui-language-changed",localize);RCloseInlineCreate(root,restoreFocus);resolve(value);};
+    let alive=true,busy=false;const selected=new Set(),rows=new Map(),creationKeys=new Map();
+    const finish=(value,restoreFocus=value===null)=>{if(!alive)return;alive=false;window.removeEventListener("sand-ui-language-changed",localize);RCloseCreateDialog(root,restoreFocus);resolve(value);};
     root.__sandDismiss=()=>{if(busy)return false;finish(null);return true;};
     const head=document.createElement("header");head.className="bb-create-head";
     const title=document.createElement("h2");
@@ -287,12 +332,13 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
     };
     const name=field("bb-group-name"),search=field("bb-group-search");name.input.maxLength=100;
     const chips=document.createElement("div");chips.className="bb-create-selected";
+    const selectionCount=document.createElement("p");selectionCount.className="bb-create-count";selectionCount.setAttribute("aria-live","polite");
     const list=document.createElement("div");list.className="bb-create-members";list.setAttribute("role","group");
     const empty=document.createElement("p");empty.className="bb-create-help";
     const status=document.createElement("p");status.className="bb-create-status";status.setAttribute("role","status");
     const submit=document.createElement("button");submit.type="button";submit.className="bb-create-submit";
     const applyReady=()=>{
-      submit.disabled=busy||!name.input.value.trim()||selected.size===0;
+      submit.disabled=busy||selected.size===0;
       submit.textContent=busy?RUiCopy().creating:RUiCopy().create;
       root.setAttribute("aria-busy",String(busy));
       for(const input of root.querySelectorAll("input"))input.disabled=busy;
@@ -304,6 +350,7 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
         const row=rows.get(agent.id);row.hidden=!!query&&!agent.name.normalize("NFC").toLowerCase().includes(query);
         row.setAttribute("aria-pressed",String(selected.has(agent.id)));if(!row.hidden)visible++;
       }
+      selectionCount.textContent=RCreateText(`已选择 ${selected.size} / 6 位同事`,`Selected ${selected.size} / 6 colleagues`);
       empty.hidden=visible>0;
       empty.textContent=agents.length?RCreateText("没有找到这个 Bot，试试其他名字。","No matching Bot. Try another name."):RCreateText("先创建一个 Bot，再邀请它加入群聊。","Create a Bot first, then invite it to a group.");
       chips.replaceChildren();
@@ -318,8 +365,13 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       const row=document.createElement("button");row.type="button";row.className="bb-create-member";row.dataset.memberId=agent.id;
       const profile=RRosterRows().find(item=>item.id===agent.id);
       if(typeof R_PATHS==="object")row.append(RBotSvg(profile?.avatarShape||"blob",profile?.avatarColor||"green",26));
-      row.append(document.createTextNode(agent.name));
-      row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else selected.add(agent.id);status.textContent="";renderMembers();};
+      const memberCopy=document.createElement("span");memberCopy.className="bb-create-member-copy";
+      const memberName=document.createElement("strong");memberName.textContent=agent.name;memberCopy.append(memberName);
+      if(profile?.description){const role=document.createElement("small");role.textContent=profile.description;memberCopy.append(role);}
+      row.append(memberCopy);row.setAttribute("aria-label",agent.name);
+      row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);
+        else if(selected.size>=6){status.textContent=RCreateText("一个群最多选择 6 位 Bot，请先移除一位。","Choose up to 6 Bots. Remove one before adding another.");return;}
+        else selected.add(agent.id);status.textContent="";renderMembers();};
       rows.set(agent.id,row);list.append(row);
     }
     name.input.oninput=applyReady;search.input.oninput=renderMembers;
@@ -328,7 +380,10 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       // Validate membership again; a deleted Bot must not be silently dropped.
       const current=new Set(RListAgents().map(agent=>agent.id));
       if([...selected].some(id=>!current.has(id))){status.textContent=RCreateText("有成员已不可用，请取消对应选择后再创建。","A selected Bot is no longer available. Remove it before creating the group.");return;}
-      const draft={name:name.input.value.trim(),memberAgentIds:[...selected]};
+      const groupName=name.input.value.trim()||[...selected].map(id=>agents.find(agent=>agent.id===id)?.name||id).join("、").slice(0,100);
+      const memberAgentIds=[...selected],signature=JSON.stringify([groupName,[...memberAgentIds].sort()]);
+      if(!creationKeys.has(signature))creationKeys.set(signature,crypto.randomUUID());
+      const draft={name:groupName,memberAgentIds,clientNonce:creationKeys.get(signature)};
       if(typeof onCreate!=="function"){finish(draft);return;}
       busy=true;status.textContent="";applyReady();
       try{await onCreate(draft);finish(null,false);}
@@ -336,15 +391,18 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       finally{busy=false;if(alive)applyReady();}
     };
     function localize(){
-      const copy=RUiCopy();title.textContent=copy.groupTitle;root.setAttribute("aria-label",copy.groupTitle);
+      const copy=RUiCopy();title.textContent=copy.groupTitle;root.setAttribute("aria-label",copy.groupTitle);root.__sandCreateDialog?.setAttribute("aria-label",copy.groupTitle);
       close.setAttribute("aria-label",copy.close);subtitle.textContent=RCreateText("邀请同事，一起讨论和完成工作。","Invite colleagues to discuss and work together.");
-      name.label.textContent=copy.groupName;name.input.placeholder=copy.groupName;name.input.setAttribute("aria-label",copy.groupName);
+      name.label.textContent=copy.groupName+RCreateText("（选填）"," (optional)");name.input.placeholder=copy.groupName;name.input.setAttribute("aria-label",copy.groupName);
       search.label.textContent=copy.search;search.input.placeholder=copy.search;search.input.setAttribute("aria-label",copy.search);
       list.setAttribute("aria-label",copy.to);renderMembers();
     }
-    root.append(head,subtitle,name.wrap,search.wrap,chips,list,empty,submit,status);
-    if(!RMountInlineCreate(root,copy.groupTitle)){finish(null);return;}
-    window.addEventListener("sand-ui-language-changed",localize);localize();name.input.focus({preventScroll:true});
+    const columns=document.createElement("div");columns.className="bb-create-columns";
+    const choices=document.createElement("section");choices.className="bb-create-choice-column";choices.append(search.wrap,list,empty);
+    const selection=document.createElement("section");selection.className="bb-create-selection-column";selection.append(selectionCount,chips,name.wrap,submit,status);
+    columns.append(choices,selection);root.append(head,subtitle,columns);
+    if(!RMountCreateDialog(root,copy.groupTitle)){finish(null);return;}
+    window.addEventListener("sand-ui-language-changed",localize);localize();search.input.focus({preventScroll:true});
   });
 };
 if(!window.__sandPlusMenuBound){window.__sandPlusMenuBound=!0;document.addEventListener("click",ev=>{
@@ -352,7 +410,7 @@ if(!window.__sandPlusMenuBound){window.__sandPlusMenuBound=!0;document.addEventL
   ev.preventDefault();ev.stopPropagation();
   const existing=document.getElementById("sand-plus-menu");
   if(existing){existing.__sandDismiss();return;}
-  REnsureInlineCreateStyle();const menu=document.createElement("div");menu.id="sand-plus-menu";
+  REnsureCreateStyle();const menu=document.createElement("div");menu.id="sand-plus-menu";
   menu.setAttribute("role","group");menu.setAttribute("aria-label",RCreateText("新建","Create"));
   btn.setAttribute("aria-expanded","true");btn.setAttribute("aria-controls",menu.id);
   const hide=()=>{menu.remove();btn.setAttribute("aria-expanded","false");btn.removeAttribute("aria-controls");window.removeEventListener("sand-ui-language-changed",localize);};
@@ -415,6 +473,5 @@ function MOn(n){const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=
     await api.open(deploymentServerId,created.bot);
     return;
   }
-  window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();
-  const created=await e.createAgent(local);const id=created?.agent?.id||created?.id;if(id&&r&&typeof r.inferenceVendorId==="string"&&r.inferenceVendorId.length>0){window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[id]=r.inferenceVendorId}return created
-};window.__sandCreateGroup=(r)=>{window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();return e.createGroup(r)};window.__sandUpdateAgent=(id,profile)=>e.updateAgent({id,profile});const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);
+  const created=await e.createAgent(local);window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();const id=created?.agent?.id||created?.id;if(id&&r&&typeof r.inferenceVendorId==="string"&&r.inferenceVendorId.length>0){window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[id]=r.inferenceVendorId}return created
+};window.__sandCreateGroup=async(r)=>{const created=await e.createGroup(r);window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();return created};window.__sandUpdateAgent=(id,profile)=>e.updateAgent({id,profile});const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);

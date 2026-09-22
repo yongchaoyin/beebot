@@ -70,6 +70,15 @@ function assertInline(document, node) {
   assert.ok(!["fixed", "absolute"].includes(node.style.position));
 }
 
+function assertCentered(document, node) {
+  const dialog = node.closest("dialog");
+  assert.ok(dialog, "management is a centered dialog, not a sidebar form");
+  assert.equal(dialog.parentElement, document.body);
+  assert.equal(dialog.getAttribute("aria-modal"), "true");
+  assert.equal(node.closest(".sand-agents-sidebar"), null);
+  assert.equal(document.querySelector(".history").textContent, "Keep this history");
+}
+
 test("plus choices expand in the sidebar without replacing the current chat or draft", async t => {
   const ui = await boot(t), history = ui.document.querySelector(".history");
   ui.input(ui.editor, "Keep the draft");
@@ -81,10 +90,10 @@ test("plus choices expand in the sidebar without replacing the current chat or d
   assert.equal(plus.getAttribute("aria-expanded"), "false");
 });
 
-test("Bot and Group creation use the same in-flow surface and settle replaced pickers", async t => {
-  const ui = await boot(t), first = await ui.open("group"); assertInline(ui.document, first.root);
+test("Bot and Group management use centered dialogs and settle replaced pickers", async t => {
+  const ui = await boot(t), first = await ui.open("group"); assertCentered(ui.document, first.root);
   const second = await ui.open("bot"); assert.equal(await first.result, null);
-  assert.equal(first.root.isConnected, false); assertInline(ui.document, second.root);
+  assert.equal(first.root.isConnected, false); assertCentered(ui.document, second.root);
   second.root.__sandDismiss(); assert.equal(await second.result, null);
 });
 
@@ -93,7 +102,7 @@ test("a late language lookup cannot reopen an older creation request", async t =
   ui.window.desktop.agent.getUiLanguage = () => ++count === 1 ? gate.promise : Promise.resolve({ language: "en" });
   const older = ui.window.__sandPickCreateGroup();
   const current = await ui.open("bot"); gate.resolve({ language: "en" });
-  assert.equal(await older, null); assertInline(ui.document, current.root);
+  assert.equal(await older, null); assertCentered(ui.document, current.root);
   assert.equal(ui.document.getElementById("sand-create-group-sheet"), null);
 });
 
@@ -117,13 +126,14 @@ test("group creation failure stays inline and preserves its draft and selection"
   gate.resolve(); await until(() => root.querySelector("[role=status]").textContent.includes("retry"));
   assert.equal(root.querySelector("#bb-group-name").value, "Launch");
   assert.equal(root.querySelector('[data-member-id="a"]').getAttribute("aria-pressed"), "true");
-  assertInline(ui.document, root); assert.equal(submit.disabled, false);
+  assertCentered(ui.document, root); assert.equal(submit.disabled, false);
 });
 
 test("group selection is revalidated before submission instead of silently dropping a deleted Bot", async t => {
   const ui = await boot(t); let calls = 0;
   const { root } = await ui.open("group", async () => { calls++; });
   ui.input(root.querySelector("#bb-group-name"), "Launch"); root.querySelector('[data-member-id="a"]').click();
+  ui.roster.splice(ui.roster.findIndex(row=>row.id==="a"),1);
   ui.document.querySelector('[data-agent-id="a"]').remove(); root.querySelector(".bb-create-submit").click();
   assert.equal(calls, 0); assert.match(root.querySelector("[role=status]").textContent, /no longer available/);
 });
@@ -137,7 +147,7 @@ test("local Bot creation from the + entry executes once and reports failures in 
   ui.input(root.querySelector('[aria-label="Name"]'), "Colleague");
   root.querySelector(".bb-create-submit").click(); root.querySelector(".bb-create-submit").click();
   await until(() => root.querySelector("[role=status]").textContent.includes("failed"));
-  assert.equal(attempts, 1); assert.equal(root.querySelector('[aria-label="Name"]').value, "Colleague"); assertInline(ui.document, root);
+  assert.equal(attempts, 1); assert.equal(root.querySelector('[aria-label="Name"]').value, "Colleague"); assertCentered(ui.document, root);
 });
 
 test("Bot name IME confirmation does not submit the form", async t => {
@@ -171,9 +181,9 @@ test("switching UI language preserves Bot field values and focused field identit
   assert.equal(translated.selectionStart, 2); assert.equal(translated.selectionEnd, 4);
 });
 
-test("cancelling a create section never steals focus from ongoing chat input", async t => {
-  const ui = await boot(t), { root, result } = await ui.open("group");
-  ui.editor.focus(); ui.input(ui.editor, "Still talking"); root.__sandDismiss();
+test("closing management restores the original chat focus and draft", async t => {
+  const ui = await boot(t); ui.editor.focus(); ui.input(ui.editor, "Still talking");
+  const { root, result } = await ui.open("group"); root.__sandDismiss();
   assert.equal(await result, null); assert.equal(ui.document.activeElement, ui.editor); assert.equal(ui.editor.value, "Still talking");
 });
 
@@ -219,8 +229,36 @@ test("switching from a group to a single Bot clears group-only controls and rest
   assert.equal(ui.editor.getAttribute("aria-controls"), "original-controls"); assert.equal(ui.editor.value, "@");
 });
 
-test("inline controls never introduce modal positioning or browser confirmation APIs", () => {
+test("only explicit creation is modal; group conversation controls stay inline", () => {
   const creation = createSource.slice(createSource.indexOf("let RCreateRequestSerial"), createSource.indexOf("if(!window.__sandVendorPaneBound)"));
-  assert.doesNotMatch(creation, /position:\s*fixed|aria-modal|showModal\(|window\.(?:alert|confirm|prompt)\(/);
+  assert.match(creation, /dialog\.showModal\(/);
+  assert.doesNotMatch(creation, /window\.(?:alert|confirm|prompt)\(/);
   assert.doesNotMatch(groupSource, /position:\s*fixed|aria-modal|showModal\(/);
+});
+
+test("Escape during composition does not dismiss a management dialog", async t => {
+  const ui = await boot(t), { root } = await ui.open("group");
+  const search = root.querySelector("#bb-group-search");
+  search.dispatchEvent(new ui.window.CompositionEvent("compositionstart", { bubbles: true }));
+  search.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  assert.equal(root.isConnected, true);
+  search.dispatchEvent(new ui.window.CompositionEvent("compositionend", { bubbles: true }));
+  search.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  assert.equal(root.isConnected, false);
+});
+
+test("group creation retries use the same operation identity without hiding changed details", async t => {
+  const ui = await boot(t), calls = [];
+  const { root } = await ui.open("group", async draft => { calls.push(structuredClone(draft)); throw new Error("Unconfirmed creation"); });
+  root.querySelector('[data-member-id="a"]').click();
+  root.querySelector(".bb-create-submit").click();
+  await until(() => !root.querySelector(".bb-create-submit").disabled);
+  root.querySelector(".bb-create-submit").click();
+  await until(() => calls.length === 2 && !root.querySelector(".bb-create-submit").disabled);
+  assert.equal(calls[0].clientNonce, calls[1].clientNonce);
+  assert.equal(calls[0].name, "小林");
+  ui.input(root.querySelector("#bb-group-name"), "Another project");
+  root.querySelector(".bb-create-submit").click();
+  await until(() => calls.length === 3);
+  assert.notEqual(calls[2].clientNonce, calls[1].clientNonce);
 });

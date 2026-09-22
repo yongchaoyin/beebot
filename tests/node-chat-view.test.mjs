@@ -57,6 +57,11 @@ test("packaged source chat keeps remote actions on the selected Bot and hides un
     assert.ok(send); send.click(); await tick();
     assert.deepEqual(calls[1], ["send", "server-b", "bot-b", "Please continue"]);
     assert.equal(snapshot.draft, "");
+    change({ draft: "Second question", runningGoal: { id: "first", status: "running" } });
+    await tick();
+    assert.equal(root.querySelector('[aria-label="Send message"]').disabled, false, "normal follow-ups can be queued while the Bot works");
+    assert.match(root.textContent, /do not cancel or change the current execution/);
+    change({ draft: "", runningGoal: null }); await tick();
     change({ connectionId: "server-a", bot: { id: "bot-a", name: "Other Bot" }, draft: "Keep this draft", messages: [], server: { ...snapshot.server, status: "reconnecting" } });
     await tick();
     assert.equal(root.querySelector('[aria-label="Send message"]').disabled, true);
