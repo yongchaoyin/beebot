@@ -226,3 +226,12 @@ test("SendMessage preserves formal work metadata and rejects incompatible sharin
  await assert.rejects(h.runtime.buildSandSendMessage({}, {...body,channel:"slack:public"},{getIngestAttachment:()=>undefined,onSendMessage:()=>undefined}),/quoted local text/);
  await assert.rejects(h.runtime.buildSandSendMessage({}, {...body,notify:"none"},{getIngestAttachment:()=>undefined,onSendMessage:()=>undefined}),/work request/);
 });
+
+
+test("a claim or bookkeeping update cannot masquerade as a submitted result",async t=>{
+ const h=await fixture(t),claimed=h.mutate("b","claim",h.offer().task);
+ assert.throws(()=>h.mutate("b","submit",claimed.task,{result_ids:[claimed.entry.id]}),{code:"work_result_unrelated"});
+ const result=h.result(claimed.task);const submitted=h.mutate("b","submit",claimed.task,{result_ids:[result]}).task;
+ assert.throws(()=>h.mutate("a","review",submitted,{submission_id:submitted.submission.id,decision:"accept",checks:[{criterion:1,passed:true,evidence_ids:[h.entries("room").find(e=>e.workEvent?.action==="offer").id]}]}),{code:"work_evidence_unrelated"});
+ assert.equal(h.db.getCollaborationWorks()[0].state,"submitted");
+});

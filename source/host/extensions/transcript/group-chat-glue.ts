@@ -1,3 +1,4 @@
+import { captureWorkQuestions, recordWorkPublication, workQuestionScope, isWorkQuestionCurrent, type WorkQuestionCapture } from "./work-question-context.js";
 import { commitWorkInConversation, workContext } from "./conversation-work.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
@@ -403,6 +404,7 @@ export class GroupChatGlue {
     let lastReactionApplied = false;
     let lastSentMessageId: string | undefined;
     let contextUserMessageId: string | null = null;
+    let workQuestionCapture: WorkQuestionCapture | undefined;
     let trackActivity = createGroupMemberActivityTracker();
     const transport = {
       onUpdate: (update: any) => {
@@ -427,7 +429,7 @@ export class GroupChatGlue {
             // Seal only explicit public output. Raw text deltas can contain the
             // agent's private scratchpad and are not a public chat message.
             this.streamGroupMemberUpdate(roomSession, effective.member, update, live);
-            lastSentMessageId = effective.publish({...publication, contextUserMessageId});
+            lastSentMessageId = effective.publish({...publication, contextUserMessageId, ...(workQuestionCapture ? {workQuestionCapture} : {})});
           } else if (update.message?.type === "text") sent.push(update.message.content);
         }
       },
@@ -487,6 +489,7 @@ export class GroupChatGlue {
               },
             });
             try {
+              workQuestionCapture = captureWorkQuestions(roomSession);
               const latestHistory = this.readGroupHistory(roomSession);
               contextUserMessageId = [...latestHistory].reverse().find(message => message.speaker.kind === "user")?.id ?? null;
               const sourceIds = new Set(effective.sourceMessageIds || []);
@@ -628,6 +631,7 @@ export class GroupChatGlue {
     if (publication?.message?.collaboration) {
       const result = commitWorkInConversation(this.tm, session, publication.message, member, publication.replyToId, publication.workOnId);
       publication.replayed = result.replay;
+      recordWorkPublication(publication.workQuestionCapture, result.entry, result);
       return result.entry.id;
     }
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
@@ -638,7 +642,9 @@ export class GroupChatGlue {
     const message = publication?.message ?? {type: "text", content};
     const latestUser = [...entriesInRoom].reverse().find((entry: TranscriptEntry) => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
     const decisionUserId = publication?.contextUserMessageId !== undefined ? publication.contextUserMessageId : latestUser?.id ?? null;
-    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const scope = message.type === "widget" ? workQuestionScope(publication?.workQuestionCapture, workOnId) : undefined;
+    const staleQuestion = scope ? !isWorkQuestionCurrent(session, scope) : decisionUserId !== (latestUser?.id ?? null);
+    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: scope ?? {userMessageId: decisionUserId}, ...(staleQuestion ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive) {
@@ -666,6 +672,7 @@ export class GroupChatGlue {
             session,
             finalized,
           );
+          recordWorkPublication(publication?.workQuestionCapture, finalized);
           return finalized.id;
         }
       }
@@ -690,6 +697,7 @@ export class GroupChatGlue {
       void this.tm.roster.emitAgentUpdate(session.id);
     }
     this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, entry);
+    recordWorkPublication(publication?.workQuestionCapture, entry);
     return entry.id;
   }
 

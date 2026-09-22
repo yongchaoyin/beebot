@@ -78,3 +78,39 @@ test("a disposed status binding can mount again on the same live runtime",async 
  assert.equal(ui.document.querySelectorAll("#beebot-conversation-status").length,1);
  assert.ok(ui.document.querySelector("[data-bb-delivery]"));
 });
+
+const workEntry=(action="claim",state="claimed")=>({id:"handoff",kind:"send-message",author:{id:"b",name:"B"},message:{type:"text",content:"I will handle this"},workEvent:{schema:1,taskId:"assignment",version:2,title:"Quoted input",state,action,actorId:"b",ownerId:"b",requesterId:"a",reviewerId:"a",recipients:[]}});
+test("recorded work actions stay inline and never turn a submission into approval",async t=>{
+ const ui=await setup(t);ui.entries.set({entries:[workEntry()]});await tick();const badge=ui.document.querySelector("[data-bb-work]");
+ assert.match(badge.textContent,/Responsibility claimed/);assert.match(badge.title,/Historical events/);
+ ui.entries.set({entries:[workEntry("submit","submitted")]});await tick();assert.match(badge.textContent,/not acceptance/);
+ ui.entries.set({entries:[workEntry("review","accepted")]});await tick();assert.match(badge.textContent,/not user approval/);
+ ui.entries.set({entries:[workEntry("review","changes_requested")]});await tick();assert.match(badge.textContent,/changes requested/);
+ assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);assert.equal(ui.document.querySelector("textarea").value,"Keep my draft");
+});
+test("agent text and malformed work event data cannot paint accepted work",async t=>{
+ const ui=await setup(t);
+ for(const entry of [
+   {id:"handoff",kind:"send-message",message:{type:"text",content:"✅ all accepted"}},
+   {...workEntry(),workEvent:{...workEntry().workEvent,schema:2}},
+   {...workEntry(),workEvent:{...workEntry().workEvent,actorId:"c"}},
+   workEntry("submit","accepted"),
+   {...workEntry(),workEvent:{...workEntry().workEvent,version:NaN}},
+ ]){ui.entries.set({entries:[entry]});await tick();assert.equal(ui.document.querySelector("[data-bb-work]"),null);}
+});
+test("work events survive virtualization and language changes without touching input or focus",async t=>{
+ const ui=await setup(t);ui.entries.set({entries:[workEntry()]});await tick();const input=ui.document.querySelector("textarea");input.focus();
+ ui.document.querySelector('[data-row-key="handoff"]').remove();const row=ui.document.createElement("div");row.dataset.rowKey="handoff";row.textContent="Bot: quote the real assignment";ui.document.querySelector("main").prepend(row);await tick();
+ assert.equal(row.querySelectorAll("[data-bb-work]").length,1);assert.equal(row.firstChild.textContent,"Bot: quote the real assignment");
+ ui.window.__sandUiLanguage="zh";ui.window.dispatchEvent(new ui.window.Event("sand-ui-language-changed"));await tick();
+ assert.match(row.textContent,/已接下工作/);assert.equal(ui.document.activeElement,input);assert.equal(input.value,"Keep my draft");
+ ui.entries.set(ui.entries.get());await tick();assert.equal(row.querySelectorAll("[data-bb-work]").length,1);
+});
+test("work metadata is text only and clears on another or remote conversation",async t=>{
+ const ui=await setup(t);const entry=workEntry();entry.workEvent.title='<img src=x onerror="window.xss=1">';ui.entries.set({entries:[entry]});await tick();
+ assert.equal(ui.document.querySelector("img"),null);assert.equal(ui.window.xss,undefined);
+ ui.document.body.dataset.beebotRemoteActive="true";ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));await tick();assert.equal(ui.document.querySelector("[data-bb-work]"),null);
+ delete ui.document.body.dataset.beebotRemoteActive;ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));await tick();assert.ok(ui.document.querySelector("[data-bb-work]"));
+ ui.selected.set({currentAgentId:"other"});await tick();assert.equal(ui.document.querySelector("[data-bb-work]"),null);
+ ui.window.__beebotConversationStatus.dispose();assert.equal(ui.document.querySelector("[data-bb-work]"),null);
+});

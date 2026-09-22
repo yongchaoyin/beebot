@@ -127,6 +127,7 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
         requireFact(criteria.size === command.checks.length && [...criteria].every(n => n <= task.requirements.length), "work_check_invalid", "Each review criterion must match one required item exactly once.");
         for (const check of command.checks) for (const id of check.evidence_ids) {
           const evidence = requireMessageReference(entries, id, "evidence_ids");
+          requireFact(evidence.kind === "send-message" && !evidence.workEvent && ["text", "attachment"].includes(String((evidence.message as any)?.type)), "work_evidence_unrelated", "Use actual published evidence, not a claim, status change or question.");
           requireFact(task.submission.results.some(ref => ref.id === id) || ((evidence.author as any)?.id === input.actor.id && related(entries, id, task.id)), "work_evidence_unrelated", "Evidence must be a submitted result or this reviewer's linked inspection in this conversation.");
         }
         if (command.decision === "accept") {
@@ -149,7 +150,7 @@ export function commitCollaborationWork(db: DatabaseSync, input: WorkPublication
           requireFact(["claimed", "changes_requested"].includes(task.state), "work_state_conflict", "Claim the work before submitting, and resolve blockers first."); dependenciesReady();
           const results = [...new Set(command.result_ids)].map(id => {
             const entry = requireMessageReference(entries, id, "result_ids");
-            requireFact(entry.kind === "send-message" && ((entry.author as any)?.id ?? (input.memberIds.length === 1 ? input.actor.id : undefined)) === input.actor.id && ["text", "attachment"].includes(String((entry.message as any)?.type)) && related(entries, id, task.id), "work_result_unrelated", "Submit your actual published results linked to this assignment, not another colleague's work or an unrelated message.");
+            requireFact(entry.kind === "send-message" && !entry.workEvent && !(entry.message as any)?.collaboration && ((entry.author as any)?.id ?? (input.memberIds.length === 1 ? input.actor.id : undefined)) === input.actor.id && ["text", "attachment"].includes(String((entry.message as any)?.type)) && related(entries, id, task.id), "work_result_unrelated", "Submit your actual published results linked to this assignment, not another colleague's work or an unrelated message.");
             return {id, digest: resultDigest(entry)};
           });
           task.submission = {id: messageId, results}; task.state = "submitted";

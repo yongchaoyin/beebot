@@ -28,7 +28,7 @@ function RBindConversationStatus(runtime) {
       #beebot-conversation-status button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
       .bb-conversation-summary{flex:1;min-width:120px}.bb-conversation-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%;padding:8px 0;border-top:1px solid var(--cursor-stroke-secondary,#8884)}
       .bb-conversation-confirm>span{flex:1;min-width:180px}.bb-conversation-feedback{flex-basis:100%;overflow-wrap:anywhere}.bb-conversation-feedback:empty{display:none}
-      [data-bb-delivery],[data-bb-publication]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
+      [data-bb-delivery],[data-bb-publication],[data-bb-work]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
       [data-bb-delivery][data-state="failed"],[data-bb-delivery][data-state="needs-review"]{font-weight:550}
     `;document.head.append(style);
   }
@@ -41,7 +41,7 @@ function RBindConversationStatus(runtime) {
     if(current!==id){
       id=current;epoch++;intent=null;pending=false;feedback="";offEntries?.();offEntries=undefined;entryStore=null;
       if(id){entryStore=runtime.transcript.snapshotsFor(id);offEntries=entryStore.subscribe(schedule);}
-      for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication]"))node.remove();
+      for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication],[data-bb-work]"))node.remove();
     }
     const remote=document.body?.dataset.beebotRemoteActive==="true";
     const state=snapshot(),entries=!remote&&id&&Array.isArray(state?.entries)?state.entries:[];
@@ -71,6 +71,26 @@ function RBindConversationStatus(runtime) {
           :t("外部文件链接，未在本机验证。","External file link, not locally verified.")).join("；");
       if(badge.textContent!==value)badge.textContent=value;
       badge.title=files.map(file=>file.sha256||"").filter(Boolean).join("\n");
+    }
+    // Historical action facts, not inferred current task completion. The Host
+    // writes workEvent transactionally; never parse agent prose into a status.
+    const workStates={offer:["offered"],claim:["claimed"],block:["blocked"],resume:["claimed"],revise:["offered","changes_requested"],submit:["submitted"],review:["accepted","changes_requested"]};
+    const works=new Map(entries.filter(entry=>{
+      const event=entry?.workEvent;
+      return entry.kind==="send-message"&&event?.schema===1&&typeof event.taskId==="string"&&event.taskId.length<=256
+        &&Number.isSafeInteger(event.version)&&event.version>0&&typeof event.title==="string"&&event.title.length<=160
+        &&event.actorId===entry.author?.id&&workStates[event.action]?.includes(event.state);
+    }).map(entry=>[entry.id,entry]));
+    for(const row of document.querySelectorAll("[data-row-key]")){
+      const entry=works.get(row.getAttribute("data-row-key"));let badge=row.querySelector(":scope > [data-bb-work]");
+      if(!entry){badge?.remove();continue;}
+      const event=entry.workEvent;
+      if(!badge){badge=document.createElement("span");badge.dataset.bbWork=entry.id;row.append(badge);}
+      const labels={offer:t("分工已记录","Assignment recorded"),claim:t("已接下工作","Responsibility claimed"),block:t("已报告工作受阻","Blocker reported"),resume:t("已恢复处理","Work resumed"),revise:t("工作要求已修订","Requirements revised"),submit:t("结果已提交（不等于验收）","Result submitted (not acceptance)")};
+      const value=event.action==="review"?(event.state==="accepted"?t("同伴检查通过（非用户验收）","Peer review accepted (not user approval)"):t("同伴检查：需要修改","Peer review: changes requested")):labels[event.action];
+      if(badge.textContent!==value)badge.textContent=value;
+      badge.dataset.action=event.action;
+      badge.title=t(`此消息记录的工作事件 · ${event.title} · 版本 ${event.version}。历史记录不代替当前工作状态。`,`Work event recorded by this message · ${event.title} · version ${event.version}. Historical events do not replace current task state.`);
     }
     const unresolved=entries.filter(entry=>["queued","processing","needs-review"].includes(entry?.delivery?.state));
     const processing=unresolved.filter(entry=>["queued","processing"].includes(entry.delivery.state)).length;
@@ -108,8 +128,8 @@ function RBindConversationStatus(runtime) {
   window.addEventListener("sand-ui-language-changed",schedule);window.addEventListener("beebot-node-selection",schedule);
   // Virtualization mounts rows independently of data arrival. Child changes only
   // (not attributes/text) prevent our own badge updates from creating a loop.
-  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery],[data-bb-publication]'))))schedule();});
+  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery],[data-bb-publication],[data-bb-work]'))))schedule();});
   observer.observe(document.body,{subtree:true,childList:true});
-  window.__beebotConversationStatus={runtime,dispose(){disposed=true;if(window.__beebotConversationStatus?.runtime===runtime)delete window.__beebotConversationStatus;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery],[data-bb-publication]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
+  window.__beebotConversationStatus={runtime,dispose(){disposed=true;if(window.__beebotConversationStatus?.runtime===runtime)delete window.__beebotConversationStatus;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery],[data-bb-publication],[data-bb-work]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
   render();
 }

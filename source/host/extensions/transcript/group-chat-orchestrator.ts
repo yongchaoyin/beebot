@@ -1,3 +1,4 @@
+import type { WorkQuestionCapture } from "./work-question-context.js";
 import { buildGroupReplyContext } from "../../groups/group-replies.js";
 import {
   GROUP_MAX_MESSAGES_PER_TURN,
@@ -23,6 +24,7 @@ export interface GroupPublication {
   workOnId?: string;
   awaitingUser?: boolean;
   contextUserMessageId?: string | null;
+  workQuestionCapture?: WorkQuestionCapture;
   replayed?: boolean;
 }
 export interface GroupOrchestratorDeps {
