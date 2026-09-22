@@ -1,30 +1,100 @@
-name: Presence native baseline
+name: Presence complete validation
 on:
   push:
     branches: [work/presence-validation-20260922]
-    paths: [.github/workflows/presence-validation.yml]
+    paths: [.github/workflows/presence-validation.yml, .presence-transfer/**]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  native:
+  validate:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a11209cb1620e96470ec16363d8858b830592bcb
           lfs: true
-          persist-credentials: false
+          fetch-depth: 10
+      - name: Apply exact reviewed UTF-8 source changes to the pinned baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/presence-validation
+          cp .presence-transfer/*.b64 /tmp/presence-validation/
+          git checkout --detach a11209cb1620e96470ec16363d8858b830592bcb
+          python3 - <<'PY'
+          import base64,gzip,hashlib,json,subprocess
+          from pathlib import Path,PurePosixPath
+          root=Path.cwd(); out=Path('/tmp/presence-validation')
+          packed=base64.b64decode(''.join((out/f'{i}.b64').read_text() for i in range(3)),validate=True)
+          assert hashlib.sha256(packed).hexdigest()=='e1b57ec03dbfb384530c3c37cb19b224f3ec37187b189cd477e2888524f9dbab'
+          data=json.loads(gzip.decompress(packed))
+          assert data['base']==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          def checked(name):
+              p=PurePosixPath(name)
+              assert not p.is_absolute() and '..' not in p.parts
+              assert p.parts[0] in {'README.md','README.zh.md','branding','frontend','scripts','tests','docs'}
+              q=root/name
+              assert q.resolve().is_relative_to(root) and not q.is_symlink()
+              return q
+          originals={}; results={}; removals=set()
+          for op in data['operations']:
+              dest=checked(op['path']); kind=op['op']
+              if kind=='write':
+                  assert not dest.exists(),op['path']
+                  result=op['content'].encode('utf-8')
+              else:
+                  source=checked(op.get('source',op['path']))
+                  raw=originals.setdefault(str(source),source.read_bytes())
+                  assert hashlib.sha256(raw).hexdigest()==op['before'],str(source)
+                  if kind=='delete':
+                      removals.add(source); continue
+                  assert kind=='edit'
+                  text=raw.decode('utf-8'); previous=len(text)+1
+                  for start,end,replacement in reversed(op['edits']):
+                      assert 0<=start<=end<previous
+                      text=text[:start]+replacement+text[end:]; previous=start+1
+                  result=text.encode('utf-8')
+                  if source!=dest: removals.add(source)
+              assert hashlib.sha256(result).hexdigest()==op['after'],str(dest)
+              assert dest not in results
+              results[dest]=result
+          for source in removals: source.unlink()
+          for dest,result in results.items():
+              dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(result)
+          paths=sorted({str(p.relative_to(root)) for p in removals|set(results)})
+          subprocess.run(['git','add','-A','--',*paths],check=True)
+          changed=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert changed and all(not p.startswith('.') for p in changed)
+          (out/'manifest-summary.json').write_text(json.dumps({'base':data['base'],'payload_sha256':hashlib.sha256(packed).hexdigest(),'operations':len(data['operations']),'paths':changed},indent=2))
+          PY
+          git -c user.name='BeeBot validation' -c user.email='beebot-validation@users.noreply.github.com' commit -m 'feat(ui): neutral theme and shared expressive avatar system'
+          git rev-parse HEAD > /tmp/presence-validation/code-commit.txt
+          git rev-parse 'HEAD^{tree}' > /tmp/presence-validation/code-tree.txt
+          git diff HEAD^ HEAD --stat > /tmp/presence-validation/changes.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
           cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run bootstrap
-      - name: Export pinned renderer for exact native adapters
-        run: tar -czf /tmp/presence-native-renderer.tar.gz src/app/dist/renderer
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Hydrate checksum-pinned native runtime
+        run: npm run bootstrap 2>&1 | tee /tmp/presence-validation/bootstrap.log
+      - name: Generate the neutral macOS icon
+        run: npm run icon:generate 2>&1 | tee /tmp/presence-validation/icon.log
+      - name: Full source, collaboration, theme and native package tests
+        run: npm run check 2>&1 | tee /tmp/presence-validation/check.log
+      - name: Build editable production frontend
+        run: npm run frontend:build 2>&1 | tee /tmp/presence-validation/frontend-build.log
+      - name: Verify exact publication tree
+        run: npm run publication:check 2>&1 | tee /tmp/presence-validation/publication.log
+      - name: Preserve validated code-only commit without changing user feature branch
+        run: git push origin HEAD:refs/heads/work/presence-code-20260922
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: presence-native-baseline
-          path: /tmp/presence-native-renderer.tar.gz
-          retention-days: 1
+          name: presence-complete-validation
+          path: |
+            /tmp/presence-validation/*.log
+            /tmp/presence-validation/*.json
+            /tmp/presence-validation/*.txt
+          retention-days: 7
