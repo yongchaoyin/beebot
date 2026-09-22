@@ -1,0 +1,113 @@
+name: Source-linked work understanding verification
+on:
+  push:
+    branches: [work/natural-collaboration-validation-20260922]
+    paths: [.github/workflows/work-understanding-stages.yml, '.dev-submit/understanding-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Reconstruct exact reviewed stage objects without changing product refs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64,hashlib,json,lzma,pathlib,subprocess
+          text=''.join(pathlib.Path(f'.dev-submit/understanding-{i:02}.b64').read_text() for i in range(8))
+          raw=base64.b64decode(text,validate=True)
+          assert len(raw)==17416
+          assert hashlib.sha256(raw).hexdigest()=='dc3de3a0c5a0f6fbaa696c1ae83777c931e3ca22abf22e0b24bdd71e554c6033'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='76a99d4b1fd14782e04945c8cbe9abe96eb25d8d'
+          git('checkout','--detach',parent)
+          expected=[('c3d364a4b0cf5161457db03eb7893f6243316029','e8c949746aedd52d5d5781b02137862aff484a37'),('fdeadd4532cca4762f9ff14d530e6123938944b6','4c73a7ded5ad3a8e8e234ce11355083bc68355c6')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert str(path).startswith(('source/','scripts/','tests/','docs/')) and '..' not in path.parts
+                  assert not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new']
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();headers=commit.split(b'\n\n',1)[0].decode().splitlines()
+              assert headers[0]=='tree '+tree and [h for h in headers if h.startswith('parent ')]==['parent '+parent]
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent)
+              assert not git('status','--porcelain').strip()
+              print('Verified source stage:',sha,tree);parent=sha
+          git('push','origin','HEAD:refs/heads/work/work-understanding-candidate-20260922')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fdeadd4532cca4762f9ff14d530e6123938944b6
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Record exact source identity and environment
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = fdeadd4532cca4762f9ff14d530e6123938944b6
+          mkdir -p /tmp/work-understanding-verification
+          git log -2 --format='%H %s' > /tmp/work-understanding-verification/commits.txt
+          git rev-parse HEAD^{tree} > /tmp/work-understanding-verification/tree.txt
+          node --version > /tmp/work-understanding-verification/node.txt
+          sw_vers > /tmp/work-understanding-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regression checks
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/work-understanding-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/work-understanding-verification/frontend.log
+      - name: Lossless publication tree check
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/work-understanding-verification/publication.log
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/work-understanding-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: work-understanding-verification
+          path: /tmp/work-understanding-verification/
+          retention-days: 7
