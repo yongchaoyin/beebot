@@ -1,0 +1,28 @@
+name: Natural collaboration source
+on:
+  push:
+    branches: [work/natural-collaboration-validation-20260922]
+    paths: [.github/workflows/natural-collaboration-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export Git objects only, excluding checkout credentials and configuration
+        run: |
+          mkdir /tmp/natural-source
+          git bundle create /tmp/natural-source/history.bundle --all
+          git for-each-ref --format='%(refname) %(objectname)' refs/remotes/origin/ > /tmp/natural-source/refs.txt
+          sha256sum /tmp/natural-source/history.bundle > /tmp/natural-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural-collaboration-source
+          path: /tmp/natural-source/
+          retention-days: 1
