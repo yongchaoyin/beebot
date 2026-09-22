@@ -1,0 +1,32 @@
+name: Honeyline renderer fixture
+on:
+  push:
+    branches: [feat/honeyline-theme-20260922]
+    paths: [.github/workflows/honeyline-renderer-fixture.yml]
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - name: Export checksum-verified renderer, without app data
+        run: |
+          mkdir /tmp/honeyline-renderer
+          tar -czf /tmp/honeyline-renderer/renderer.tar.gz src/app/dist/renderer
+          shasum -a 256 /tmp/honeyline-renderer/renderer.tar.gz > /tmp/honeyline-renderer/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: honeyline-renderer
+          path: /tmp/honeyline-renderer/
+          retention-days: 1
