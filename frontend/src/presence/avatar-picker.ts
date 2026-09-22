@@ -1,4 +1,4 @@
-import { AVATAR_SHAPES, COLORS, characterLayers, characterVariant, createCharacterSvg } from "./avatar-art.ts";
+import { AVATAR_SHAPES, COLORS, COLOR_LABELS, SHAPE_LABELS, avatarForeground, characterLayers, characterVariant, createCharacterSvg } from "./avatar-art.ts";
 import { registerAvatarMotion } from "./avatar-motion.ts";
 
 export interface AvatarPickerValue { readonly shape: string; readonly color: string }
@@ -8,17 +8,6 @@ export interface AvatarPickerOptions extends AvatarPickerValue {
   onChange(value: AvatarPickerValue): void;
 }
 
-const SHAPE_LABELS: Record<string, readonly [string, string]> = {
-  blob: ["Round", "圆团"], tablet: ["Block", "方块"], pebble: ["Pebble", "卵石"],
-  wedge: ["Wedge", "斜角"], cloud: ["Cloud", "云团"], squircle: ["Soft square", "圆角"],
-};
-// Keep the existing persisted keys; these swatches use the current neutral art.
-const COLOR_LABELS: Record<string, readonly [string, string]> = {
-  black: ["Slate", "岩灰"], brown: ["Stone", "石色"], red: ["Rose", "玫瑰"],
-  orange: ["Dusk", "暮色"], yellow: ["Cloud", "雾蓝"], green: ["Sage", "鼠尾草"],
-  cyan: ["Mist", "浅青"], blue: ["Blue", "浅蓝"], violet: ["Lilac", "淡紫"],
-  magenta: ["Blush", "浅粉"], gray: ["Gray", "中灰"],
-};
 const STYLE_ID = "bb-avatar-picker-style";
 const STYLE = `
 .bb-avatar-picker{display:grid;gap:14px;width:100%;min-width:0;margin:0 0 16px;font:inherit;color:var(--cursor-text-primary,CanvasText)}
@@ -30,7 +19,8 @@ const STYLE = `
 .bb-avatar-picker__summary small{font-size:12px;line-height:1.5;color:var(--cursor-text-secondary,GrayText)}
 .bb-avatar-picker fieldset{border:0;margin:0;padding:0;min-width:0}
 .bb-avatar-picker legend{padding:0;margin-bottom:8px;font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
-.bb-avatar-picker__choices{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.bb-avatar-picker__choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.bb-avatar-picker__choices[data-kind=color]{grid-template-columns:repeat(6,minmax(0,1fr))}
 .bb-avatar-picker .bb-avatar-picker__choice{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;min-width:0;min-height:44px;padding:5px 2px;margin:0;border:2px solid transparent;border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:11px;line-height:1.3;cursor:pointer;box-shadow:none}
 .bb-avatar-picker__choice>svg{width:32px;height:32px;flex:none}
 .bb-avatar-picker__choice>span:last-child{overflow-wrap:anywhere}
@@ -40,7 +30,7 @@ const STYLE = `
 .bb-avatar-picker .bb-avatar-picker__choice:disabled{opacity:.5;cursor:default}
 .bb-avatar-picker__swatch{display:grid;place-items:center;width:26px;height:26px;border:1px solid rgb(0 0 0 / .15);border-radius:50%;color:#273347;font-size:16px;font-weight:700}
 .bb-avatar-picker__color-name{display:block;margin-top:6px;font-size:12px;color:var(--cursor-text-secondary,GrayText)}
-@media(max-width:360px){.bb-avatar-picker__choices{grid-template-columns:repeat(3,minmax(0,1fr))}.bb-avatar-picker__choices[data-kind=color]{grid-template-columns:repeat(6,minmax(0,1fr))}}
+@media(max-width:360px){.bb-avatar-picker__choices{grid-template-columns:repeat(4,minmax(0,1fr))}.bb-avatar-picker__choices[data-kind=color]{grid-template-columns:repeat(6,minmax(0,1fr))}}
 @media(forced-colors:active){.bb-avatar-picker .bb-avatar-picker__choice{border:1px solid ButtonText}.bb-avatar-picker .bb-avatar-picker__choice[aria-checked=true]{outline:2px solid Highlight}.bb-avatar-picker__swatch{forced-color-adjust:none}}
 `;
 
@@ -87,7 +77,7 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
         button.append(icon, document.createElement("span"));
       } else {
         const swatch = document.createElement("span"); swatch.className = "bb-avatar-picker__swatch";
-        swatch.style.backgroundColor = COLORS[key]; swatch.setAttribute("aria-hidden", "true"); button.append(swatch);
+        swatch.style.backgroundColor = COLORS[key]; swatch.style.color = avatarForeground(key); swatch.setAttribute("aria-hidden", "true"); button.append(swatch);
       }
       button.addEventListener("click", () => { if (!button.disabled) choose(kind, key); });
       group.append(button); return button;
@@ -138,7 +128,11 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
         button.setAttribute("aria-checked", String(checked)); button.tabIndex = checked ? 0 : -1; button.disabled = disabled;
         if (kind === "shape") {
           button.querySelector("span")!.textContent = text;
-          button.querySelector('[data-part="body"]')!.setAttribute("fill", Object.hasOwn(COLORS, value.color) ? COLORS[value.color] : COLORS.blue);
+          // Face contrast changes with color too; keep every thumbnail node stable.
+          const thumbnailLayers = characterLayers(key, value.color);
+          button.querySelectorAll("[data-part]").forEach((node, index) => {
+            for (const [attribute, value] of Object.entries(thumbnailLayers[index].attrs)) node.setAttribute(attribute, String(value));
+          });
         } else button.querySelector("span")!.textContent = checked ? "✓" : "";
       }
     }

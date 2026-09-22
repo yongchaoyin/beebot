@@ -3,7 +3,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 import { readFile } from "node:fs/promises";
 import { avatarStateFromAgent, normalizeAvatarState, selectMotionCandidates } from "../frontend/src/presence/avatar-state.ts";
-import { characterLayers, createCharacterSvg, AVATAR_SHAPES, COLORS } from "../frontend/src/presence/avatar-art.ts";
+import { characterLayers, createCharacterSvg, AVATAR_SHAPES, COLORS, AVATAR_PALETTE, characterVariant } from "../frontend/src/presence/avatar-art.ts";
 import { registerAvatarMotion, getAvatarMotionPreference, setAvatarMotionPreference, gestureAvatarIdentity } from "../frontend/src/presence/avatar-motion.ts";
 
 const cases = [
@@ -28,9 +28,10 @@ test("group animation budget chooses active speaker, never all participants",()=
 test("tiny, historical, hidden and waiting avatars cannot occupy activity slots",()=>{
   assert.deepEqual(selectMotionCandidates([candidate(1,{size:22}),candidate(2,{paused:true}),candidate(3,{visible:false}),...['paused','offline','error','waiting','needs_user'].map((state,i)=>candidate(i+4,{state}))]),[]);
 });
-test("six original silhouettes and neutral legacy colors are stable",()=>{
-  assert.equal(AVATAR_SHAPES.length,6);assert.equal(new Set(AVATAR_SHAPES.map(shape=>characterLayers(shape)[0].attrs.d)).size,6);
-  for(const color of Object.keys(COLORS))assert.doesNotMatch(COLORS[color],/#E6B84A|#FF9800|#FFAF38/i);
+test("eight pinned silhouettes and original color categories are stable",()=>{
+  assert.equal(AVATAR_SHAPES.length,8);assert.equal(new Set(AVATAR_SHAPES.map(shape=>characterLayers(shape)[0].attrs.d)).size,8);
+  assert.equal(AVATAR_PALETTE.length,11);assert.equal(COLORS.yellow,"#FF9800");assert.equal(COLORS.black,"#000000");
+  assert.notEqual(characterVariant("hex"),characterVariant("tablet"));assert.notEqual(characterVariant("teardrop"),characterVariant("blob"));
   for(const shape of AVATAR_SHAPES){const parts=characterLayers(shape).map(l=>l.part);assert.equal(parts.filter(p=>p==='eyes').length,2);assert.ok(parts.includes('mouth'));}
 });
 

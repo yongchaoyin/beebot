@@ -1,4 +1,3 @@
-import { COLORS as PRESENCE_COLORS } from "../../../../presence/avatar-art";
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2747995 (Amt image normalization; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2748503 (qUe file decoding; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2748774 (jUe 256px PNG export; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
@@ -15,23 +14,11 @@ export const AVATAR_MAX_ZOOM = 5;
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=22574 (PQ character palette; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=22574 (PQ character palette; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
-export const AVATAR_COLORS = [
-  { id: "black", label: "Slate", value: PRESENCE_COLORS.black },
-  { id: "brown", label: "Stone", value: PRESENCE_COLORS.brown },
-  { id: "red", label: "Rose", value: PRESENCE_COLORS.red },
-  { id: "orange", label: "Dusk", value: PRESENCE_COLORS.orange },
-  { id: "yellow", label: "Cloud", value: PRESENCE_COLORS.yellow },
-  { id: "green", label: "Sage", value: PRESENCE_COLORS.green },
-  { id: "cyan", label: "Mist", value: PRESENCE_COLORS.cyan },
-  { id: "blue", label: "Blue", value: PRESENCE_COLORS.blue },
-  { id: "violet", label: "Lilac", value: PRESENCE_COLORS.violet },
-  { id: "magenta", label: "Blush", value: PRESENCE_COLORS.magenta },
-  { id: "gray", label: "Gray", value: PRESENCE_COLORS.gray },
-] as const;
+export { AVATAR_PALETTE as AVATAR_COLORS } from "../../../../presence/avatar-art";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=22691 (Ij character shapes; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=22691 (Ij character shapes; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
-export const AVATAR_SHAPES = ["blob", "pebble", "squircle", "tablet", "wedge", "hex", "cloud", "teardrop"] as const;
+export { AVATAR_SHAPES } from "../../../../presence/avatar-art";
 
 export interface AvatarCharacter {
   readonly avatarShape: string | null;

@@ -1,7 +1,7 @@
 # New Bot appearance selection
 
-New Bot exposes shape and color choices directly, before creation. The six
-canonical Presence shapes and eleven current neutral colors are independent.
+New Bot exposes shape and color choices directly, before creation. The eight
+pinned Grok Bot shapes and eleven original color categories are independent.
 Only the main preview is animated; it uses the existing Presence motion
 coordinator, preference, visibility, focus and reduced-motion behavior. This
 change does not introduce new gestures or a second motion setting.
@@ -35,7 +35,7 @@ npm run check
 npm run frontend:build
 ```
 
-The focused tests exercise all 66 combinations, keyboard selection, localization,
+The focused tests exercise all 88 combinations, keyboard selection, localization,
 pending/error recovery, disposal, legacy IDs, the actual React creation sheet,
 and the actual native creation function with controlled local/remote callbacks.
 They also verify that Group and transport source are unchanged by the new patch.
@@ -46,3 +46,13 @@ to the production app. It uses the real shared selector and motion modules with
 explicitly local test callbacks. It is not a full installed Mac app, real server
 persistence test, or model execution. First-run onboarding and the existing
 post-creation avatar editor are not redesigned by this increment.
+
+## Original catalog correction
+
+The neutral application theme does not remap avatar colors. The picker, editor,
+chat artwork and packaged renderer share the original palette and eight shape IDs.
+`hex` and `teardrop` have their own paths, never modulo-mapped to other shapes.
+Recovered shape constructors are shared through `presence/avatar-shapes.ts`;
+only the original coordinate system is scaled into the existing 64px motion stage.
+Faces and selection ticks choose a contrasting foreground, including on black.
+No animation controller, persisted selection field or transport logic was changed.

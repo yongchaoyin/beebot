@@ -20,7 +20,7 @@ export function createPresenceWorkStatus(React: typeof ReactAPI) {
 
 export { createPresenceMotionSetting } from "./motion-setting";
 export { avatarStateFromAgent } from "./avatar-state";
-export { COLORS as avatarColors, characterVariant, AVATAR_SHAPES as avatarShapes } from "./avatar-art";
+export { COLORS as avatarColors, AVATAR_PALETTE as avatarPalette, characterVariant, AVATAR_SHAPES as avatarShapes } from "./avatar-art";
 
 // Shared appearance selection, using the existing native creation callback.
 export { mountAvatarPicker } from "./avatar-picker";

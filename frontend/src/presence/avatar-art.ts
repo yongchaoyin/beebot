@@ -1,41 +1,67 @@
-export const AVATAR_SHAPES = ["blob", "tablet", "pebble", "wedge", "cloud", "squircle"] as const;
-/** Original, neutral digital colleagues. No antennae, insect motifs or vendor paths.
- * Persisted persona keys remain compatible; artwork and palettes are owned here. */
-export const SHAPES = [
-  "M18 10C9 10 5 19 5 32s5 23 17 23h20c12 0 17-9 17-22S54 10 43 10Z",
-  "M17 12h30c8 0 12 5 12 13v20c0 8-5 12-13 12H18C9 57 5 52 5 44V26c0-9 4-14 12-14Z",
-  "M32 7C18 7 6 19 6 34s10 23 26 23 26-9 26-23S46 7 32 7Z",
-  "M24 10c-6 0-10 5-13 14L5 42c-3 8 3 14 12 14h30c9 0 15-6 12-14l-6-18c-3-9-7-14-13-14Z",
-  "M17 13C9 17 6 26 8 37c2 13 10 20 23 20s24-6 26-19c2-11-3-19-12-24-9-5-20-5-28-1Z",
-  "M18 8h28c8 0 12 7 12 17v17c0 10-7 15-17 15H23C13 57 6 52 6 42V25C6 15 10 8 18 8Z",
+import { AVATAR_SHAPES, PERSONA_SHAPE_PATHS } from "./avatar-shapes.ts";
+export { AVATAR_SHAPES } from "./avatar-shapes.ts";
+
+/** Pinned Grok Bot palette (PQ). Avatar identity is independent of UI theme. */
+export const AVATAR_PALETTE = [
+  { id: "black", label: "Black", value: "#000000" },
+  { id: "brown", label: "Brown", value: "#936439" },
+  { id: "red", label: "Red", value: "#FF263C" },
+  { id: "orange", label: "Orange", value: "#FF6700" },
+  { id: "yellow", label: "Yellow", value: "#FF9800" },
+  { id: "green", label: "Green", value: "#00C972" },
+  { id: "cyan", label: "Cyan", value: "#00BCA6" },
+  { id: "blue", label: "Blue", value: "#1084FE" },
+  { id: "violet", label: "Violet", value: "#9159FE" },
+  { id: "magenta", label: "Magenta", value: "#FF309B" },
+  { id: "gray", label: "Gray", value: "#777777" },
 ] as const;
-export const COLORS: Record<string, string> = {
-  black: "#B6C0D0", brown: "#C8BFC4", violet: "#C4BBDE", magenta: "#D7BDC9",
-  // A legacy yellow/orange preference must not resurrect the retired theme.
-  yellow: "#A8BBD2", orange: "#C8BEC8", red: "#DCBCC0", pink: "#D7BDC9",
-  purple: "#C4BBDE", blue: "#ADC3EA", cyan: "#ADD0DB", teal: "#B6CDC7",
-  green: "#B6CDC7", lime: "#C0CEC8", gray: "#BEC5D0", grey: "#BEC5D0",
+const COLOR_ZH: Record<string, string> = {
+  black: "黑色", brown: "棕色", red: "红色", orange: "橙色", yellow: "黄色",
+  green: "绿色", cyan: "青色", blue: "蓝色", violet: "紫色", magenta: "洋红色", gray: "灰色",
 };
-const KEYS = ["blob", "tablet", "pebble", "wedge", "cloud", "squircle", "teardrop", "hex"];
+export const COLOR_LABELS: Record<string, readonly [string, string]> = Object.fromEntries(
+  AVATAR_PALETTE.map(color => [color.id, [color.label, COLOR_ZH[color.id]] as const]),
+);
+export const SHAPE_LABELS: Record<string, readonly [string, string]> = {
+  blob: ["Blob", "圆团"], pebble: ["Pebble", "卵石"], squircle: ["Squircle", "圆角方形"],
+  tablet: ["Tablet", "胶囊"], wedge: ["Wedge", "圆角三角"], hex: ["Hexagon", "六边形"],
+  cloud: ["Cloud", "云朵"], teardrop: ["Teardrop", "水滴"],
+};
+export const COLORS: Record<string, string> = {
+  ...Object.fromEntries(AVATAR_PALETTE.map(color => [color.id, color.value])),
+  // Read aliases without rewriting saved IDs or exposing duplicate categories.
+  pink: "#FF309B", purple: "#9159FE", teal: "#00BCA6", lime: "#00C972", grey: "#777777",
+};
+export const SHAPES = AVATAR_SHAPES.map(shape => PERSONA_SHAPE_PATHS[shape]);
+const LEGACY_SHAPES = ["blob", "tablet", "pebble", "wedge", "cloud", "squircle"] as const;
 export function characterVariant(shape: string): number {
   if (typeof shape !== "string") return 0;
-  const known = KEYS.indexOf(shape);
-  if (known >= 0) return known % SHAPES.length;
+  const known = (AVATAR_SHAPES as readonly string[]).indexOf(shape);
+  if (known >= 0) return known;
   let hash = 0;
   for (const char of shape) hash = ((hash * 31) + char.charCodeAt(0)) >>> 0;
-  return hash % SHAPES.length;
+  return (AVATAR_SHAPES as readonly string[]).indexOf(LEGACY_SHAPES[hash % LEGACY_SHAPES.length]);
+}
+/** White/black faces and selection ticks remain legible on every palette color. */
+export function avatarForeground(color: string): string {
+  const hex = Object.hasOwn(COLORS, color) ? COLORS[color] : COLORS.blue;
+  const rgb = [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+  const luminance = rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+  return (luminance + .05) / .05 >= 1.05 / (luminance + .05) ? "#000000" : "#FFFFFF";
 }
 export type AvatarPart = "body" | "detail" | "eyes" | "mouth";
 export type AvatarLayer = { part: AvatarPart; tag: "path" | "rect"; attrs: Record<string, string | number> };
 export function characterLayers(shape = "blob", color = "blue"): AvatarLayer[] {
-  const variant = characterVariant(shape), ink = "#273347";
-  const eyeY = variant === 5 ? 27 : 28, eyeHeight = variant === 1 ? 8 : 7;
+  const variant = characterVariant(shape), ink = avatarForeground(color);
+  const kind = AVATAR_SHAPES[variant];
+  const eyeY = kind === "squircle" ? 27 : 28, eyeHeight = kind === "tablet" ? 8 : 7;
   return [
-    { part: "body", tag: "path", attrs: { d: SHAPES[variant], fill: Object.hasOwn(COLORS, color) ? COLORS[color] : COLORS.blue } },
-    { part: "detail", tag: "path", attrs: { d: variant % 2 ? "M15 22q0-5 6-5" : "M15 24q1-6 7-7", fill: "none", stroke: "#FFFFFF", "stroke-opacity": .35, "stroke-width": 2, "stroke-linecap": "round" } },
+    { part: "body", tag: "path", attrs: { d: SHAPES[variant], transform: `scale(${64 / 259}) translate(15 15)`, fill: Object.hasOwn(COLORS, color) ? COLORS[color] : COLORS.blue } },
+    { part: "detail", tag: "path", attrs: { d: "M25 21q1-3 5-4", fill: "none", stroke: "#FFFFFF", "stroke-opacity": .25, "stroke-width": 2, "stroke-linecap": "round" } },
     { part: "eyes", tag: "rect", attrs: { x: 21, y: eyeY, width: 4.5, height: eyeHeight, rx: 2.25, fill: ink } },
     { part: "eyes", tag: "rect", attrs: { x: 38.5, y: eyeY, width: 4.5, height: eyeHeight, rx: 2.25, fill: ink } },
-    { part: "mouth", tag: "path", attrs: { d: variant === 1 ? "M29 42h6" : variant === 4 ? "M29 41q3 2 6-1" : "M29 41q3 3 6 0", fill: "none", stroke: ink, "stroke-width": 1.7, "stroke-linecap": "round" } },
+    { part: "mouth", tag: "path", attrs: { d: kind === "tablet" ? "M29 42h6" : kind === "cloud" ? "M29 41q3 2 6-1" : "M29 41q3 3 6 0", fill: "none", stroke: ink, "stroke-width": 1.7, "stroke-linecap": "round" } },
   ];
 }
 /** The DOM adapter and React factory share exact geometry and part names. */

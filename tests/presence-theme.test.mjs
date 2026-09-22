@@ -68,9 +68,9 @@ test("original avatars are deterministic, distinct and safe for untrusted person
   const first = createCharacterSvg(window.document, "blob", "yellow", 32);
   const second = createCharacterSvg(window.document, "blob", "yellow", 32);
   assert.equal(first.outerHTML, second.outerHTML, "no random IDs or color drift");
-  const hostile = createCharacterSvg(window.document, '"><script>alert(1)</script>', "__proto__", NaN);
+  const hostile = createCharacterSvg(window.document, '\"><script>alert(1)</script>', "__proto__", NaN);
   assert.equal(hostile.querySelector("script"), null); assert.equal(hostile.getAttribute("width"), "32");
-  assert.equal(hostile.querySelector("path").getAttribute("fill"), "#ADC3EA");
+  assert.equal(hostile.querySelector("path").getAttribute("fill"), "#1084FE");
   assert.ok(characterLayers("blob", "green").length >= 4);
 });
 
