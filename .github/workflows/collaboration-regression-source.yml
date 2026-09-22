@@ -1,0 +1,29 @@
+name: Collaboration regression source
+on:
+  push:
+    branches: [work/collaboration-regression-20260922]
+    paths: [.github/workflows/collaboration-regression-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cfb86c91c9e450c52cec5a6c39aadcffb2f12bac
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked source history only, without Git configuration or credentials
+        run: |
+          mkdir -p /tmp/regression-source
+          git bundle create /tmp/regression-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/regression-source/commit.txt
+          sha256sum /tmp/regression-source/source.bundle > /tmp/regression-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collaboration-regression-source
+          path: /tmp/regression-source/
+          retention-days: 1
