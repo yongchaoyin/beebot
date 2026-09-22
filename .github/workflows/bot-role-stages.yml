@@ -1,0 +1,111 @@
+name: Verified primary job stages
+on:
+  push:
+    branches: [work/bot-role-validation-20260922]
+    paths: [.github/workflows/bot-role-stages.yml, '.dev-submit/role-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Import exact tested stages without changing product branches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/role-{i:02}.bin').read_bytes() for i in range(12))
+          assert len(raw)==26772
+          assert hashlib.sha256(raw).hexdigest()=='ca83217adf65e2b0c8ee4d7dd2657b32bd9915c500daf31c70b5540e6174599e'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='fdeadd4532cca4762f9ff14d530e6123938944b6'
+          git('checkout','--detach',parent)
+          expected=[('7c48ecbe40869b7254fbd6d062062724d58473f0','08965d08cbc8b88e83aaf89a629f10dc4bb75d0b'),('1165a0523e990ece8dd95effdbbe7c63dedadbeb','c8e794ce5f5036f03a694eb1f7dabe4d3c43fbad')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree and stage['parent']==parent
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert (str(path)=='AGENTS.md' or str(path).startswith(('source/','frontend/','scripts/','tests/','docs/'))) and '..' not in path.parts
+                  assert not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new']
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent)
+              assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified primary job stage:',sha,tree)
+          git('push','origin','HEAD:refs/heads/work/bot-role-candidate-20260922')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1165a0523e990ece8dd95effdbbe7c63dedadbeb
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and environment
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 1165a0523e990ece8dd95effdbbe7c63dedadbeb
+          mkdir -p /tmp/bot-role-verification
+          git log -2 --format='%H %s' > /tmp/bot-role-verification/commits.txt
+          git rev-parse HEAD^{tree} > /tmp/bot-role-verification/tree.txt
+          node --version > /tmp/bot-role-verification/node.txt
+          sw_vers > /tmp/bot-role-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regression suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/bot-role-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/bot-role-verification/frontend.log
+      - name: Lossless publication verification
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/bot-role-verification/publication.log
+      - name: Real Host and Shell using deterministic model responses
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/bot-role-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-role-verification
+          path: /tmp/bot-role-verification/
+          retention-days: 7
