@@ -4,6 +4,7 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildNodeChat } from "./build-node-chat.mjs";
+import { patchQuotedReplies } from "./quoted-reply-patch.mjs";
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"servers",label:"Servers",icon:"servers"},{id:"router",label:"Router",icon:"git-branch"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
@@ -141,6 +142,7 @@ export function patchOriginalLanding(source) {
   patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
   patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
+  patched = patchQuotedReplies(patched);
   return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
 }
 

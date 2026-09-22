@@ -1,3 +1,4 @@
+import { locateQuotedMessage } from "../recovered/features/conversation/workspace/quoted-message-navigation";
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import type { CoordinatorPortBridge, CursorAuthStatus, DesktopAutoReviewInstructions, DesktopBridge, SidebarSection, ThemePreference } from "../recovered/contracts/desktop-bridge";
 import computerEntrypoint from "../recovered/features/computer/overlay/entrypoint";
@@ -769,14 +770,11 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   const [composerDraftStore] = useState(() => createComposerDraftStateStore(createComposerDraftPersistence(bridge.agent.clientPersistence)));
   const [acknowledgementController] = useState(() => createTranscriptAcknowledgementController());
   const [replySelection, setReplySelection] = useState<ReplySelection | null>(null);
+  const quoteNavigationRef = useRef<(targetId: string) => Promise<boolean>>(async () => false);
+  const quoteNavigationSerial = useRef(0);
   const [replyThreadController] = useState(() => createReplyThreadController({
     onSelectionChange: setReplySelection,
-    onNavigate: (targetId, isInScope) => {
-      if (!isInScope || typeof document === "undefined") return;
-      const row = [...document.querySelectorAll<HTMLElement>("[data-entry-id]")]
-        .find((candidate) => candidate.dataset.entryId === targetId);
-      row?.scrollIntoView({ block: "center", behavior: "smooth" });
-    },
+    onNavigate: (targetId) => { void quoteNavigationRef.current(targetId); },
     onRestoreFocus: () => {
       const focusComposer = () => document.querySelector<HTMLElement>(".sand-prompt-form textarea, .sand-prompt-form [contenteditable='true']")?.focus();
       if (typeof requestAnimationFrame === "function") requestAnimationFrame(focusComposer);
@@ -1853,10 +1851,18 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   useEffect(() => {
     replyThreadController.replaceEntries(entries);
   }, [entries, replyThreadController]);
+  const selectReplyTarget = useCallback((targetId: string) => {
+    const scope = replyThreadController.getScope();
+    if (scope.accountSlot !== transcriptAccountSlot || scope.agentId !== activeAgentId || !activeAgentId) return;
+    if (!replyThreadController.selectReply(targetId)) return;
+    const snapshot = composerDraftStore.snapshotsFor(activeAgentId).get();
+    // Persist quote selection even when the user switches chats before typing.
+    composerDraftStore.setDraft(activeAgentId, replyThreadController.applyReplyToDraft(snapshot.draft ?? snapshot.recovery ?? EMPTY_DRAFT));
+  }, [activeAgentId, transcriptAccountSlot, composerDraftStore, replyThreadController]);
   const transcriptCardInteractions = useMemo<TranscriptCardInteractionContext>(() => ({
     threadRootId: null,
     isReadOnly: activeAgent == null || activeAgent.isGroup,
-    onReply: (entryId) => { replyThreadController.selectReply(entryId); },
+    onReply: selectReplyTarget,
     onThread: (entryId) => { replyThreadController.navigate(entryId); },
     getThreadSummary: () => null,
     openThread: (targetId) => { replyThreadController.navigate(targetId); },
@@ -1871,8 +1877,36 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       row?.scrollIntoView({ block: "center", behavior: "smooth" });
     },
     isEntryInScope: (targetId) => replyThreadController.resolve(targetId).isInScope,
-  }), [activeAgent, entries, replyThreadController]);
+  }), [activeAgent, entries, replyThreadController, selectReplyTarget]);
   const loadOlderTranscript = useCallback(() => transcriptPaginationController.loadOlder(), [transcriptPaginationController]);
+  quoteNavigationRef.current = async (targetId) => {
+    const serial = ++quoteNavigationSerial.current;
+    const getScope = () => {
+      const scope = replyThreadController.getScope();
+      return scope.agentId && scope.accountSlot ? JSON.stringify([scope.accountSlot, scope.agentId]) : "";
+    };
+    const scope = getScope();
+    return locateQuotedMessage({
+      targetId,
+      snapshot: () => {
+        const page = transcriptPaginationController.getSnapshot();
+        const current = replyThreadController.getScope();
+        return { scope: getScope(), entries: [...(current.agentId ? entriesByAgentRef.current[current.agentId] ?? [] : []), ...page.entries], hasOlder: page.hasOlder };
+      },
+      loadOlder: () => transcriptPaginationController.loadOlder(),
+      isCurrent: () => quoteNavigationSerial.current === serial,
+      reveal: async (id) => {
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        if (scope !== getScope() || serial !== quoteNavigationSerial.current) return false;
+        const row = [...document.querySelectorAll<HTMLElement>("[data-entry-id]")].find(candidate => candidate.dataset.entryId === id);
+        if (!row) return false;
+        row.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) row.animate?.([{ opacity: 0.55 }, { opacity: 1 }], { duration: 650 });
+        return true;
+      }
+    });
+  };
+
   const paletteLinks = useMemo(
     () => commandPaletteLinksFromConversation(commandPaletteOpen ? conversationLinkCandidates(entries) : []),
     [commandPaletteOpen, entries]
@@ -1884,13 +1918,16 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   const draft = replyThreadController.applyReplyToDraft(baseDraft);
   const clearReplyTarget = useCallback(() => {
     replyThreadController.clearReply();
-    if (activeAgentId.length > 0 && activeDraftSnapshot.draft != null) {
-      composerDraftStore.setDraft(activeAgentId, replyThreadController.clearReplyFromDraft(activeDraftSnapshot.draft));
+    const scope = replyThreadController.getScope();
+    if (activeAgentId.length > 0 && scope.accountSlot === transcriptAccountSlot && scope.agentId === activeAgentId) {
+      const snapshot = composerDraftStore.snapshotsFor(activeAgentId).get();
+      composerDraftStore.setDraft(activeAgentId, replyThreadController.clearReplyFromDraft(snapshot.draft ?? snapshot.recovery ?? EMPTY_DRAFT));
+      composerDraftStore.clearRecovery(activeAgentId);
     }
-  }, [activeAgentId, activeDraftSnapshot.draft, composerDraftStore, replyThreadController]);
-  const replyTarget: ComposerReplyTarget | undefined = replySelection == null
+  }, [activeAgentId, transcriptAccountSlot, composerDraftStore, replyThreadController]);
+  const replyTarget: ComposerReplyTarget | undefined = draft.replyToId == null
     ? undefined
-    : { targetId: replySelection.targetId, preview: replySelection.preview };
+    : { targetId: draft.replyToId, preview: replySelection?.scope.accountSlot === transcriptAccountSlot && replySelection.scope.agentId === activeAgentId && replySelection.targetId === draft.replyToId ? replySelection.preview : replyThreadController.resolve(draft.replyToId).preview };
   const transcribeAudio = useCallback((audio: Uint8Array, mimeType: string, language?: string) => bridge.transcribeAudio(audio, mimeType, language), [bridge]);
   const resolveAttachmentMedia = useCallback((source: string) => bridge.resolveAttachmentMedia(source), [bridge]);
   const computer = useComputerExperience({ activeAgentId: activeAgent?.isGroup === true ? null : activeAgent?.id ?? null, bridge, client });
@@ -2979,6 +3016,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       agentId: activeAgent.id,
       prompt,
       ...(liveDraft.richText == null ? {} : { richText: liveDraft.richText }),
+      ...(liveDraft.replyToId == null ? {} : { replyToId: liveDraft.replyToId }),
       attachments,
       createdAtMs: enteredAt,
       ...(liveDraft.isFork === undefined ? {} : { isFork: liveDraft.isFork })
@@ -3529,8 +3567,8 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
                 loadOlder={loadOlderTranscript}
                 onCancelQueuedSend={cancelQueuedSend}
                 onDeleteFailedSend={removeTranscriptMessage}
-                onOpenReply={(targetId) => replyThreadController.navigate(targetId)}
-                onReply={(entry) => { replyThreadController.selectReply(entry.id); }}
+                onOpenReply={(targetId) => quoteNavigationRef.current(targetId)}
+                onReply={(entry) => selectReplyTarget(entry.id)}
                 onStartThread={(entry) => { replyThreadController.navigate(entry.id); }}
                 onResendFailedSend={(entry) => void resendFailedSend(entry)}
                 renderMessageReactionActions={renderReactionActions}

@@ -106,6 +106,8 @@ test("missing, cross-conversation, secret and in-flight quotes fail before publi
     assert.throws(()=>h.tm.groupChat.postGroupMemberMessage(room,{id:"a",name:"A"},"answer",undefined,{content:"answer",replyToId:id}),{code:"reply_target_unavailable"});
     assert.throws(()=>h.runtime.validateAiReplyTarget({type:"text",content:"answer",reply_to:id},undefined,room.db.getTranscriptEntries()),{code:"reply_target_unavailable"});
   }
+  room.db.appendTranscriptEntry({kind:"send-message",id:"in-flight",streaming:true,message:{type:"text",content:"Unfinished"}});
+  assert.throws(()=>h.runtime.validateAiReplyTarget({type:"text",content:"answer",reply_to:"in-flight"},"in-flight",room.db.getTranscriptEntries()),{code:"reply_target_unavailable"});
   assert.equal(h.calls.length,0);assert.equal(h.directCalls.length,0);
 });
 

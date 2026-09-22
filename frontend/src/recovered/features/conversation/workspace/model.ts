@@ -215,12 +215,12 @@ export type ConversationAgentLastEntry =
 export type TranscriptDelivery = "sent" | "pending" | "queued" | "failed";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4719000
-export type TranscriptReplyPreview =
+export type TranscriptReplyPreview = { author?: string; isUser?: boolean; targetId?: string } & (
   | { kind: "user-text" | "assistant-text"; text: string }
   | { kind: "image"; url: string }
   | { kind: "file"; url: string; name?: string }
   | { kind: "link"; url: string }
-  | { kind: "missing" };
+  | { kind: "missing" });
 
 export interface TranscriptMessage {
   kind: "message";

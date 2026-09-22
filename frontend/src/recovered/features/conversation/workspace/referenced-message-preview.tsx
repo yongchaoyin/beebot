@@ -1,5 +1,4 @@
 import type { TranscriptReplyPreview } from "./model";
-import { useEffect, useRef, useState, type FocusEvent, type MouseEvent } from "react";
 import { ReplyQuote } from "./reply-preview";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=5160690 (Mac cPn)
@@ -113,7 +112,7 @@ function labelForQuote(preview: TranscriptReplyPreview): string {
     case "link":
       return truncateReferencedText(linkHost(preview.url));
     case "missing":
-      return "(deleted)";
+      return "(unavailable)";
   }
 }
 
@@ -164,9 +163,9 @@ export interface ReferencedMessagePreviewProps {
 
 /**
  * The first-party content leaf for the shipped referenced-message preview.
- * The trigger, resolver, portal, and navigation lifecycle remain outside this
- * component; unresolved entries are represented by the immutable `(deleted)`
- * content branch rather than a fabricated loading or retry state.
+ * This optional detail leaf is separate from the inline quote trigger. Missing
+ * originals are unavailable, not presumed deleted. Resolution and navigation
+ * remain owned by the authorized conversation.
  */
 export function ReferencedMessagePreview({ authorName, timestampMs, preview }: ReferencedMessagePreviewProps) {
   const timestamp = validTimestamp(timestampMs);
@@ -191,69 +190,7 @@ export interface ReferencedMessagePreviewTriggerProps extends ReferencedMessageP
   onOpen(targetId: string, isInScope: boolean): void;
 }
 
-/**
- * The immutable uPn boundary: the existing reply affordance remains the
- * navigation trigger, while the exact cPn content is exposed as an accessible
- * tooltip on hover/focus. Missing targets intentionally render the `(deleted)`
- * branch and never invent a loader or retry action.
- */
-export function ReferencedMessagePreviewTrigger({ ownerId, targetId, isInScope, onOpen, ...previewProps }: ReferencedMessagePreviewTriggerProps) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLSpanElement | null>(null);
-  const tooltipId = `sand-referenced-message-preview-${encodeURIComponent(ownerId)}`;
-  const closeIfOutside = (event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>) => {
-    const nextTarget = event.relatedTarget;
-    if (!(nextTarget instanceof Node) || !rootRef.current?.contains(nextTarget)) setOpen(false);
-  };
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: globalThis.PointerEvent) => {
-      if (!(event.target instanceof Node) || rootRef.current?.contains(event.target)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <span
-      onBlur={closeIfOutside}
-      onFocus={() => setOpen(true)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={closeIfOutside}
-      ref={rootRef}
-      style={{ display: "inline-block", position: "relative" }}
-    >
-      <ReplyQuote
-        ariaDescribedBy={open ? tooltipId : undefined}
-        isInScope={isInScope}
-        onOpen={(id, inScope) => {
-          setOpen(false);
-          onOpen(id, inScope);
-        }}
-        preview={previewProps.preview}
-        targetId={targetId}
-      />
-      {open ? (
-        <div
-          aria-label="Referenced message preview"
-          id={tooltipId}
-          role="tooltip"
-          style={{ left: 0, position: "absolute", top: "100%", width: 248, zIndex: 3100 }}
-        >
-          <ReferencedMessagePreview {...previewProps} />
-        </div>
-      ) : null}
-    </span>
-  );
+/** Inline quote; navigation stays in the current conversation, without a popup. */
+export function ReferencedMessagePreviewTrigger({ targetId, isInScope, onOpen, ...previewProps }: ReferencedMessagePreviewTriggerProps) {
+  return <ReplyQuote isInScope={isInScope} onOpen={onOpen} preview={{...previewProps.preview, author: previewProps.authorName || previewProps.preview.author}} targetId={targetId} />;
 }

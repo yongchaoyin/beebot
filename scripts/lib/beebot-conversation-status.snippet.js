@@ -34,7 +34,7 @@ function RBindConversationStatus(runtime) {
   }
   const snapshot=()=>entryStore?.get?.();
   const transportDown=()=>runtime.connection?.snapshots?.get?.()?.transport==="down";
-  const labels=()=>({queued:t("等待处理","Waiting to be handled"),processing:t("正在处理","Being handled"),processed:t("已处理","Handled"),replied:t("已有回应","Response available"),failed:t("本次处理失败，消息已保留","Handling failed; message retained"),"needs-review":t("结果待核查，未自动重做","Review needed; not replayed"),cancelled:t("后续处理已停止","Further handling stopped")});
+  const labels=()=>({queued:t("等待处理","Waiting to be handled"),processing:t("正在处理","Being handled"),processed:t("本轮已处理，暂无关联回复","Handled; no linked reply"),replied:t("已有回应","Response available"),failed:t("本次处理失败，消息已保留","Handling failed; message retained"),"needs-review":t("结果待核查，未自动重做","Review needed; not replayed"),cancelled:t("后续处理已停止","Further handling stopped")});
   function render(){
     scheduled=false;if(disposed)return;
     const current=runtime.selection.snapshots.get()?.currentAgentId??null;
