@@ -5,23 +5,29 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
+  tooling:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 7fab604ebbc926150e64964c0d79aeb2d3860acf
           persist-credentials: false
-      - name: Export only the reviewed source baseline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Install locked packages without running platform install hooks
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Export a Linux-only verification toolchain, not a release
         run: |
-          git archive --format=tar.gz HEAD > beebot-source.tar.gz
-          sha256sum beebot-source.tar.gz > beebot-source.sha256
+          mkdir verification-tooling
+          cp "$(command -v node)" verification-tooling/node
+          tar --exclude='node_modules/electron' --exclude='node_modules/@jimp' --exclude='node_modules/pdfjs-dist' -czf verification-tooling/dependencies.tar.gz node_modules
+          cd verification-tooling
+          sha256sum node dependencies.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: node-source-7fab604
-          path: |
-            beebot-source.tar.gz
-            beebot-source.sha256
+          name: node-linux-verification-tooling
+          path: verification-tooling/
           retention-days: 2
           if-no-files-found: error
