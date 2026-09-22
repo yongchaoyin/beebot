@@ -1,0 +1,103 @@
+name: Collaboration regression verification
+on:
+  push:
+    branches: [work/collaboration-regression-20260922]
+    paths: [.github/workflows/collaboration-regression-verify.yml, '.verification/regression-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify reviewed patch, source tree and exact commit before publishing candidate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess,zlib
+          raw=b''.join(pathlib.Path(f'.verification/regression-{i}.bin').read_bytes() for i in range(4))
+          assert len(raw)==10619 and hashlib.sha256(raw).hexdigest()=='cc2cdb57edba87a1256b0ccb0cca6dfa75b166da2a0c442b3f4286c285891141'
+          decoder=zlib.decompressobj();decoded=decoder.decompress(raw,1000000)
+          assert decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail
+          stage=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='cfb86c91c9e450c52cec5a6c39aadcffb2f12bac'
+          git('checkout','--detach',parent)
+          patch=stage['patch'].encode()
+          git('apply','--check','--index','--unidiff-zero',data=patch)
+          git('apply','--index','--unidiff-zero',data=patch)
+          for name in filter(None,git('diff','--cached','--name-only','-z').decode().split('\0')):
+              assert name.startswith(('source/','scripts/','tests/','docs/')) and '..' not in pathlib.PurePosixPath(name).parts,name
+          tree=git('write-tree').decode().strip()
+          assert tree=='d2e899ccedb4b1ca41d288b6ceb394441b7689a5'
+          commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha=='ddd0d0f6715b35cca04f126b3ef9a8b7041bef5d'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/work/collaboration-regression-candidate-20260922')
+          print('Verified exact regression source:',sha,tree)
+          PY
+  regression:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ddd0d0f6715b35cca04f126b3ef9a8b7041bef5d
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact tested identity
+        run: |
+          test "$(git rev-parse HEAD)" = ddd0d0f6715b35cca04f126b3ef9a8b7041bef5d
+          mkdir -p /tmp/collaboration-regression
+          git log -1 --format=fuller > /tmp/collaboration-regression/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/collaboration-regression/tree.txt
+          node --version > /tmp/collaboration-regression/node.txt
+          sw_vers > /tmp/collaboration-regression/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - name: Complete typechecks and repository regression
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/collaboration-regression/check.log
+      - name: Frontend production build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/collaboration-regression/frontend.log
+      - name: Preserve release inventory and lossless publication
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/collaboration-regression/publication.log
+      - name: Repeat actual send, quote, collaboration and recovery regressions three times
+        shell: bash
+        run: |
+          set -o pipefail
+          for iteration in 1 2 3; do
+            node --test --test-concurrency=2 tests/chat-continuity.test.mjs tests/quoted-collaboration.test.mjs tests/collaboration-delivery.test.mjs tests/collaboration-regression.test.mjs tests/conversation-deliveries.test.mjs 2>&1 | tee "/tmp/collaboration-regression/repeat-${iteration}.log"
+          done
+      - name: Real Host and Shell integration, deterministic model, isolated profiles
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/collaboration-regression/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collaboration-regression-verification
+          path: /tmp/collaboration-regression/
+          retention-days: 7
