@@ -1,0 +1,79 @@
+name: Verified message work contracts
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/work-contract-stage.yml, '.dev-submit/work-contracts/**']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Restore reviewed source and exact two-stage history
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          def git(*args,data=None): return subprocess.check_output(['git',*args],input=data)
+          raw=b''.join(pathlib.Path(f'.dev-submit/work-contracts/{i:02}.bin').read_bytes() for i in range(10))
+          assert len(raw)==21768
+          assert hashlib.sha256(raw).hexdigest()=='b75ebd5c0253b4c81654f05e8176b8dc6f6892068a1dbebad3f42128f286bcc1'
+          decoder=lzma.LZMADecompressor()
+          decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          expected=[('f343a70b6f9c0eb227100169f0ae6274cb09e20b','49a297cfffb4a740826c38e9af4498d899f7dc89'),('c157b10c435152401291ee72d6a541b88a347a7d','df5184de21312995fbc348fd8ce61ab246aed9dc')]
+          assert len(stages)==len(expected)
+          parent='02be4fec11cd4eb01a8e9f3864eb359427784c44'
+          git('checkout','--detach',parent)
+          for stage,(expected_sha,expected_tree) in zip(stages,expected):
+              assert stage['sha']==expected_sha and stage['tree']==expected_tree
+              for change in stage['changes']:
+                  name=change['path'];path=pathlib.Path(name)
+                  assert name.startswith(('source/','scripts/','tests/','docs/')) and '..' not in path.parts and not path.is_symlink(),name
+                  if change['old_blob'] is None:
+                      assert not path.exists();text=''
+                  else:
+                      assert git('hash-object',name).decode().strip()==change['old_blob'],name
+                      text=path.read_text()
+                  previous=len(text)+1
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(text) and end<=previous
+                      text=text[:start]+replacement+text[end:];previous=start
+                  path.parent.mkdir(parents=True,exist_ok=True)
+                  path.write_text(text);git('add',name)
+              tree=git('write-tree').decode().strip();assert tree==expected_tree,(tree,expected_tree)
+              commit=stage['commit'].encode()
+              headers=commit.split(b'\n\n',1)[0].decode().splitlines()
+              assert headers[0]=='tree '+tree and [h for h in headers if h.startswith('parent ')]==['parent '+parent]
+              sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip();assert sha==expected_sha
+              git('update-ref','HEAD',sha,parent);assert not git('status','--porcelain').strip()
+              print('Verified source stage:',sha,'tree:',tree);parent=sha
+          git('push','origin','HEAD:refs/heads/chore/work-contracts-candidate-20260922')
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c157b10c435152401291ee72d6a541b88a347a7d
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Assert exact reviewed revision
+        run: test "$(git rev-parse HEAD)" = c157b10c435152401291ee72d6a541b88a347a7d
+      - name: Real Host and Shell with deterministic model and isolated profiles
+        run: npm run node:test:integration
