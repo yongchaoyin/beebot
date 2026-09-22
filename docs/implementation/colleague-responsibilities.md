@@ -37,3 +37,33 @@ checks passed. The full Linux run was interrupted and its installer inventory
 check still sees a Git LFS pointer; it is not a passing full-suite result.
 The isolated nine quote tests passed on rerun. Exact-tree macOS CI remains
 required; no assertions or archive checks were removed.
+
+## C2 — dependencies, versioned results and scoped questions
+
+The SendMessage sidecar now supports waiting, explicit user-backed scope revision,
+submission and independent review. Review pins the actual submitted message/file
+versions and requires an outcome plus cited published evidence for every criterion.
+The designated assignee cannot self-review. An external URL is not locally verified
+file evidence. Hashing proves identity, not semantic correctness; reviewer checks
+are attributed assertions, not automatically inferred test success.
+
+An accepted prerequisite wakes only the colleagues whose dependencies are now
+ready. Upstream revision invalidates dependent acceptance transitively without
+erasing old evidence. A dependent owner may explicitly reclaim stale accepted
+work once the new prerequisites pass. Work states never release a still-running
+OS execution lease. Wait is not periodic polling or automatic restart recovery.
+
+Work-scoped questions bind the scope version seen when the Bot began execution.
+Unrelated conversation messages do not expire them; relevant revision, explicit
+Stop and removal still do. Legacy unscoped questions keep the conservative old
+context rule. Scope revision requires a newer quoted real user message. Semantic
+interpretation of arbitrary natural-language constraints is not claimed.
+
+Validation: both runtime typecheck and 45 focused tests passed locally, including
+actual send ingress, independent queues, claim/result/review/dependency wake,
+missing/tampered evidence, two-criterion rework, stale submissions, unrelated
+questions, late questions, Stop, single-Bot updates and continuous second/third
+messages. Models/OS are controlled substitutes with real transcript SQLite.
+C1 macOS repository check 35685647743 completed successfully. C2's exact macOS
+commit checks remain required. The user review UI is the next stage; merely
+recording reviewer=user does not expose a working acceptance button yet.

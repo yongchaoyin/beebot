@@ -1,3 +1,4 @@
+import { workDecisionCurrent } from "./collaboration.js";
 import { dirname } from "node:path";
 import { readSandGroupConfig } from "../../groups/group-store.js";
 import { createHash } from "node:crypto";
@@ -84,7 +85,9 @@ export class WidgetResponses {
     const authorId = (currentEntry.author as any)?.id;
     if (groupConfig && (!authorId || !groupConfig.memberIds.includes(authorId))) return {accepted: false};
     const latestUser = [...getTranscript()].reverse().find(entry => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
-    if (currentEntry.decisionContext && (currentEntry.decisionContext as any).userMessageId !== (latestUser?.id ?? null)) {
+    if (currentEntry.decisionContext && ((currentEntry.decisionContext as any).taskId
+      ? !workDecisionCurrent(targetSession.db.getTranscriptEntries(), currentEntry.decisionContext)
+      : (currentEntry.decisionContext as any).userMessageId !== (latestUser?.id ?? null))) {
       const stale = (entry: TranscriptEntry): TranscriptEntry => ({...entry, decisionStatus: "stale", widgetDismissed: true});
       targetSession.db.updateTranscriptEntry(entryId, stale);
       const updated = updateEntry(entryId, stale);if (updated) this.tm.roster.emit({type: "updated", entry: updated}, agentId);

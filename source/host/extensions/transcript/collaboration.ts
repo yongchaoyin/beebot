@@ -1,3 +1,4 @@
+import { advanceWork, workDependenciesReady, workIsAccepted } from "./collaboration-transitions.js";
 import { createHash } from "node:crypto";
 import { collaborationActionSchema, collaborationEventSchema, type CollaborationTask, type CollaborationEvent } from "../../../shared/collaboration.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -33,7 +34,7 @@ export function projectCollaboration(entries: readonly TranscriptEntry[]): Map<s
 
 export interface WorkPublication {
   messageId: string; actor: string; members: readonly string[]; entries: readonly TranscriptEntry[];
-  message: Record<string, any>; sharedRoom?: boolean;
+  message: Record<string, any>; sharedRoom?: boolean; dbPath?: string; trustedUser?: boolean;
 }
 export interface PreparedWork {
   event?: CollaborationEvent; replayId?: string; replyTo?: string; wake?: string[];
@@ -48,7 +49,7 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
   check(!input.sharedRoom && !input.message.channel, "work_scope_unsupported", "Work contracts are local to this conversation; cross-user/channel delegation is not enabled.");
   check(input.message.type === "text", "work_text_required", "Publish files first, then reference their message IDs in a work update.");
   const action = collaborationActionSchema.parse(raw);
-  check(input.actor !== "user" && input.members.includes(input.actor), "work_actor_unavailable", "The publishing Bot is no longer a member.");
+  check((input.actor === "user" && input.trustedUser === true && action.action === "review") || (input.actor !== "user" && input.members.includes(input.actor)), "work_actor_unavailable", "The publishing Bot is no longer a member.");
   const digest = createHash("sha256").update(JSON.stringify([action, input.message.content, input.message.reply_to, input.message.work_on])).digest("hex");
   const repeated = input.entries.find(entry => {
     const event = entry.collaborationEvent as CollaborationEvent | undefined;
@@ -72,26 +73,14 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
     for (const id of action.dependencies) check(tasks.get(id)?.goalId === goal.id, "work_dependency_missing", "Dependencies must already exist under this same user goal.");
     next = { id: input.messageId, goalId: goal.id, creator: input.actor, assignee: action.assignee,
       reviewer: action.reviewer, title: action.title, criteria: action.criteria, dependencies: action.dependencies,
-      version: 1, state: "offered", evidenceIds: [], updatedBy: input.actor, updatedMessageId: input.messageId };
+      version: 1, scopeVersion: 1, state: "offered", evidenceIds: [], updatedBy: input.actor, updatedMessageId: input.messageId };
     wake = [action.assignee];
   } else {
     const prior = tasks.get(action.task_id);
     check(prior, "work_not_found", "The work is not in this conversation.");
-    check(prior.version === action.expected_version, "work_version_conflict", `Refresh work ${prior.id}; its current version is ${prior.version}.`);
-    check(prior.assignee === input.actor, "work_not_owner", "Only the designated colleague may claim or update this work.");
-    next = { ...prior, version: prior.version + 1, updatedBy: input.actor, updatedMessageId: input.messageId };
-    if (action.action === "claim") {
-      check(prior.state === "offered", "work_not_claimable", "This work is already claimed or blocked. A second claim must not start another run.");
-      check(prior.dependencies.length === 0, "work_dependencies_pending", "Prerequisite work has not passed review yet.");
-      next.state = "claimed"; next.claimedBy = input.actor;
-    } else {
-      check(prior.claimedBy === input.actor && ["claimed", "blocked"].includes(prior.state), "work_claim_required", "Claim the work before updating it.");
-      if (action.action === "block") { next.state = "blocked"; next.reason = action.reason; wake = [prior.creator]; }
-      else {
-        for (const id of action.evidence_ids) requireMessageReference(input.entries, id, "evidence_ids");
-        next.state = "claimed"; delete next.reason; next.evidenceIds = [...new Set([...prior.evidenceIds, ...action.evidence_ids])].slice(-24);
-      }
-    }
+    const transition = advanceWork({prior, action, actor: input.actor, members: input.members, tasks,
+      entries: input.entries, messageId: input.messageId, dbPath: input.dbPath});
+    next = transition.task;wake = transition.wake;
   }
   wake = [...new Set(wake)].filter(id => id !== input.actor && input.members.includes(id));
   const event: CollaborationEvent = { format: 1, actor: input.actor, requestId: action.request_id, digest, task: next, wake };
@@ -99,9 +88,32 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
 }
 
 export function collaborationContext(entries: readonly TranscriptEntry[], actor: string): string {
-  const tasks = [...projectCollaboration(entries).values()].filter(task => task.assignee === actor || task.creator === actor || task.reviewer === actor);
+  const projected = projectCollaboration(entries);
+  const tasks = [...projected.values()].filter(task => task.assignee === actor || task.creator === actor || task.reviewer === actor);
   if (!tasks.length) return "";
-  return `\n\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${tasks.slice(-32).map(task => JSON.stringify(task)).join("\n")}\nUse SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must pass review before dependent work starts. If tools, access or the environment are missing, report the limitation; do not claim verified capability.\n`;
+  return `\n\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${tasks.slice(-32).map(task => JSON.stringify({...task, dependenciesReady: workDependenciesReady(task, projected), acceptedForCurrentInputs: workIsAccepted(task, projected)})).join("\n")}\nUse wait to end reasoning while waiting; only claim when dependenciesReady. Publish result/evidence messages before submit; only the independent reviewer may review all criteria. Reference work_on for scoped questions. Receipt or an evidence hash is not semantic acceptance. Use SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must pass review before dependent work starts. If tools, access or the environment are missing, report the limitation; do not claim verified capability.\n`;
 }
 
 export const COLLABORATION_GUIDANCE = "For real work, attach a collaboration action to your natural SendMessage, not a separate dashboard. Assign with the user's goal_message_id, assignee ID, concrete criteria and optional existing dependency task IDs; the published assignment message ID is also the task_id. The addressed colleague must claim with expected_version before doing the work. Use purpose:update for information that needs no response, purpose:request for an actionable question and discussion for genuine open discussion. Never treat a quoted reply, acknowledgement or progress report as completed work. These records do not add permissions or lock arbitrary filesystem writes.";
+
+/** Follow quotes to find the original formal assignment, without guessing from
+ * text or relying on the newest unrelated group message. */
+export function referencedWork(entries: readonly TranscriptEntry[], references: readonly unknown[]): CollaborationTask | undefined {
+  const tasks = projectCollaboration(entries), byId = new Map(entries.map(entry => [entry.id, entry]));
+  const pending = references.filter((id): id is string => typeof id === "string");
+  const seen = new Set<string>();
+  while (pending.length && seen.size < 64) {
+    const id = pending.shift()!;if (seen.has(id)) continue;seen.add(id);
+    if (tasks.has(id)) return tasks.get(id);
+    const entry = byId.get(id);
+    for (const ref of [entry?.workOnId, entry?.replyTo]) if (typeof ref === "string") pending.push(ref);
+  }
+  return undefined;
+}
+
+export function workDecisionCurrent(entries: readonly TranscriptEntry[], context: unknown): boolean {
+  const value = context as {taskId?: string; scopeVersion?: number} | null;
+  if (!value || typeof value.taskId !== "string") return false;
+  const task = projectCollaboration(entries).get(value.taskId);
+  return !!task && task.scopeVersion === value.scopeVersion && task.state !== "accepted";
+}

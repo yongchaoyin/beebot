@@ -23,6 +23,7 @@ export interface GroupPublication {
   workOnId?: string;
   awaitingUser?: boolean;
   contextUserMessageId?: string | null;
+  contextWorkVersions?: Readonly<Record<string, number>>;
 }
 export interface GroupOrchestratorDeps {
   resolveMembers(ids: readonly string[]): Promise<GroupMember[]>;

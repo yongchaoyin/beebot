@@ -1,4 +1,4 @@
-import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE } from "./collaboration.js";
+import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -403,6 +403,7 @@ export class GroupChatGlue {
     let lastReactionApplied = false;
     let lastSentMessageId: string | undefined;
     let contextUserMessageId: string | null = null;
+    let contextWorkVersions: Record<string, number> = {};
     let trackActivity = createGroupMemberActivityTracker();
     const transport = {
       onUpdate: (update: any) => {
@@ -427,7 +428,12 @@ export class GroupChatGlue {
             // Seal only explicit public output. Raw text deltas can contain the
             // agent's private scratchpad and are not a public chat message.
             this.streamGroupMemberUpdate(roomSession, effective.member, update, live);
-            lastSentMessageId = effective.publish({...publication, contextUserMessageId});
+            lastSentMessageId = effective.publish({...publication, contextUserMessageId, contextWorkVersions: {...contextWorkVersions}});
+            const workAction = (publication.message as any)?.collaboration;
+            if (lastSentMessageId && ["assign", "revise"].includes(workAction?.action)) {
+              const task = projectCollaboration(roomSession.db.getTranscriptEntries()).get(workAction.action === "assign" ? lastSentMessageId : workAction.task_id);
+              if (task) contextWorkVersions[task.id] = task.scopeVersion;
+            }
           } else if (update.message?.type === "text") sent.push(update.message.content);
         }
       },
@@ -488,6 +494,7 @@ export class GroupChatGlue {
             });
             try {
               const latestHistory = this.readGroupHistory(roomSession);
+              contextWorkVersions = Object.fromEntries([...projectCollaboration(roomSession.db.getTranscriptEntries()).values()].map(task => [task.id, task.scopeVersion]));
               contextUserMessageId = [...latestHistory].reverse().find(message => message.speaker.kind === "user")?.id ?? null;
               const sourceIds = new Set(effective.sourceMessageIds || []);
               const anchor = latestHistory.findLastIndex(message => !!message.id && sourceIds.has(message.id));
@@ -628,7 +635,7 @@ export class GroupChatGlue {
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
     const config = readSandGroupConfig(dirname(session.dbPath));
     const candidateId = nextEntryId(session.db.getTranscriptEntries(), "send-message");
-    const work = prepareCollaboration({ messageId: candidateId, actor: member.id, members: config?.memberIds ?? [],
+    const work = prepareCollaboration({ messageId: candidateId, dbPath: session.dbPath, actor: member.id, members: config?.memberIds ?? [],
       entries: session.db.getTranscriptEntries(), message: publication?.message ?? {type:"text",content}, sharedRoom: !!config?.sharedRoomId });
     if (work.replayId) return work.replayId;
     const replyTo = publication?.replyToId ?? work.replyTo;
@@ -638,7 +645,11 @@ export class GroupChatGlue {
     const message = publication?.message ?? {type: "text", content};
     const latestUser = [...entriesInRoom].reverse().find((entry: TranscriptEntry) => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
     const decisionUserId = publication?.contextUserMessageId !== undefined ? publication.contextUserMessageId : latestUser?.id ?? null;
-    const details = { ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const questionWork = message.type === "widget" ? referencedWork(session.db.getTranscriptEntries(), [workOnId, replyTo]) : undefined;
+    const scopeVersion = questionWork ? (publication?.contextWorkVersions ? publication.contextWorkVersions[questionWork.id] : questionWork.scopeVersion) : undefined;
+    const decisionContext = questionWork ? {taskId: questionWork.id, scopeVersion: scopeVersion ?? 0} : {userMessageId: decisionUserId};
+    const decisionStale = questionWork ? scopeVersion !== questionWork.scopeVersion || questionWork.state === "accepted" : decisionUserId !== (latestUser?.id ?? null);
+    const details = { ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext, ...(decisionStale ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive && !work.event) {

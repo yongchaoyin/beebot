@@ -15,7 +15,9 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
-      export { prepareCollaboration, projectCollaboration, collaborationContext } from './source/host/extensions/transcript/collaboration.ts';
+      export { prepareCollaboration, projectCollaboration, collaborationContext, referencedWork, workDecisionCurrent } from './source/host/extensions/transcript/collaboration.ts';
+      export { workIsAccepted, workDependenciesReady } from "./source/host/extensions/transcript/collaboration-transitions.ts";
+      export { captureWorkEvidence } from "./source/host/extensions/transcript/collaboration-evidence.ts";
       export { TurnRuntime } from './source/host/extensions/transcript/turn-runtime.ts';
       export { buildGroupReplyContext } from './source/host/groups/group-replies.ts';
       export { requireMessageReference, describeReplyChain } from './source/host/extensions/transcript/message-reply-contract.ts';
