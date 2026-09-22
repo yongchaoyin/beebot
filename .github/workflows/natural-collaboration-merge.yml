@@ -1,0 +1,27 @@
+name: Verify natural collaboration integration
+on:
+  push:
+    branches: [work/natural-collaboration-validation-20260922]
+    paths: [.github/workflows/natural-collaboration-merge.yml]
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 7fd68b49b214bd30854faf7be2be4740b6d08c70
+          fetch-depth: 0
+          lfs: false
+      - name: Reproduce reviewed merge without overwriting source branches
+        shell: bash
+        run: |
+          git config user.name 'BeeBot development'
+          git config user.email '151381126+yongchaoyin@users.noreply.github.com'
+          git merge --no-commit --no-ff 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
+          test "$(git write-tree)" = 15370191db452202fd33f2ab4eeaee66628eb423
+          GIT_AUTHOR_DATE='1790067903 +0000' GIT_COMMITTER_DATE='1790067903 +0000' git commit -m 'merge: unify colleague responsibility and Honeyline chat reliability' -m 'Preserve both source histories and existing regressions. Local Node 26.5.0 frontend/runtime typechecks pass; 55 targeted integration, receipt, review UI and evidence tests pass. Full native macOS verification remains required. Alternative task-contract branch is not blindly co-installed with this primary event model.'
+          test "$(git rev-parse HEAD)" = cb4fd77bef44b2fb0e241d96eb6d8dbcb5c8e8d6
+          git push origin HEAD:refs/heads/work/natural-collaboration-candidate-20260922
