@@ -1,0 +1,111 @@
+name: Natural colleague stages and runtime validation
+on:
+  push:
+    branches: [work/natural-collaboration-validation-20260922]
+    paths: [.github/workflows/natural-collaboration-stages.yml, '.dev-submit/natural-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Import exact locally tested source stages, without changing product branches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess,zlib
+          raw=b''.join(pathlib.Path(f'.dev-submit/natural-{i:02}.bin').read_bytes() for i in range(10))
+          assert len(raw)==14708
+          assert hashlib.sha256(raw).hexdigest()=='dc687ef95e5971f14ce3492e174dc8428eb85efebec848cccfb5a08d6e26d474'
+          decoder=zlib.decompressobj();decoded=decoder.decompress(raw,1000000)
+          assert decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='cb4fd77bef44b2fb0e241d96eb6d8dbcb5c8e8d6'
+          git('checkout','--detach',parent)
+          expected=[('eda138f342487ef5e05ec72cd10da7f56202ee56','b290d227341f84cacf58c725dd4559d8ad8b16b7'),('76a99d4b1fd14782e04945c8cbe9abe96eb25d8d','9339fa283e8a2f2ff1f5c2b9d13e68455d3ae54a')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert str(path).startswith(('source/','tests/','docs/')) and '..' not in path.parts
+                  assert not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new']
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent)
+              assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified source stage:',sha,tree)
+          git('push','origin','HEAD:refs/heads/work/natural-collaboration-candidate-20260922')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 76a99d4b1fd14782e04945c8cbe9abe96eb25d8d
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and environment
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 76a99d4b1fd14782e04945c8cbe9abe96eb25d8d
+          mkdir -p /tmp/natural-verification
+          git log -3 --format='%H %s' > /tmp/natural-verification/commits.txt
+          git rev-parse HEAD^{tree} > /tmp/natural-verification/tree.txt
+          node --version > /tmp/natural-verification/node.txt
+          sw_vers > /tmp/natural-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regression suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/natural-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/natural-verification/frontend.log
+      - name: Lossless publication verification
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/natural-verification/publication.log
+      - name: Real Host and Shell using deterministic model responses
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/natural-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: natural-colleague-verification
+          path: /tmp/natural-verification/
+          retention-days: 7
