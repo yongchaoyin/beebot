@@ -1,31 +1,15 @@
+import { honeylineIconSvg } from "./lib/honeyline-icon.mjs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { repoRoot } from "./lib/config.mjs";
 import { run } from "./lib/process.mjs";
 
-const WECHAT_GREEN = "#07C160";
-const branding = path.join(repoRoot, "branding");
+const branding = path.join(repoRoot, ".build", "app-icon");
 const svgPath = path.join(branding, "beebot-app-icon.svg");
 const pngPath = path.join(branding, "beebot-app-icon.png");
 const icnsPath = path.join(branding, "beebot-app-icon.icns");
-
-const paths = JSON.parse(await readFile(path.join(repoRoot, "scripts/lib/persona-shape-paths.json"), "utf8"));
-const blob = paths.blob;
-if (typeof blob !== "string" || !blob.includes("M228.541")) {
-  throw new Error("persona-shape-paths.json is missing the original blob bot path.");
-}
-
-const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect width="1024" height="1024" fill="#FFFFFF"/>
-  <g transform="translate(512 512) scale(2.7) translate(-114.27 -114.228)">
-    <path fill="${WECHAT_GREEN}" d="${blob}"/>
-    <ellipse fill="#FFFFFF" cx="85.27" cy="106.27" rx="18" ry="13"/>
-    <ellipse fill="#FFFFFF" cx="143.27" cy="106.27" rx="18" ry="13"/>
-  </g>
-</svg>
-`;
-
+const svg = await readFile(path.join(repoRoot, "branding", "beebot-app-icon.svg"), "utf8");
+if (svg !== honeylineIconSvg()) throw new Error("Honeyline icon SVG is stale; regenerate it from honeyline-icon.mjs.");
 await mkdir(branding, { recursive: true });
 await writeFile(svgPath, svg);
 

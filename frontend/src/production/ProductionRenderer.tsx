@@ -6,8 +6,10 @@ import { ConversationComposer } from "../recovered/features/conversation/workspa
 import { commitComposerAttachments, stageComposerFiles } from "../recovered/features/conversation/workspace/desktop";
 import type { ComposerDraft, ConversationTranscriptEntry, DraftAttachment, TranscriptMessage } from "../recovered/features/conversation/workspace/model";
 import { createComposerDraftPersistence, createComposerDraftStateStore } from "../recovered/features/conversation/workspace/draft-state";
-import { createComposerSubmissionQueue, type ComposerSubmission, type ComposerSubmissionQueue } from "../recovered/features/conversation/workspace/submission";
+import { createComposerSubmissionQueue, ComposerSubmissionRejectedError, type ComposerSubmission, type ComposerSubmissionQueue } from "../recovered/features/conversation/workspace/submission";
 import { createSendJournalApprovalLifecycle } from "../recovered/features/conversation/workspace/send-journal-approval-lifecycle";
+import { lookupSubmissionReceipt, verifiedSubmissionOutcome } from "../recovered/features/conversation/workspace/submission-receipt";
+import { HOST_ACCOUNT_SLOT } from "../../../source/shared/send-acceptance";
 import { createTranscriptAcknowledgementController } from "../recovered/features/conversation/workspace/acknowledgement";
 import { createReplyThreadController, type ReplySelection } from "../recovered/features/conversation/workspace/reply-thread-controller";
 import type { ComposerReplyTarget } from "../recovered/features/conversation/workspace/reply-preview";
@@ -905,6 +907,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   const [computerViewerRetained, setComputerViewerRetained] = useState(false);
   // Frontend 1 owns the windowControls lifecycle through WindowChrome.
   const stagedPaths = useRef(new Set<string>());
+  const [attachmentStages, setAttachmentStages] = useState<Record<string, number>>({});
   const composerSubmissionQueueRef = useRef<ComposerSubmissionQueue | null>(null);
   const resendSubmissionNoncesRef = useRef(new Set<string>());
   const accountIdentityRef = useRef<string | null>(null);
@@ -919,6 +922,10 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   const createAgentRef = useRef<() => void | Promise<unknown>>(() => {});
   const [createBotOpen, setCreateBotOpen] = useState(false);
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
+  useEffect(() => {
+    (window as Window & { __sandUiLanguage?: string }).__sandUiLanguage = uiLanguage;
+    window.dispatchEvent(new Event("sand-ui-language-changed"));
+  }, [uiLanguage]);
   const [inferenceVendors, setInferenceVendors] = useState<readonly { id: string; label: string; modelId?: string }[]>([]);
   const [defaultInferenceVendorId, setDefaultInferenceVendorId] = useState("");
   const openAgentRef = useRef<(agentId: string) => void | Promise<unknown>>(() => {});
@@ -984,9 +991,15 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   useStrictModeSafeDisposal(hiddenChatsMutationController);
 
   const sendComposerPrompt = async (submission: ComposerSubmission): Promise<void> => {
-    if (client == null) throw new Error("coordinator is unavailable for sendPrompt");
+    const accountGeneration = accountScopeGenerationRef.current;
+    if (client == null) throw new ComposerSubmissionRejectedError("coordinator is unavailable for sendPrompt");
     const draftAttachments = submission.attachments.map((attachment) => ({ path: attachment.path, name: attachment.name }));
-    const attachments = bridge == null ? draftAttachments : await commitComposerAttachments(bridge, draftAttachments);
+    let attachments: typeof draftAttachments;
+    try { attachments = bridge == null ? draftAttachments : await commitComposerAttachments(bridge, draftAttachments); }
+    catch (error) { throw new ComposerSubmissionRejectedError("Attachments could not be prepared; the message was not sent.", { cause: error }); }
+    // Never let preparation started in one account dispatch in the next account.
+    if (accountScopeGenerationRef.current !== accountGeneration || accountRef.current?.kind !== "logged-in")
+      throw new ComposerSubmissionRejectedError("The account changed before this message was sent.");
     for (const attachment of draftAttachments) stagedPaths.current.delete(attachment.path);
     setEntriesByAgent((current) => ({
       ...current,
@@ -994,7 +1007,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         ? { ...entry, attachments, text: submission.prompt }
         : entry)
     }));
-    await client.call("sendPrompt", {
+    try { await client.call("sendPrompt", {
       agentId: submission.agentId,
       prompt: submission.prompt,
       directAddressedAcceptance: true,
@@ -1006,8 +1019,27 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       ...(submission.richText == null ? {} : { richText: submission.richText }),
       ...(submission.replyToId == null ? {} : { replyToId: submission.replyToId }),
       ...(submission.isFork === undefined ? {} : { isFork: submission.isFork })
-    });
+    }); } catch (error) {
+      // Failed RPC delivery is not proof that the send was rejected. The ledger
+      // query is read-only and never replays sendPrompt.
+      if (accountScopeGenerationRef.current !== accountGeneration) throw error;
+      let outcome: ReturnType<typeof verifiedSubmissionOutcome> = null;
+      if (transportRef.current === "connected") {
+        try {
+          outcome = await lookupSubmissionReceipt(() => client.call("promptAcceptanceStatus", {
+            accountSlot: HOST_ACCOUNT_SLOT, clientNonce: submission.nonce,
+          }), { accountSlot: HOST_ACCOUNT_SLOT, agentId: submission.agentId, nonce: submission.nonce });
+        } catch { /* A failed lookup leaves the original outcome unconfirmed. */ }
+      }
+      if (accountScopeGenerationRef.current !== accountGeneration) throw error;
+      if (outcome === "sent") return;
+      if (outcome === "not-sent") throw new ComposerSubmissionRejectedError("The server rejected this message.", { cause: error });
+      throw error;
+    }
   };
+  // Long-lived queues must dispatch through the current client, not mount-time closures.
+  const sendComposerPromptRef = useRef(sendComposerPrompt);
+  useLayoutEffect(() => { sendComposerPromptRef.current = sendComposerPrompt; });
   const [sendJournalApprovalLifecycle] = useState(() => createSendJournalApprovalLifecycle<
     ComposerSubmission,
     ComposerResendJournalInput,
@@ -1020,7 +1052,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     boolean
   >(
     {
-      sendPrompt: sendComposerPrompt,
+      sendPrompt: (submission) => sendComposerPromptRef.current(submission),
       resendFailed: async (input: ComposerResendJournalInput) => {
         const queue = composerSubmissionQueueRef.current;
         if (queue == null) throw new Error("composer submission queue is unavailable");
@@ -1043,13 +1075,14 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     const queue = createComposerSubmissionQueue({
       isTransportDown: () => transportRef.current !== "connected",
       send: (submission) => resendSubmissionNoncesRef.current.has(submission.nonce)
-        ? sendComposerPrompt(submission)
+        ? sendComposerPromptRef.current(submission)
         : sendJournalApprovalLifecycle.sendPrompt(submission),
     onPhase: (submission) => {
       const scope = acknowledgementScopeRef.current;
       if (submission.phase === "pending") acknowledgementController.markDispatching(scope.accountSlot, submission.nonce);
       if (submission.phase === "sent") acknowledgementController.markAcceptedAwaitingEcho(scope.accountSlot, submission.nonce);
-      if (submission.phase === "failed") acknowledgementController.markFailed(scope.accountSlot, submission.nonce, Date.now());
+      if (submission.phase === "failed" && submission.failureKind !== "rejected") acknowledgementController.markUncertain(scope.accountSlot, submission.nonce);
+      if (submission.phase === "failed" && submission.failureKind === "rejected") acknowledgementController.markFailed(scope.accountSlot, submission.nonce, Date.now());
       if (submission.phase === "cancelled") acknowledgementController.removeOptimistic({ accountSlot: scope.accountSlot, nonce: submission.nonce });
       setEntriesByAgent((current) => {
         if (submission.phase === "cancelled") {
@@ -1058,25 +1091,22 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
             [submission.agentId]: (current[submission.agentId] ?? []).filter((entry) => entry.kind !== "message" || entry.clientNonce !== submission.nonce)
           };
         }
-        const delivery: "pending" | "queued" | "failed" | "sent" = submission.phase === "pending" || submission.phase === "queued" || submission.phase === "failed" || submission.phase === "sent"
-          ? submission.phase
-          : "pending";
+        const delivery = submission.phase;
         return {
           ...current,
           [submission.agentId]: (current[submission.agentId] ?? []).map((entry) => entry.kind === "message" && entry.clientNonce === submission.nonce
-            ? { ...entry, delivery }
+            ? { ...entry, delivery, deliveryFailure: submission.failureKind }
             : entry)
         };
       });
-      if (submission.phase === "pending") setBusy(true);
-      if (submission.phase === "queued" || submission.phase === "failed" || submission.phase === "sent" || submission.phase === "cancelled") setBusy(false);
+      // Delivery state belongs to its message, never the shared composer busy flag.
     },
     onFailure: (submission, error) => {
-      composerDraftStore.recoverDraft(submission.agentId, {
-        prompt: submission.prompt,
-        attachments: [...submission.attachments]
-      });
-      setNotice(error instanceof Error ? error.message : String(error));
+      // Keep the receipt and original payload on the message. In particular, do
+      // not silently refill an uncertain send into the editor for accidental replay.
+      if (activeAgentIdRef.current === submission.agentId) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
       }
     });
     composerSubmissionQueueRef.current = queue;
@@ -2377,6 +2407,9 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         const projectedEntries = projectTranscriptFeedEntries(rawEntries, owner?.name ?? UI_TEXT.title, ownerId);
         for (const entry of projectedEntries) {
           if (entry.kind !== "message" || entry.clientNonce == null) continue;
+          if (entry.role === "user" && !("sourceKind" in entry && entry.sourceKind === "user-attachment")
+            && composerSubmissionQueue.snapshot().some(record => record.nonce === entry.clientNonce && record.agentId === ownerId))
+            composerSubmissionQueue.reconcile(entry.clientNonce, "sent");
           acknowledgementController.ingestTranscriptEvent({
             accountSlot: acknowledgementScopeRef.current.accountSlot,
             agentId: ownerId,
@@ -2423,6 +2456,9 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       const acknowledgementEntryKind = event && typeof event === "object" && "kind" in event && event.kind === "user-attachment" ? "user-attachment" as const : "message" as const;
       if (clientNonce != null) acknowledgementController.ingestTranscriptEvent({ accountSlot: acknowledgementScopeRef.current.accountSlot, agentId: ownerId, entry: { id: projected.id, kind: acknowledgementEntryKind, clientNonce } });
       const projectedMessage = projected.kind === "message" ? projected : null;
+      if (clientNonce != null && projectedMessage?.role === "user" && acknowledgementEntryKind === "message"
+        && composerSubmissionQueue.snapshot().some(record => record.nonce === clientNonce && record.agentId === ownerId))
+        composerSubmissionQueue.reconcile(clientNonce, "sent");
       const projectedAttachments = projectedMessage?.attachments ?? [];
       setEntriesByAgent((current) => {
         const existing = current[ownerId] ?? [];
@@ -2729,6 +2765,10 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       const identityChanged = accountIdentityRef.current != null && accountIdentityRef.current !== identity;
       if (accountIdentityRef.current !== identity) {
         accountScopeGenerationRef.current += 1;
+        composerSubmissionQueue.reset();
+        resendSubmissionNoncesRef.current.clear();
+        setBusy(false);
+        setAttachmentStages({});
         localToolPermissionScopeGate.reset();
         groupMembersRoot.reset();
         sharedRoomProvider?.reset();
@@ -2978,10 +3018,12 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     if (activeAgent == null || bridge == null) return;
     const stagingAgentId = activeAgent.id;
     const stagingAccountSlot = acknowledgementScopeRef.current.accountSlot;
-    setBusy(true);
+    const stagingGeneration = accountScopeGenerationRef.current;
+    setAttachmentStages(current => ({ ...current, [stagingAgentId]: (current[stagingAgentId] ?? 0) + 1 }));
     try {
       const result = await stageComposerFiles(bridge, files);
-      if (activeAgentIdRef.current !== stagingAgentId || acknowledgementScopeRef.current.accountSlot !== stagingAccountSlot) {
+      if (activeAgentIdRef.current !== stagingAgentId || acknowledgementScopeRef.current.accountSlot !== stagingAccountSlot
+        || accountScopeGenerationRef.current !== stagingGeneration) {
         await Promise.all(result.attachments.map(({ path }) => bridge.discardStagedAttachment(path).catch(() => {})));
         return;
       }
@@ -2990,8 +3032,11 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       const currentBaseDraft = currentSnapshot.draft ?? currentSnapshot.recovery ?? EMPTY_DRAFT;
       composerDraftStore.setDraft(stagingAgentId, { ...currentBaseDraft, attachments: [...currentBaseDraft.attachments, ...result.attachments] });
       setNotice(result.notice);
-    } catch (error) { setNotice(error instanceof Error ? error.message : String(error)); }
-    finally { setBusy(false); }
+    } catch (error) {
+      if (activeAgentIdRef.current === stagingAgentId && accountScopeGenerationRef.current === stagingGeneration) setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (accountScopeGenerationRef.current === stagingGeneration) setAttachmentStages(current => ({ ...current, [stagingAgentId]: Math.max(0, (current[stagingAgentId] ?? 1) - 1) }));
+    }
   };
 
   const removeAttachment = async (attachment: DraftAttachment) => {
@@ -3002,7 +3047,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
   };
 
   const submit = () => {
-    if (activeAgent == null || client == null) return;
+    if (activeAgent == null || client == null || (attachmentStages[activeAgent.id] ?? 0) > 0) return;
     const liveDraftSnapshot = activeDraftSnapshotStore.get();
     const liveBaseDraft = liveDraftSnapshot.draft ?? liveDraftSnapshot.recovery ?? EMPTY_DRAFT;
     const liveDraft = replyThreadController.applyReplyToDraft(liveBaseDraft);
@@ -3011,6 +3056,11 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     const prompt = liveDraft.prompt.trim();
     const attachments = liveDraft.attachments.map(({ path, name }) => ({ path, name }));
     if (prompt.length === 0 && attachments.length === 0) return;
+    if (composerSubmissionQueue.snapshot().some(record => record.agentId === activeAgent.id && record.phase === "failed" && record.failureKind !== "rejected"
+      && record.prompt === prompt && JSON.stringify(record.attachments) === JSON.stringify(attachments))) {
+      setNotice("Check the original message receipt before sending the same unconfirmed message again.");
+      return;
+    }
     const submission = replyThreadController.projectSubmission({
       nonce: clientNonce,
       agentId: activeAgent.id,
@@ -3035,34 +3085,56 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       kind: "message", id: `pending-${clientNonce}`, role: "user", author: "You", text: prompt, timestampMs: enteredAt, attachments, delivery: "pending", clientNonce,
       ...(submission.replyToId == null ? {} : { replyToId: submission.replyToId })
     }] }));
-    const queuedSubmission = composerSubmissionQueue.submit(submission);
-    void queuedSubmission.completion.then((phase) => {
-      if (phase !== "sent") return;
-      if (activeAgentIdRef.current !== submission.agentId || acknowledgementScopeRef.current.accountSlot !== submissionAccountSlot) return;
+    setNotice(null);
+    composerSubmissionQueue.submit(submission);
+    // The local queue now owns a copied payload. Clear exactly this draft at
+    // handoff, not when an old network receipt arrives after the user has typed.
+    // A recovered draft has no draft identity, so its recovery is cleared here.
+    if (activeAgentIdRef.current === submission.agentId && acknowledgementScopeRef.current.accountSlot === submissionAccountSlot) {
       const cleared = draftIdentity == null
         ? composerDraftStore.clearDraftIfMatches({ agentId: submission.agentId, draft: liveBaseDraft })
-        : composerDraftStore.clearDraftIfCurrent(draftIdentity)
-          || composerDraftStore.clearDraftIfMatches({ agentId: submission.agentId, draft: liveBaseDraft });
-      if (!cleared) return;
-      composerDraftStore.clearRecovery(submission.agentId);
-      setComposerClearGeneration((current) => current + 1);
-    });
-    setNotice(null);
+        : composerDraftStore.clearDraftIfCurrent(draftIdentity);
+      if (cleared || liveDraftSnapshot.draft == null) {
+        composerDraftStore.clearRecovery(submission.agentId);
+        setComposerClearGeneration(current => current + 1);
+      }
+    }
   };
 
   const removeTranscriptMessage = useCallback((entry: TranscriptMessage) => {
     const agentId = activeAgentIdRef.current;
     if (!agentId) return;
+    if (entry.clientNonce != null) composerSubmissionQueue.discard(entry.clientNonce);
     if (entry.clientNonce != null) acknowledgementController.removeOptimistic({ accountSlot: acknowledgementScopeRef.current.accountSlot, nonce: entry.clientNonce });
     setEntriesByAgent((current) => ({
       ...current,
       [agentId]: (current[agentId] ?? []).filter((candidate) => candidate.kind !== "message" || candidate.id !== entry.id)
     }));
-  }, [acknowledgementController]);
+  }, [acknowledgementController, composerSubmissionQueue]);
+
+  const checkSendReceipt = async (entry: TranscriptMessage): Promise<void> => {
+    const agentId = activeAgentIdRef.current;
+    const accountGeneration = accountScopeGenerationRef.current;
+    if (client == null || entry.clientNonce == null || !(entry.delivery === "uncertain" || (entry.delivery === "failed" && entry.deliveryFailure !== "rejected"))) return;
+    if (transportRef.current !== "connected") throw new Error("Reconnect before checking this receipt.");
+    const outcome = await lookupSubmissionReceipt(() => client.call("promptAcceptanceStatus", {
+      accountSlot: HOST_ACCOUNT_SLOT, clientNonce: entry.clientNonce,
+    }), { accountSlot: HOST_ACCOUNT_SLOT, agentId, nonce: entry.clientNonce });
+    if (accountScopeGenerationRef.current !== accountGeneration || activeAgentIdRef.current !== agentId) return;
+    if (outcome == null) throw new Error("The server cannot confirm delivery yet. The queue remains paused; nothing was resent.");
+    if (!composerSubmissionQueue.reconcile(entry.clientNonce, outcome)) return;
+    setNotice(outcome === "sent" ? "The server received this message; this is not confirmation that the work is complete." : "The server confirmed rejection. You can now review or resend the failed message.");
+  };
 
   const resendFailedSend = useCallback(async (entry: TranscriptMessage) => {
+    if (entry.delivery !== "failed") return;
     const agentId = activeAgentIdRef.current;
     if (client == null || !agentId) return;
+    const original = composerSubmissionQueue.snapshot().find(record => record.nonce === entry.clientNonce && record.agentId === agentId);
+    if (original?.failureKind !== "rejected") {
+      setNotice("Delivery is unconfirmed. Check the conversation; this message will not be replayed automatically.");
+      return;
+    }
     const clientNonce = makeClientNonce();
     const pendingId = `pending-${clientNonce}`;
     const enteredAt = Date.now();
@@ -3088,34 +3160,38 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
         ? { ...candidate, id: pendingId, clientNonce, delivery: "pending", composedAtMs: undefined }
         : candidate)
     }));
-    const retrySubmission = {
+    const retrySubmission: ComposerSubmission = {
+      ...original,
       nonce: clientNonce,
       agentId,
-      prompt: entry.text.trim(),
-      attachments: retryAttachments,
+      attachments: original.attachments,
       createdAtMs: enteredAt
     };
     const retryAccountSlot = acknowledgementScopeRef.current.accountSlot;
     const journaledRetry = sendJournalApprovalLifecycle.resendFailed({ submission: retrySubmission, onJournaled: () => {} });
-    void journaledRetry.then((phase) => {
-      if (phase !== "sent") return;
+    void journaledRetry.catch((error: unknown) => {
       if (activeAgentIdRef.current !== retrySubmission.agentId || acknowledgementScopeRef.current.accountSlot !== retryAccountSlot) return;
-      composerDraftStore.clearRecovery(retrySubmission.agentId);
+      setNotice(error instanceof Error ? error.message : String(error));
     });
   }, [client, composerDraftStore, composerSubmissionQueue, sendJournalApprovalLifecycle]);
 
   const cancelQueuedSend = useCallback((entry: TranscriptMessage) => {
-    if (entry.clientNonce != null && composerSubmissionQueue.cancelQueued(entry.clientNonce)) {
-      const agentId = activeAgentIdRef.current;
-      acknowledgementController.removeOptimistic({ accountSlot: acknowledgementScopeRef.current.accountSlot, nonce: entry.clientNonce });
-      if (agentId.length > 0) composerDraftStore.recoverDraft(agentId, {
-        prompt: entry.text.trim(),
-        attachments: (entry.attachments ?? []).map(({ path, name }) => ({ path, name }))
+    const agentId = activeAgentIdRef.current;
+    const original = composerSubmissionQueue.snapshot().find(record => record.nonce === entry.clientNonce && record.agentId === agentId);
+    if (original && composerSubmissionQueue.cancelQueued(original.nonce)) {
+      acknowledgementController.removeOptimistic({ accountSlot: acknowledgementScopeRef.current.accountSlot, nonce: original.nonce });
+      composerDraftStore.recoverDraft(agentId, {
+        prompt: original.prompt,
+        attachments: [...original.attachments],
+        ...(original.richText == null ? {} : { richText: original.richText }),
+        ...(original.replyToId == null ? {} : { replyToId: original.replyToId }),
+        ...(original.isFork === undefined ? {} : { isFork: original.isFork })
       });
       return;
     }
-    removeTranscriptMessage(entry);
-  }, [acknowledgementController, composerDraftStore, composerSubmissionQueue, removeTranscriptMessage]);
+    // A stale Cancel click must not hide a send that has already started.
+    setNotice("This message is no longer queued. Cancelling its queue entry cannot stop accepted work.");
+  }, [acknowledgementController, composerDraftStore, composerSubmissionQueue]);
 
   const setAgentHiddenFromSidebar = useCallback((agentId: string, isHidden: boolean) => {
     void hiddenChatsMutationController.setAgentHiddenFromSidebar(agentId, isHidden).catch((error: unknown) => {
@@ -3571,6 +3647,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
                 onReply={(entry) => selectReplyTarget(entry.id)}
                 onStartThread={(entry) => { replyThreadController.navigate(entry.id); }}
                 onResendFailedSend={(entry) => void resendFailedSend(entry)}
+                onCheckSendReceipt={checkSendReceipt}
                 renderMessageReactionActions={renderReactionActions}
                 renderComputerHandoff={(entry) => renderComputerHandoffEntry(entry, computer)}
                 renderMessageReactionPills={renderReactionPills}
@@ -3590,7 +3667,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
           </main>
           <div className="sand-chat-input-dock">
             {localToolPermissionDock}
-            <ConversationComposer acceptedSendGeneration={composerClearGeneration} disabled={busy || client == null} draft={draft} editorProviders={editorProviders} notice={notice} onChange={(value) => composerDraftStore.setDraft(activeAgent.id, value)} onClearReplyTarget={clearReplyTarget} onRemoveAttachment={removeAttachment} onStageFiles={stageFiles} onSubmit={submit} placeholder={`Message ${activeAgent.name}`} replyTarget={replyTarget} scopeKey={`${transcriptAccountSlot ?? "signed-out"}:${activeAgent.id}`} transcribeAudio={transcribeAudio} />
+            <ConversationComposer acceptedSendGeneration={composerClearGeneration} disabled={client == null} submitDisabled={(attachmentStages[activeAgent.id] ?? 0) > 0} draft={draft} editorProviders={editorProviders} notice={notice} onChange={(value) => composerDraftStore.setDraft(activeAgent.id, value)} onClearReplyTarget={clearReplyTarget} onRemoveAttachment={removeAttachment} onStageFiles={stageFiles} onSubmit={submit} placeholder={`Message ${activeAgent.name}`} replyTarget={replyTarget} scopeKey={`${transcriptAccountSlot ?? "signed-out"}:${activeAgent.id}`} transcribeAudio={transcribeAudio} />
           </div>
         </div>}
       </div>

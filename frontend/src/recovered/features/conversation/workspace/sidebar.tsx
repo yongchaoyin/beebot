@@ -126,6 +126,7 @@ export function AgentSidebarHeader({ onBroadcast, onNewChat, onOpenNetwork, onOp
     <>
       <header className="sand-agents-sidebar__header">
         <div className={isCollapsed ? "sand-agents-sidebar__rail-new" : "sand-agents-sidebar__new-actions"}>
+          {!isCollapsed ? <span className="bee-wordmark">BeeBot</span> : null}
           {!isCollapsed && hasCollaborationActions ? <>
             <SandIconButton aria-label="Broadcast to agents" className="sand-agents-sidebar__broadcast" icon="megaphone" label="Broadcast to agents" onClick={onBroadcast} size="sm" />
             {onOpenNetwork == null ? null : <SandIconButton aria-label={AGENT_NETWORK_TRIGGER.ariaLabel} className={AGENT_NETWORK_TRIGGER.className} icon={AGENT_NETWORK_TRIGGER.icon} label={AGENT_NETWORK_TRIGGER.ariaLabel} onClick={onOpenNetwork} size="sm" />}
