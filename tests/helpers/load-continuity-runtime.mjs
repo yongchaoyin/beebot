@@ -16,6 +16,7 @@ export async function loadContinuityRuntime(t) {
   await build({
     stdin: { contents: `
       export { stampCollaborationEntry, collaborationTasks, buildCollaborationContext, dependenciesReady, workDecisionContext, isWorkDecisionCurrent } from './source/host/extensions/transcript/collaboration-work.ts';
+      export { SessionRuntime } from './source/host/extensions/transcript/session-runtime.ts';
       export { TurnRuntime } from './source/host/extensions/transcript/turn-runtime.ts';
       export { buildGroupReplyContext } from './source/host/groups/group-replies.ts';
       export { requireMessageReference, describeReplyChain } from './source/host/extensions/transcript/message-reply-contract.ts';

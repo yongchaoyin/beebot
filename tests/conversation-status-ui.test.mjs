@@ -91,3 +91,33 @@ test("work responsibility stays inline and retains disclosure/focus as review st
  assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
  ui.selected.set({currentAgentId:"other"});await tick();assert.equal(ui.document.querySelector("[data-bb-work]"),null);
 });
+
+test("switching to a remote Bot fences a stale local stop confirmation before rendering",async t=>{
+ const ui=await setup(t);ui.root().querySelector(":scope > button").click();
+ const confirm=ui.root().querySelector(".bb-conversation-confirm button");
+ ui.document.body.dataset.beebotRemoteActive="true";
+ ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));
+ confirm.click();
+ assert.equal(ui.calls.length,0,"remote selection must never invoke the hidden local conversation's stop");
+ await tick();
+ ui.document.body.dataset.beebotRemoteActive="false";ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));await tick();
+ assert.equal(ui.root().querySelector(".bb-conversation-confirm").hidden,true);
+});
+
+test("late local stop results cannot restore an obsolete confirmation after a remote detour",async t=>{
+ const ui=await setup(t),gate=Promise.withResolvers();ui.stop(()=>gate.promise);
+ ui.root().querySelector(":scope > button").click();ui.root().querySelector(".bb-conversation-confirm button").click();
+ ui.document.body.dataset.beebotRemoteActive="true";ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));await tick();
+ ui.document.body.dataset.beebotRemoteActive="false";ui.window.dispatchEvent(new ui.window.Event("beebot-node-selection"));await tick();
+ gate.reject(new Error("Old stop outcome"));await tick();
+ assert.equal(ui.root().querySelector(".bb-conversation-confirm").hidden,true);
+ assert.equal(ui.root().querySelector(".bb-conversation-feedback").textContent,"");
+});
+
+test("rapidly leaving and returning before render still invalidates the old stop intent",async t=>{
+ const ui=await setup(t);ui.root().querySelector(":scope > button").click();
+ const confirm=ui.root().querySelector(".bb-conversation-confirm button");
+ ui.selected.set({currentAgentId:"other"});ui.selected.set({currentAgentId:"room"});confirm.click();
+ assert.equal(ui.calls.length,0);await tick();
+ assert.equal(ui.root().querySelector(".bb-conversation-confirm").hidden,true);
+});

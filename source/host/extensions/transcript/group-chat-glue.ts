@@ -642,24 +642,19 @@ export class GroupChatGlue {
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive && !message.collaboration) {
-      const previewId = live.sealed.shift();
+      const previewId = live.sealed[0];
       if (previewId != null) {
-        const finalized = updateEntry(previewId, (entry) =>
-          entry.kind === "send-message"
-            ? {
-                kind: "send-message",
-                id: entry.id,
-                message,
-                ...details,
-                ...(entry.timestampMs == null
-                  ? {}
-                  : { timestampMs: entry.timestampMs }),
-                author,
-              }
-            : entry,
-        );
-        if (finalized != null) {
+        const preview = getTranscript().find(entry => entry.id === previewId);
+        if (preview?.kind === "send-message") {
+          const finalized: TranscriptEntry = {
+            kind: "send-message", id: preview.id, message, ...details,
+            ...(preview.timestampMs == null ? {} : {timestampMs:preview.timestampMs}), author,
+          };
+          // A visible completed reply must have a durable publication first.
+          // On write failure leave the preview registered for normal cleanup.
           if (session.db.appendTranscriptEntry(finalized) === false) throw new Error("Group message was not saved.");
+          live.sealed.shift();
+          updateEntry(previewId, () => finalized);
           this.tm.roster.emit({ type: "updated", entry: finalized });
           this.tm.sessions.markActiveSessionArrival(session);
           this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(
@@ -668,6 +663,9 @@ export class GroupChatGlue {
           );
           return finalized.id;
         }
+        // Missing previews may have been removed by the renderer; skip only
+        // those, never a preview whose durable write failed.
+        live.sealed.shift();
       }
     }
     const entries = isActive

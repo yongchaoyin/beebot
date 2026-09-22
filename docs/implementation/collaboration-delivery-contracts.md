@@ -111,3 +111,24 @@ Localhost navigation was blocked by administrator policy, so already-available
 HTML/source were rendered offline; no browser/network policy was changed. The
 existing Node DOM regression covers hostile titles and disclosure reuse. Browser
 screenshots/logs are outside the repository, not production application assets.
+
+
+## Regression hardening: evidence, publication and navigation
+
+Result references must resolve to this task (directly or through a same-task
+clarification), and must be published after its current claim/resume. Review
+references must be published after the exact submission being reviewed. Journal
+order, not timestamps or message-ID sorting, defines these boundaries. Rework
+requires a fresh publication; evidence from an unrelated task or an earlier
+attempt cannot certify the current work. This checks provenance, not truth.
+
+The Host retains the original action request identity before automatic quote
+insertion, so a replay cannot create another assignment. Actual local outgoing
+messages are durably written before becoming completed visible replies or
+acknowledged deliveries, including the active and off-screen single-Bot paths.
+A failed group streaming save leaves its preview available for normal cleanup.
+
+Stop controls are fenced synchronously on conversation navigation, including
+rapid away/back and local-to-remote transitions; old confirmations and late
+responses cannot act on or leak into a later selection. These changes do not
+cancel server work merely because a conversation is closed or switched.

@@ -21,6 +21,7 @@ export interface CollaborationTask {
 export interface CollaborationEvent {
   schemaVersion: 1; actorId: string; action: CollaborationAction["action"];
   task: CollaborationTask; wakeMemberIds: string[];
+  requestKey?: string; requestDigest?: string;
   finalization?: { rootId: string; taskVersions: {task_id: string; version: number}[] };
 }
 export class CollaborationConflict extends Error {
@@ -81,12 +82,55 @@ function dependenciesCurrent(task: CollaborationTask, tasks: ReadonlyMap<string,
   return (task.dependsOn ?? []).every(id => task.dependencyVersions?.[id] === tasks.get(id)?.contractVersion);
 }
 
+interface EvidenceScope { taskId: string; afterId: string; beforeId?: string }
+
+/** Use durable journal order, not timestamps or lexicographic message IDs:
+ * a streaming preview can reserve its ID before it is actually published.
+ * Clarifications inherit their work association, but other tasks' results do not.
+ */
+function requireEvidenceScope(entries: readonly TranscriptEntry[], id: string, scope: EvidenceScope): void {
+  const index = entries.findIndex(entry => entry.id === id);
+  const after = entries.findIndex(entry => entry.id === scope.afterId);
+  const before = scope.beforeId == null ? entries.length : entries.findIndex(entry => entry.id === scope.beforeId);
+  if (index < 0 || after < 0 || before < 0 || index <= after || index >= before) {
+    fail("Evidence must be freshly published after this work attempt or exact submission, and before its recorded acceptance. Publish the current result/check instead of recycling an earlier reference.");
+  }
+  let current: TranscriptEntry | undefined = entries[index];
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id) && seen.size < 32) {
+    seen.add(current.id);
+    const event = current.collaborationEvent as CollaborationEvent | undefined;
+    if (event) {
+      if (event.action !== "finalize" && event.task.id === scope.taskId) return;
+      break;
+    }
+    const next = current.workOnId ?? current.replyTo;
+    current = typeof next === "string" ? entries.find(entry => entry.id === next) : undefined;
+  }
+  fail("Evidence belongs to another task or has no work association. Quote this assignment or a same-task clarification when publishing the result/check.");
+}
+
+function resultEvidenceScope(entries: readonly TranscriptEntry[], task: CollaborationTask, beforeId?: string): EvidenceScope {
+  const before = beforeId == null ? entries.length : entries.findIndex(entry => entry.id === beforeId);
+  if (before < 0) fail("The submitted result is missing from the durable journal.");
+  const start = entries.slice(0, before).findLast(entry => {
+    const event = entry.collaborationEvent as CollaborationEvent | undefined;
+    return event?.task.id === task.id && ["claim", "resume", "revise"].includes(event.action);
+  });
+  const event = start?.collaborationEvent as CollaborationEvent | undefined;
+  if (!start || !event || event.action === "revise" || event.task.contractVersion !== task.contractVersion) {
+    fail("No current work attempt for this evidence. Read the revised requirements and resume before publishing a fresh result.");
+  }
+  return {taskId: task.id, afterId: start.id, ...(beforeId ? {beforeId} : {})};
+}
+
 /** Hash the exact evidence the caller published, not their claim that a file or
  * test exists. Snapshots are checked again at review/finalization. Checking text
  * identity is NOT judging its truth; the explicit reviewer remains accountable.
  */
-function evidenceDigest(entries: readonly TranscriptEntry[], id: string, actor: string, singleBot: boolean, dbPath?: string): string {
+function evidenceDigest(entries: readonly TranscriptEntry[], id: string, actor: string, singleBot: boolean, scope: EvidenceScope, dbPath?: string): string {
   const entry = requireMessageReference(entries, id, "evidence");
+  requireEvidenceScope(entries, id, scope);
   const message = entry.message as Record<string, any> | undefined;
   if (entry.kind !== "send-message" || entry.collaborationEvent || (entry.author as any)?.id !== actor && !(singleBot && !entry.author)
     || !message || !["text", "attachment"].includes(String(message.type))) fail("Evidence must be an actual result/check message published by its responsible Bot in this conversation, not another action or a question.");
@@ -116,7 +160,8 @@ function requireNoOpenDecision(task: CollaborationTask, entries: readonly Transc
 function verifySubmission(task: CollaborationTask, entries: readonly TranscriptEntry[], members: readonly string[], dbPath?: string): void {
   if (!task.submission || task.submission.contractVersion !== task.contractVersion) fail("The submission belongs to an obsolete requirement version.");
   if (!task.ownerId || !members.includes(task.ownerId)) fail("The result owner is no longer available; do not accept the work silently.");
-  for (const evidence of task.submission!.evidence) if (evidence.digest !== evidenceDigest(entries, evidence.messageId, task.ownerId!, members.length === 1, dbPath)) fail("Submitted evidence changed. Request a new result and review it.");
+  const scope = resultEvidenceScope(entries, task, task.submission!.id);
+  for (const evidence of task.submission!.evidence) if (evidence.digest !== evidenceDigest(entries, evidence.messageId, task.ownerId!, members.length === 1, scope, dbPath)) fail("Submitted evidence changed. Request a new result and review it.");
 }
 
 /** A ready ledger state does not imply its files are still intact. Recheck
@@ -127,7 +172,7 @@ function verifyReviewed(task: CollaborationTask, entries: readonly TranscriptEnt
   requireNoOpenDecision(task, entries);
   verifySubmission(task, entries, members, dbPath);
   if (task.state !== "reviewed" || !task.reviewerId || !members.includes(task.reviewerId) || !task.review) fail("Dependency or review owner is unavailable; request a current reviewed result.");
-  for (const check of task.review!.checks) if (check.digest !== evidenceDigest(entries, check.messageId, task.reviewerId!, members.length === 1, dbPath)) fail("Review evidence changed. Recheck before proceeding.");
+  for (const check of task.review!.checks) if (check.digest !== evidenceDigest(entries, check.messageId, task.reviewerId!, members.length === 1, {taskId:task.id,afterId:task.submission!.id,beforeId:task.review!.id}, dbPath)) fail("Review evidence changed. Recheck before proceeding.");
 }
 function verifyDependencies(task: CollaborationTask, tasks: ReadonlyMap<string, CollaborationTask>, entries: readonly TranscriptEntry[], members: readonly string[], dbPath?: string, seen = new Set<string>()): void {
   if (seen.has(task.id)) return;
@@ -140,27 +185,39 @@ function verifyDependencies(task: CollaborationTask, tasks: ReadonlyMap<string, 
   }
 }
 
+function collaborationRequestDigest(message: Record<string, any>): string {
+  return digest({type:message.type,content:message.content,reply_to:message.reply_to,work_on:message.work_on,collaboration:message.collaboration});
+}
+
 /** Source-aware request replay: generated by the actual tool call, not inferred
  * from identical human wording. A reused key with different input is rejected.
  */
 export function collaborationReplay(entries: readonly TranscriptEntry[], actorId: string, message: Record<string, any>): TranscriptEntry | undefined {
   if (!message.collaboration || typeof message.collaborationKey !== "string") return;
-  const old = entries.find(entry => (entry.collaborationEvent as CollaborationEvent | undefined)?.actorId === actorId && (entry.message as any)?.collaborationKey === message.collaborationKey);
+  const old = entries.find(entry => {
+    const event = entry.collaborationEvent as CollaborationEvent | undefined;
+    return event?.actorId === actorId && (event.requestKey ?? (entry.message as any)?.collaborationKey) === message.collaborationKey;
+  });
   if (!old) return;
-  const body = (m: Record<string, any>) => ({type:m.type,content:m.content,reply_to:m.reply_to,work_on:m.work_on,collaboration:m.collaboration});
-  if (digest(body(old.message as any)) !== digest(body(message))) fail("This action key was already used with different input. Nothing was changed.");
+  const event = old.collaborationEvent as CollaborationEvent;
+  if ((event.requestDigest ?? collaborationRequestDigest(old.message as any)) !== collaborationRequestDigest(message)) fail("This action key was already used with different input. Nothing was changed.");
   return old;
 }
 
 export function stampCollaborationEntry(
   entry: TranscriptEntry, entries: readonly TranscriptEntry[], actorId: string,
-  memberIds: readonly string[], sharedRoom = false, dbPath?: string,
+  memberIds: readonly string[], sharedRoom = false, dbPath?: string, request?: Record<string, any>,
 ): TranscriptEntry {
   const message = entry.message as Record<string, unknown> | undefined;
   if (!message?.collaboration) return entry;
   if (sharedRoom || message.channel || message.type !== "text") fail("Work contracts require text in an owned local Bot or Group conversation.");
   if (!memberIds.includes(actorId)) fail("The author is no longer a member. No work was changed.");
   const action = collaborationActionSchema.parse(message.collaboration);
+  // Bind replay to the original tool request before automatic quote shaping.
+  // Only the Host stamps this metadata; it is never accepted as model authority.
+  const original = request ?? message;
+  const identity = typeof original.collaborationKey === "string" && original.collaborationKey.length > 0 && original.collaborationKey.length <= 256
+    ? {requestKey:original.collaborationKey,requestDigest:collaborationRequestDigest(original)} : {};
   const quote = typeof entry.replyTo === "string" ? entry.replyTo : undefined;
   if (!quote) fail("A work action must quote its source message.");
   const parent = requireMessageReference(entries, quote!);
@@ -175,7 +232,7 @@ export function stampCollaborationEntry(
       verifyReviewed(t, entries, memberIds, dbPath);
       verifyDependencies(t, tasks, entries, memberIds, dbPath);
     }
-    const event: CollaborationEvent = {schemaVersion:1,actorId,action:"finalize",task:required[0]!,wakeMemberIds:[],finalization:{rootId:action.root_id,taskVersions:action.task_versions}};
+    const event: CollaborationEvent = {schemaVersion:1,actorId,...identity,action:"finalize",task:required[0]!,wakeMemberIds:[],finalization:{rootId:action.root_id,taskVersions:action.task_versions}};
     return {...entry,workOnId:action.root_id,collaborationEvent:event};
   }
   if (action.action === "assign") {
@@ -219,6 +276,7 @@ export function stampCollaborationEntry(
       case "revise":
         if (task.issuerId !== actorId) fail("Only the assigning colleague can revise this contract; other colleagues should propose changes in chat.");
         if (action.reviewer_id && !memberIds.includes(action.reviewer_id)) fail("Reviewer is not a member.");
+        if (memberIds.length > 1 && (action.reviewer_id ?? task.reviewerId) === (task.ownerId ?? task.assigneeId)) fail("Name an independent reviewer; the group task owner cannot review their own result.");
         task.deliverable=action.deliverable;task.criteria=action.criteria;task.contractVersion++;
         if (action.reviewer_id) task.reviewerId=action.reviewer_id;
         task.state=task.ownerId ? "blocked" : "offered";task.reason="Requirements changed. Existing effects are not undone; read the new contract before resuming.";
@@ -230,7 +288,7 @@ export function stampCollaborationEntry(
         requireNoOpenDecision(task,entries);
         coverCriteria(task.criteria,action.evidence.map(e=>e.criterion));
         if (task.outputType === "file" && !action.evidence.some(e => (entries.find(entry => entry.id === e.message_id)?.message as any)?.type === "attachment")) fail("This contract requires a real file snapshot, not a text claim that a file was produced.");
-        task.submission={id:entry.id,contractVersion:task.contractVersion,dependencyVersions:dependencyVersions(task,tasks),evidence:action.evidence.map(e=>({criterion:e.criterion,messageId:e.message_id,digest:evidenceDigest(entries,e.message_id,actorId,memberIds.length===1,dbPath)}))};
+        task.submission={id:entry.id,contractVersion:task.contractVersion,dependencyVersions:dependencyVersions(task,tasks),evidence:action.evidence.map(e=>({criterion:e.criterion,messageId:e.message_id,digest:evidenceDigest(entries,e.message_id,actorId,memberIds.length===1,resultEvidenceScope(entries,task),dbPath)}))};
         delete task.review;delete task.reason;task.state="submitted";
         if (task.reviewerId && memberIds.includes(task.reviewerId) && task.reviewerId!==actorId) wakeMemberIds=[task.reviewerId];
         break;
@@ -241,7 +299,7 @@ export function stampCollaborationEntry(
         requireNoOpenDecision(task,entries);
         verifySubmission(task,entries,memberIds,dbPath);coverCriteria(task.criteria,action.checks.map(c=>c.criterion));
         if (action.verdict==="approve" && action.checks.some(c=>!c.passed)) fail("A failing acceptance criterion blocks approval.");
-        task.review={id:entry.id,kind:actorId===task.ownerId ? "self" : "peer",checks:action.checks.map(c=>({criterion:c.criterion,messageId:c.message_id,digest:evidenceDigest(entries,c.message_id,actorId,memberIds.length===1,dbPath)}))};
+        task.review={id:entry.id,kind:actorId===task.ownerId ? "self" : "peer",checks:action.checks.map(c=>({criterion:c.criterion,messageId:c.message_id,digest:evidenceDigest(entries,c.message_id,actorId,memberIds.length===1,{taskId:task.id,afterId:task.submission!.id},dbPath)}))};
         task.state=action.verdict==="approve" ? "reviewed" : "changes_requested";
         const updated=new Map(tasks).set(task.id,task);
         wakeMemberIds=[...[task.ownerId!,task.issuerId].filter(id=>id!==actorId),...[...tasks.values()].filter(t=>["offered","blocked"].includes(t.state) && !dependenciesReady(t,tasks) && dependenciesReady(t,updated)).flatMap(t=>t.ownerId ?? t.assigneeId ?? [])].filter(id=>memberIds.includes(id));
@@ -249,7 +307,7 @@ export function stampCollaborationEntry(
     }
     task.version++;
   }
-  const event: CollaborationEvent={schemaVersion:1,actorId,action:action.action,task,wakeMemberIds:[...new Set(wakeMemberIds)]};
+  const event: CollaborationEvent={schemaVersion:1,actorId,...identity,action:action.action,task,wakeMemberIds:[...new Set(wakeMemberIds)]};
   return {...entry,workOnId:task.id,collaborationEvent:event};
 }
 

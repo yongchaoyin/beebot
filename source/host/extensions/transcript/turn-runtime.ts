@@ -791,7 +791,7 @@ export class TurnRuntime {
           if (!target) throw new Error("No active conversation for this work action.");
           const replay = collaborationReplay(target.db.getTranscriptEntries(), target.id, incoming);
           if (replay) return replay.id;
-          entry = stampCollaborationEntry(entry, target.db.getTranscriptEntries(), target.id, [target.id], false, target.dbPath);
+          entry = stampCollaborationEntry(entry, target.db.getTranscriptEntries(), target.id, [target.id], false, target.dbPath, incoming);
           if (target.db.appendTranscriptEntry(entry) === false) throw new Error("Work publication could not be saved. Nothing was claimed.");
           if (isForActiveAgent || runSession == null) {
             appendEntry(entry); this.tm.roster.emit({type: "appended", entry}, target.id);
@@ -802,7 +802,7 @@ export class TurnRuntime {
           return sendId;
         }
         if (isForActiveAgent || runSession == null) {
-          this.tm.sendPipeline.appendSendMessageEntry(entry);
+          this.tm.sendPipeline.appendSendMessageEntry(entry, { requireDurable: true });
           const activeId = runSession?.id ?? this.tm.sessions.activeSession?.id;
           this.tm.ackObligations.fulfillAckObligation(
             activeId,
@@ -810,7 +810,7 @@ export class TurnRuntime {
           );
           if (activeId != null) void this.tm.roster.emitAgentUpdate(activeId);
         } else {
-          runSession.db.appendTranscriptEntry(entry);
+          if (runSession.db.appendTranscriptEntry(entry) === false) throw new Error("Message could not be saved. Delivery was not confirmed; retry only after checking its receipt.");
           this.tm.ackObligations.fulfillAckObligation(
             runSession.id,
             update.ackToken,

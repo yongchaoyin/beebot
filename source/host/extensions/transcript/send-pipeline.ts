@@ -553,9 +553,9 @@ export class SendPipeline {
     return minted;
   }
 
-  appendSendMessageEntry(entry: TranscriptEntry): void {
+  appendSendMessageEntry(entry: TranscriptEntry, options?: { requireDurable?: boolean }): void {
+    this.tm.appendEntry(entry, options);
     this.boxRequests.trackBoxRequestEntry(entry);
-    this.tm.appendEntry(entry);
   }
 
   resolveBoxRequestEntry(
