@@ -1,0 +1,225 @@
+name: Responsibility integrity stage
+on:
+  push:
+    branches: [chore/collaboration-contracts-dev-20260922]
+    paths: [.github/workflows/responsibility-integrity-stage.yml]
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 639ff091652c6455bd68c1554a78c81f907fefe8
+          fetch-depth: 0
+          lfs: false
+      - name: Reconstruct reviewed source; exact tree and commit must match
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess
+          def git(*args, data=None): return subprocess.check_output(['git', *args], input=data)
+          parent='639ff091652c6455bd68c1554a78c81f907fefe8'
+          assert git('rev-parse','HEAD').decode().strip()==parent
+          def edit(path, blob, ops):
+              assert git('hash-object',path).decode().strip()==blob,path
+              p=pathlib.Path(path); lines=p.read_text().splitlines(True)
+              for start,end,replacement in reversed(ops):
+                  assert 0<=start<=end<=len(lines)
+                  lines[start:end]=[replacement]
+              p.write_text(''.join(lines)); git('add',path)
+          def create(path, text):
+              p=pathlib.Path(path); assert not p.exists();p.write_text(text);git('add',path)
+          edit('scripts/lib/beebot-collaboration-review.snippet.js','5d662066d7dc7ff955cf0b6e2be600da0223f74c',[(120,121,'      c.title.textContent=task.title;c.state.textContent=`${task.state==="accepted"&&!task.acceptedForCurrentInputs?t("需要重新核对","Re-verification required"):(labels()[task.state]||task.state)} · v${task.version}`+(task.state==="accepted"&&!task.acceptedForCurrentInputs?(task.reviewNeedsRefresh?t(" · 历史验收缺少版本依据，请重新核对"," · Historical review needs evidence verification"):t(" · 依赖已变化，需要重查"," · Changed dependencies; recheck needed")):"");\n')])
+          edit('source/host/extensions/transcript/collaboration-completion.ts','a800029506d6a2f196a5ab3c8abff853d2f900e8',[(37,38,"    // Independent test evidence need not be in the implementer's submission.\n    // Compare the actual reviewed version, not a new hash of today's text.\n    verifyWorkEvidence(input.entries, task.review!.manifest!, input.dbPath);\n")])
+          edit('source/host/extensions/transcript/collaboration-controls.ts','4095e9d35e2ef8f4aae3e301806cdc3c1b0f9d5b',[(7,8,'import { workDependenciesReady, workIsAccepted, workReviewNeedsRefresh } from "./collaboration-transitions.js";\n'),(37,38,'    return (task.state === "review" || workReviewNeedsRefresh(task)) && task.reviewer === "user" && submittedAt >= 0\n'),(45,46,'      dependenciesReady:workDependenciesReady(task,tasks), acceptedForCurrentInputs:workIsAccepted(task,tasks), reviewNeedsRefresh:workReviewNeedsRefresh(task),\n')])
+          edit('source/host/extensions/transcript/collaboration-transitions.ts','58f92a55cd0756a6f58a200641da46208438477f',[(7,7,'/** Old review rows remain readable, but do not invent evidence pins on load. */\nexport function workReviewNeedsRefresh(task: CollaborationTask): boolean {\n  return task.state === "accepted" && task.review?.verdict === "accept" && !task.review.manifest;\n}\n\n'),(10,11,'  if (seen.has(task.id) || task.state !== "accepted" || !task.review?.manifest?.length || !task.submission || task.submission.scopeVersion !== task.scopeVersion\n'),(62,63,'    check(actor === "user" || (members.includes(prior.assignee) && members.includes(prior.creator)), "work_member_unavailable", "Reconcile the work\'s missing assignee/coordinator before accepting or requesting changes.");\n    check((prior.state === "review" || workReviewNeedsRefresh(prior)) && prior.submission?.id === action.submission_id && prior.submission.scopeVersion === prior.scopeVersion,\n'),(70,71,'    const manifest = captureWorkEvidence(entries, action.checks.flatMap(item => item.evidence_ids), dbPath);\n'),(73,74,'    next.review = {id: messageId, reviewer: actor, submissionId: action.submission_id, verdict: action.verdict, checks: action.checks, manifest};\n'),(78,79,'      for (const candidate of projected.values()) {\n        // Accepted downstream work can become obsolete without changing its own\n        // row. Notify its owner to explicitly recheck/reclaim, never auto-run it.\n        const needsInput = ["offered", "waiting"].includes(candidate.state)\n          || (candidate.state === "accepted" && !workIsAccepted(candidate, projected));\n        if (candidate.dependencies.includes(next.id) && needsInput && workDependenciesReady(candidate, projected)) wake.push(candidate.assignee);\n      }\n')])
+          edit('source/host/extensions/transcript/collaboration.ts','476eb85f985910cff9cc1c876607f054ef54cf20',[(97,98,'  return `\\n\\nCompletion receipts (all known work only): ${JSON.stringify(receipts)}\\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\\n${tasks.slice(-32).map(task => JSON.stringify({...task, dependenciesReady: workDependenciesReady(task, projected), acceptedForCurrentInputs: workIsAccepted(task, projected)})).join("\\n")}\\nThe first assignment creator is the temporary closer for that goal. Use finish only with every recorded task ID/current version and the final published result_ids after acceptance. Added/revised tasks invalidate an earlier finish receipt. A finish receipt is not external-send/deploy permission. Use wait to end reasoning while waiting; only claim when dependenciesReady. Publish result/evidence messages before submit; only the independent reviewer may review all criteria. Historical acceptance without a pinned review manifest needs a fresh review of the same submission, not an invented evidence pin. Reference work_on for scoped questions. Receipt or an evidence hash is not semantic acceptance. Use SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must pass review before dependent work starts. If tools, access or the environment are missing, report the limitation; do not claim verified capability.\\n`;\n')])
+          edit('source/shared/collaboration.ts','070cb324b04d9321599ab9dad1610beed5d00420',[(54,55,'  review: z.object({id: address, reviewer: address, submissionId: address, verdict: z.enum(["accept", "changes"]), checks,\n    // Optional only to read pre-upgrade history. Such acceptance needs a fresh\n    // review; current evidence must never be passed off as its historical basis.\n    manifest: z.array(workEvidenceSchema).min(1).max(288).optional(),\n  }).strict().optional(),\n')])
+          edit('tests/collaboration-review-ui.test.mjs','42bb273d544b5b8d1263263256b132bedcbdcdd7',[(87,87,'\ntest("legacy evidence review is shown as re-verification, not falsely blamed on dependencies",async t=>{\n const ui=await boot(t);ui.tasks([task({state:"accepted",acceptedForCurrentInputs:false,reviewNeedsRefresh:true})]);\n ui.refresh();await tick();ui.expand();\n assert.match(ui.root().textContent,/历史验收缺少版本依据，请重新核对/);\n assert.doesNotMatch(ui.root().textContent,/依赖已变化/);\n assert.equal(ui.window.document.querySelectorAll(\'[role="dialog"]\').length,0);\n assert.equal(ui.calls.length,0,"opening historical evidence never triggers acceptance");\n ui.choose();ui.root().querySelector(\'.bb-work-actions button\').click();await tick();\n assert.equal(ui.calls.length,1);\n});\n')])
+          create('docs/implementation/collaboration-integrity.md', '''# Collaboration integrity hardening
+
+          Continues the C1-C3 local Host implementation on `639ff09`. No parallel work
+          ledger, permanent manager Bot, new chat modal or Honeyline branch overwrite.
+
+          ## Evidence belongs to the actual review
+
+          Submission evidence and independent reviewer evidence are different sets. A
+          review now captures a deduplicated manifest of all cited criterion evidence in
+          the same durable transcript event. Finish verifies both manifests against the
+          published versions. Editing an independent test report after acceptance can no
+          longer pass simply because a newly calculated hash matches the new report.
+          Hashes still prove content identity, not semantic correctness. Peer/human check
+          outcomes remain attributed assertions; no production-model grade is invented.
+
+          Older rows without a review manifest remain readable and historical. They are
+          not silently backfilled from today's evidence. Such acceptance is ineligible for
+          new dependent claims/closure until the designated peer or authenticated user
+          reviews the current submission again. User re-review stays in the existing inline
+          control, requires each criterion, and retains the Stop/member/version guards.
+
+          ## Dependencies remain live after revisions
+
+          When an upstream revision is accepted, notify the owners of directly dependent
+          work whose earlier acceptance is now obsolete, as well as offered/waiting work.
+          This notification does not claim or execute a task, mutate downstream versions,
+          release an OS lease, or replay old writes. Normal dependency checks govern the
+          owner's explicit re-claim. Further dependencies become ready in order, not all at
+          once. Peer acceptance also rejects a missing assignee/coordinator instead of
+          marking an orphaned assignment accepted and discovering it only at finish.
+
+          ## Regression evidence
+
+          The new integrity suite first reproduced unpinned independent review evidence,
+          missing-member acceptance and missed dependent notifications against the base.
+          It uses actual group publication/state/SQLite, with controlled model/OS I/O.
+          The existing completion/review suites are retained. A migration case validates
+          real user re-review and finish; an actual adapter test checks its inline warning.
+
+          Both typechecks and focused tests run on the pinned Node 26.5.0. Chromium checks
+          the actual review adapter at 1120x860 and 390x844 with controlled shell/RPC data:
+          no chat modal, no horizontal overflow, no automatic acceptance, criterion checks,
+          and unchanged chat draft. Browser plugin was not available; Playwright was used.
+          This is not native macOS UI, production-model behavior or a signed installation.
+          Full exact-tree macOS checks must hydrate the existing LFS installer and runtime
+          and pass the unmodified publication checks before a release claim.
+          ''')
+          create('tests/collaboration-integrity.test.mjs', '''import assert from "node:assert/strict";
+          import test from "node:test";
+          import { dirname } from "node:path";
+          import { continuityHarness } from "./helpers/continuity-harness.mjs";
+
+          // Actual publication, state projection and SQLite. Only model/OS I/O is replaced.
+          function work(h) {
+            const session = h.sessions.get("room");
+            session.db.appendTranscriptEntry({ id: "goal", kind: "message", role: "user", content: "Deliver the tested change." });
+            let sequence = 0;
+            const tasks = () => h.runtime.projectCollaboration(h.entries("room"));
+            const publish = (actor, message) => h.tm.groupChat.postGroupMemberMessage(session, { id: actor, name: actor }, message.content,
+              undefined, h.runtime.prepareGroupPublication(session.dbPath, message, false));
+            const action = (actor, value) => publish(actor, { type: "text", content: "Recorded work update", purpose: "update",
+              collaboration: { request_id: `command-${++sequence}`, ...value } });
+            const assign = (extra = {}) => action("a", { action: "assign", goal_message_id: "goal", assignee: "b", reviewer: "a",
+              title: "Check the change", criteria: ["Matches the requirement"], ...extra });
+            const command = (actor, id, type, extra = {}) => action(actor, { action: type, task_id: id,
+              expected_version: tasks().get(id).version, ...extra });
+            const result = (actor, id, content = "Delivered implementation") => publish(actor,
+              { type: "text", content, purpose: "update", reply_to: id, work_on: id });
+            const submit = (id, actor = "b") => {
+              command(actor, id, "claim"); const evidence = result(actor, id);
+              command(actor, id, "submit", { result_ids: [evidence], evidence_ids: [evidence] }); return evidence;
+            };
+            const review = (id, evidence, extra = {}) => command("a", id, "review", { submission_id: tasks().get(id).submission.id,
+              verdict: "accept", checks: [{ criterion: 0, passed: true, evidence_ids: [evidence], note: "Inspected this exact result" }], ...extra });
+            const finish = resultId => action("a", { action: "finish", goal_message_id: "goal",
+              expected_tasks: [...tasks().values()].map(item => ({ id: item.id, version: item.version })), result_ids: [resultId] });
+            return { session, tasks, publish, action, assign, command, result, submit, review, finish };
+          }
+
+          test("independent review evidence is pinned, not silently replaced before final delivery", async t => {
+            const h = await continuityHarness(t), w = work(h), id = w.assign(), result = w.submit(id);
+            const inspection = w.result("a", id, "Independent test: expected behavior passed");
+            w.review(id, inspection);
+            w.session.db.updateTranscriptEntry(inspection, entry => ({ ...entry, message: { ...entry.message, content: "Independent test: failed" } }));
+            assert.throws(() => w.finish(result), /work_evidence_changed/,
+              "finish must verify the evidence actually used by the reviewer, not merely hash its current contents");
+            assert.equal(h.runtime.projectCompletions(h.entries("room")).size, 0);
+          });
+
+          test("unchanged independent review evidence permits closure and is preserved in the receipt", async t => {
+            const h = await continuityHarness(t), w = work(h), id = w.assign(), result = w.submit(id);
+            const inspection = w.result("a", id, "Independent checks passed"); w.review(id, inspection);
+            assert.deepEqual(w.tasks().get(id).review.manifest.map(item => item.id), [inspection]);
+            w.finish(result);
+            assert.equal(h.runtime.projectCompletions(h.entries("room")).size, 1);
+          });
+
+          test("a peer cannot accept work after its assignee leaves the group", async t => {
+            const h = await continuityHarness(t, { members: ["a", "b", "c"] }), w = work(h), id = w.assign(), result = w.submit(id);
+            h.runtime.writeSandGroupConfig(dirname(w.session.dbPath), { version: 1, memberIds: ["a", "c"] });
+            assert.throws(() => w.review(id, result), /work_member_unavailable/);
+            assert.equal(w.tasks().get(id).state, "review");
+          });
+
+          test("reaccepted prerequisites wake previously accepted but obsolete dependent work", async t => {
+            const h = await continuityHarness(t, { members: ["a", "b", "c"] }), w = work(h);
+            const upstream = w.assign(), first = w.submit(upstream); w.review(upstream, first);
+            const downstream = w.assign({ assignee: "c", dependencies: [upstream] });
+            const second = w.submit(downstream, "c"); w.review(downstream, second);
+            const previous = w.tasks().get(downstream).version;
+            w.session.db.appendTranscriptEntry({ id: "correction", kind: "message", role: "user", content: "Change the required behavior", replyTo: upstream });
+            w.command("a", upstream, "revise", { source_message_id: "correction", title: "Updated behavior", criteria: ["New behavior"] });
+            const updated = w.submit(upstream), accepted = w.review(upstream, updated);
+            const event = h.entries("room").find(entry => entry.id === accepted).collaborationEvent;
+            assert.ok(event.wake.includes("c"), "C needs an event to recheck obsolete accepted work; the user should not have to chase it");
+            assert.equal(w.tasks().get(downstream).version, previous, "notification must not auto-claim or execute dependent work");
+            assert.equal(h.runtime.workIsAccepted(w.tasks().get(downstream), w.tasks()), false);
+            w.command("c", downstream, "claim");
+            assert.equal(w.tasks().get(downstream).state, "claimed");
+          });
+
+          test("legacy unpinned review remains readable but requires re-review before closure", async t => {
+            const h = await continuityHarness(t), w = work(h), id = w.assign(), result = w.submit(id), reviewId = w.review(id, result);
+            // A history produced before the review-evidence field existed must not be
+            // rejected as corrupt or upgraded to a claimed verification that never ran.
+            w.session.db.updateTranscriptEntry(reviewId, entry => {
+              delete entry.collaborationEvent.task.review.manifest; return entry;
+            });
+            assert.equal(w.tasks().get(id).state, "accepted");
+            assert.equal(h.runtime.workIsAccepted(w.tasks().get(id), w.tasks()), false);
+            assert.throws(() => w.finish(result), /work_finish_incomplete/);
+            w.review(id, result);
+            assert.equal(h.runtime.workIsAccepted(w.tasks().get(id), w.tasks()), true);
+            w.finish(result);
+          });
+
+          test("historical user review is explicitly re-checkable inline, not silently migrated", async t => {
+            const h = await continuityHarness(t), w = work(h), id = w.assign({ reviewer: "user" }); w.submit(id);
+            const controls = new h.runtime.CollaborationControls(h.tm);
+            const request = task => ({ agentId: "room", reviewToken: task.reviewToken, review: {
+              action: "review", request_id: `user-${task.version}`, task_id: id, expected_version: task.version,
+              submission_id: task.submission.id, verdict: "accept",
+              checks: [{ criterion: 0, passed: true, evidence_ids: task.submission.resultIds, note: "Checked the current evidence" }],
+            } });
+            const saved = await controls.review(request((await controls.snapshot({ agentId: "room" })).tasks[0])); await h.drain();
+            w.session.db.updateTranscriptEntry(saved.messageId, entry => { delete entry.collaborationEvent.task.review.manifest; return entry; });
+            const snapshot = await controls.snapshot({ agentId: "room" }), legacy = snapshot.tasks[0];
+            assert.equal(legacy.reviewNeedsRefresh, true); assert.equal(legacy.canReview, true);
+            assert.equal(legacy.acceptedForCurrentInputs, false);
+            assert.equal(w.tasks().get(id).review.manifest, undefined, "reading history must not manufacture a new evidence pin");
+            await controls.review(request(legacy)); await h.drain();
+            assert.equal((await controls.snapshot({ agentId: "room" })).tasks[0].reviewNeedsRefresh, false);
+            w.finish(w.tasks().get(id).submission.resultIds[0]);
+          });
+          ''')
+          tree=git('write-tree').decode().strip()
+          assert tree=='fee888b3e4301abe48001a83a71324638bbb7590',tree
+          raw='tree '+tree+'\nparent '+parent+'\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790063895 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790063895 +0000\n\nfix(collaboration): pin review evidence and wake obsolete dependent work\n\nBind independent criterion evidence to reviewed versions; require explicit re-review for historical unpinned acceptance, reject orphaned peer reviews, and notify downstream owners after revised prerequisites pass. Preserve existing OS exclusivity and chat-native UI. Seven new deterministic runtime/UI regressions; pinned Node typechecks, focused tests and frontend build pass. Native/full macOS gates remain separate.\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=raw.encode()).decode().strip()
+          assert sha=='6981e9c9f177d57bec3e851f15fd2d76993165e1',sha
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/responsibility-integrity-candidate-20260922')
+          print('Verified source commit:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6981e9c9f177d57bec3e851f15fd2d76993165e1
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Real Host and Shell with controlled model, isolated profiles
+        run: npm run node:test:integration
