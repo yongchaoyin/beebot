@@ -1,76 +1,109 @@
-# Honeyline reliability increment
+# Honeyline reliability increment — 2026-09-22
 
-This increment follows the `a8bd470` Honeyline theme audit. It preserves the
-checksum-pinned compatibility runtime, receipt ledger, remote controller and
-normal build/publication checks. It does not replace the runtime with the editable
-frontend or claim that a delivery receipt proves task execution/completion.
+Base: `a8bd4703edf0e75196d308b31b5b3c4ea9e34d74` (PR #2).
 
-## Send invariants and ownership
+## Scope
 
-`workspace/submission.ts` has one FIFO lane per agent/conversation, independent
-lanes for other conversations, and stable nonce receipts for the lifetime of its
-owning account session. A duplicate nonce with the same semantic payload shares
-the original promise; a different payload is rejected without overwriting it.
-Timestamps are not semantic payload and cannot reorder queued messages.
+This increment keeps the owned Honeyline design and existing collaboration
+runtime. It does not replace the checksum-pinned upstream renderer wholesale.
 
-Only a provably pre-dispatch failure or an authoritative rejected receipt releases
-a failed lane. Other failures become `uncertain`, hold that lane, and never replay
-the request. Queued messages can be cancelled while the uncertain request itself
-cannot be deleted/retried through the failure controls. A positive authoritative
-echo may settle an in-flight request before its RPC reply; a late failure cannot
-change that receipt. Reset invalidates old callbacks and queued work on an account
-switch. Observer errors do not own transport progress.
+- **Editable renderer**: receipt queue, ProductionRenderer call-site wiring,
+  stable transcript frames and inline delivery recovery.
+- **Shared native/editable layer**: semantic exception colors and neutral
+  waiting-state projection, through the existing Honeyline build adapters.
+- No protocol changes, automatic external replay, new dependency, relaxed hash,
+  archive, CSP, signing or publication check.
 
-`ProductionRenderer` stages attachments before dispatch, fences account changes,
-uses the existing read-only `promptAcceptanceStatus` RPC, and projects uncertainty
-into the acknowledgement store and transcript. Receipt lookup validates the host
-protocol slot, conversation and nonce. Missing/pending/evicted/malformed records
-remain unknown; a five-second lookup limit is not a rejection. Inline **Check
-receipt** performs no send. No automatic replays or implicit stop operations have
-been introduced. A missing durable record still requires external verification;
-this increment intentionally does not offer an unsafe "assume failed" override.
+## Behavioral contract
 
-## Stable UI and truthful work state
+A Bot or Group has one FIFO receipt queue. New sends and reconnect flushes use
+one scheduler. A typed pre-dispatch rejection permits later messages to proceed;
+a generic exception is an **unknown receipt**, not proof the host did nothing.
+Unknown receipts pause that conversation until a verified read-only receipt resolves it, or the user reviews and explicitly
+dismisses the receipt. Continuing never replays the uncertain message and never
+cancels host work. Other conversations remain independent.
 
-The ordinary message action anchor remains mounted across pending, queued,
-failed, uncertain and sent states. Hooks are unconditional; loss of action
-eligibility closes menus without moving focus into the composer. Uncertain
-messages have their own inline receipt control and no Resend button. Offline
-composition timestamps cannot label a queued/unconfirmed message as already sent.
+Same nonce/content reuses the original promise; conflicting content is rejected
+without replacing it. Routing, rich text, quote/fork fields and attachment identity
+participate in that check. Payloads/snapshots are copied. The bounded 256-receipt
+cache is renderer memory, not durable server deduplication or an exactly-once
+external-operation guarantee.
 
-Legacy queued/failed/unread feedback uses the Honeyline semantic palette, including
-its actual buttons and inherited status text. Both themes keep their existing
-palette. Status projection distinguishes waiting for a human, another agent,
-resources or review; offline/unknown results outrank stale work flags. Free-text
-`waitingReason` is descriptive, not authority to assign work to the user. Typed
-waiting ownership outranks legacy cached flags.
+The editor remains usable while work is running. The queue owns a copied payload
+at handoff; only that draft is cleared, synchronously, not by an old network
+completion. Uncertain messages are not silently restored into the composer.
+Attachment preparation gates submission for that conversation, not editing.
+Queued cancellation restores the original rich text and quote; a stale Cancel
+click must not hide a send that has already started.
 
-## Renderer boundaries
+Account observation resets queue epochs before late results can mutate the new
+account. Attachment commit checks its account epoch again before sending the RPC.
+Resetting client receipts does not cancel work already accepted by the host.
 
-- Editable `ProductionRenderer`: the source queue and receipt reconciliation are
-  wired here and typechecked; this is not the preserved upstream send journal.
-- Packaged remote chat: `buildNodeChat` bundles the same transcript and header
-  components. The remote transport keeps its own existing command-idempotency,
-  acknowledgement gating and interruption-reconciliation rules.
-- Packaged local compatibility renderer: the Honeyline CSS and shared work-status
-  adapter are built into it through the existing hash-checked patcher. Its own
-  send journal was not silently replaced. Native runtime/publishing regression
-  must be run on macOS, not inferred from a source-only Linux build.
+Message frames remain mounted across delivery changes and read-only transitions.
+Unknown receipt actions are inline, explicit and bilingual; there is no blind
+Resend. Actual user-input requests may demand attention; a free-text wait reason
+alone only yields a neutral Waiting state.
 
-## Repeatable verification
+## Reproducible source checks
 
-Run `npm run typecheck`, `npm run source:typecheck` and `npm test` in a bootstrapped
-checkout. Added tests cover FIFO after rejection, concurrent conversation lanes,
-nonce conflicts, account-reset fencing, authoritative echo races, unknown receipt
-parsing/timeouts, explicit waiting ownership and actual React message lifecycles.
-The React test bundles the real transcript in development mode, checks retained
-DOM/focus, closes an open menu on eligibility changes and verifies that unknown
-receipt feedback never exposes retry actions. happy-dom's missing optional console
-profiling hook is shimmed; React errors themselves are captured and must be empty.
+Use the pinned Node 26.5.0 and lockfile, then:
 
-Browser QA uses the actual built React transcript/status and CSS with clearly
-labelled test data, not an installed native application or a live model. Tests
-cover 1440/960/390 widths, both themes, normal text contrast, retained DOM/draft,
-read-only receipt errors and console health. Native windows, microphone, computer
-control, system permissions and signed distribution still require interactive
-macOS verification; passing CI alone does not replace it.
+```sh
+node --test tests/honeyline-reliability.test.mjs tests/honeyline-transcript.test.mjs tests/honeyline-integration-contract.test.mjs tests/honeyline-theme.test.mjs tests/composer-submission-gate.test.mjs
+node --test tests/chat-continuity.test.mjs tests/conversation-deliveries.test.mjs tests/quoted-collaboration*.test.mjs
+npm run typecheck
+npm run source:typecheck
+npm run frontend:build
+```
+
+The targeted set passed 49 tests locally; the existing collaboration subset
+passed 30. The integration-contract cases are explicitly static call-site guards,
+not a claim to have mounted the entire ProductionRenderer. The real React
+transcript tests use trusted code in happy-dom, not a security sandbox. The
+fixture helper also bundles the actual composer/queue for browser validation.
+
+Chromium/Playwright offline component QA passed 71 checks (single Bot and Group,
+continuous sends, uncertainty review, known rejection, IME, theme/focus, stable
+message geometry, light/dark and 390/1000px windows). Twelve rendered text states
+met 4.5:1 contrast. No page errors. Browser plugin was unavailable and localhost
+navigation was blocked by the environment, so the actual component bundle was
+loaded in memory. This is not full-app navigation or real transport validation.
+QA screenshots/logs remain outside the repository. Existing Vite mixed-import
+warnings and the fixture's unexercised PDF import.meta warning are not hidden.
+
+## Native validation and release gate
+
+Full checks must run on macOS after `npm ci`, `npm run bootstrap` and
+`npm run icon:generate`. Then `npm run check`, `npm run frontend:build` and
+`npm run publication:check` verify the real modified tree and pinned packaging
+inputs. CI results and exact final commit are recorded in the PR, not guessed
+here. Component checks do not establish shipped send-journal behavior.
+
+Still requires interactive Mac validation: native window/IPC, real Bot and Group
+transport, permissions, audio, computer stream, installation, signing and update.
+No signed release or main-branch merge is part of this increment.
+
+## Reconciled concurrent increment
+
+The concurrent `a11209c` draft handoff, live-client dispatch ref, per-conversation
+attachment gates, queued-cancel restoration, bilingual inline recovery and bounded
+receipt cache are retained. Unknown receipt compatibility remains `phase: failed`
+with `failureKind: unknown`; it is never treated as a proven rejection or exposed
+to blind Resend. The acknowledgement store distinguishes it as `uncertain`.
+
+Read-only `promptAcceptanceStatus` validates host slot, conversation and nonce.
+A five-second lookup bound, missing/pending/evicted/malformed results and a failed
+lookup all remain unknown. A verified acceptance can settle before the original
+RPC returns; late failures cannot reverse it. A verified rejection enables review
+or deliberate resend, without replaying automatically. The user's existing inline
+queue-review/dismiss action is preserved: it releases later messages without
+claiming this message was rejected and without re-executing it.
+
+Work-state projection now also distinguishes typed wait owners, review, resource
+queues and lost connection. Source/packaged adapters share that projection.
+Unspecified free-text waits remain neutral. Actual React tests preserve frames,
+menus, input focus and draft; both branches' tests are retained. Browser checks
+include computed feedback spacing above upstream specificity, both palettes,
+three window widths and readonly lookup errors. Updated final counts are recorded
+in PR #3 and the evidence bundle, not inferred from either pre-merge suite.

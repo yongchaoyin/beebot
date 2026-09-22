@@ -234,6 +234,8 @@ export interface TranscriptMessage {
   timestampMs: number;
   attachments?: DraftAttachment[];
   delivery?: TranscriptDelivery;
+  /** Unknown receipt is not proof of failure; never offer blind resend. */
+  deliveryFailure?: "rejected" | "unknown";
   clientNonce?: string;
   composedAtMs?: number;
   isStreaming?: boolean;

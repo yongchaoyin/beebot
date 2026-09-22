@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createComposerSubmissionQueue, ComposerSubmissionConflictError } from "../frontend/src/recovered/features/conversation/workspace/submission.ts";
+import { createComposerSubmissionQueue, ComposerSubmissionConflictError, ComposerSubmissionRejectedError } from "../frontend/src/recovered/features/conversation/workspace/submission.ts";
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const turn = () => new Promise(resolve => setImmediate(resolve));
 const message = (nonce, agentId = "room") => ({ nonce, agentId, prompt: nonce, attachments: [], createdAtMs: 1 });
@@ -13,10 +13,10 @@ function harness(t, extra = {}) {
   return { queue, calls, phases, gates };
 }
 for (const agentId of ["private-bot", "project-group"]) test(`${agentId}: three rapid sends retain FIFO after explicit rejection`, async t => {
-  const h = harness(t, { classifyFailure: () => "rejected" });
+  const h = harness(t);
   const a = h.queue.submit(message("a", agentId));
   const b = h.queue.submit(message("b", agentId));
-  h.gates[0].reject(new Error("rejected before acceptance"));
+  h.gates[0].reject(new ComposerSubmissionRejectedError("rejected before acceptance"));
   assert.equal(await a.completion, "failed"); await turn();
   const c = h.queue.submit(message("c", agentId));
   assert.deepEqual(h.calls.map(x => x.nonce), ["a", "b"]);
@@ -43,10 +43,11 @@ test("unknown acknowledgement freezes just its lane until verified, without repl
   const h = harness(t), a = h.queue.submit(message("a"));
   const b = h.queue.submit(message("b"));
   h.gates[0].reject(new Error("acknowledgement lost"));
-  assert.equal(await a.completion, "uncertain");
+  assert.equal(await a.completion, "failed");
+  assert.equal(h.queue.snapshot()[0].failureKind, "unknown");
   const c = h.queue.submit(message("c")); h.queue.flush();
   assert.deepEqual(h.calls.map(x => x.nonce), ["a"]);
-  assert.equal(h.queue.cancelQueued("a"), false); h.queue.discard("a");
+  assert.equal(h.queue.cancelQueued("a"), false);
   const other = h.queue.submit(message("other", "independent"));
   assert.deepEqual(h.calls.map(x => x.nonce), ["a", "other"]);
   h.gates[1].resolve(); assert.equal(await other.completion, "sent");
@@ -77,7 +78,7 @@ test("offline FIFO, cancellation and reconnect preserve insertion order, not tim
 });
 test("synchronous transport throw is classified and releases the lane", async t => {
   let count = 0;
-  const h = harness(t, { classifyFailure: () => "rejected", send: () => { if (++count === 1) throw new Error("rejected"); return Promise.resolve(); } });
+  const h = harness(t, { send: () => { if (++count === 1) throw new ComposerSubmissionRejectedError("rejected"); return Promise.resolve(); } });
   assert.equal(await h.queue.submit(message("a")).completion, "failed");
   assert.equal(await h.queue.submit(message("b")).completion, "sent");
 });
@@ -109,7 +110,7 @@ test("authoritative echo wins over a later rejected RPC callback", async t => {
   assert.equal(h.queue.reconcile("a", "sent"), true);
   assert.equal(await a.completion, "sent");
   h.gates[0].reject(new Error("lost acknowledgement after echo")); await turn();
-  assert.equal(h.phases.some(x => x.nonce === "a" && x.phase === "uncertain"), false);
+  assert.equal(h.phases.some(x => x.nonce === "a" && x.phase === "failed"), false);
   assert.deepEqual(h.calls.map(x => x.nonce), ["a", "b"]);
   h.gates[1].resolve(); assert.equal(await b.completion, "sent");
 });

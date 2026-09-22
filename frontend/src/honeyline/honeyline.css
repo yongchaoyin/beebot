@@ -142,6 +142,20 @@ html[data-beebot-theme="honeyline"] :is(#sand-create-bot-sheet, #sand-create-gro
   .bee-status::before { background: CanvasText; border-color: CanvasText; }
 }
 
+/* Legacy source and pinned native delivery surfaces use the same semantic colors.
+   Keep this after the original utility rules; never color text with button fill. */
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions, .sand-sent-while-offline-notice) {
+  color: var(--bee-muted); font-size: 12px; line-height: 1.6; flex-wrap: wrap;
+}
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions) button {
+  color: var(--bee-link); background: transparent; text-decoration: underline; text-underline-offset: 3px;
+}
+html[data-beebot-theme="honeyline"] .sand-failed-send-actions [role="status"] { color: var(--bee-danger); }
+html[data-beebot-theme="honeyline"] .sand-unread-divider { color: var(--bee-link); font-size: 12px; }
+html[data-beebot-theme="honeyline"] .sand-unread-divider::before,
+html[data-beebot-theme="honeyline"] .sand-unread-divider::after { background: var(--bee-border); }
+html[data-beebot-theme="honeyline"] .bee-status[data-state="waiting"]::before { background: transparent; border-color: currentColor; }
+
 html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--bee-muted); }
 html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button { color: var(--bee-link); text-decoration: underline; text-underline-offset: 3px; }
 html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button:disabled { cursor: progress; }
