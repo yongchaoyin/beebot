@@ -1,9 +1,9 @@
 function RGroupCopy(){
   const zh=(window.__sandUiLanguage||"en")==="zh";
   return zh?{
-    badge:"群",bots:(n)=>n+" 个 Bot",direct:"指定谁回复",hint:"有话说就说；看到别人还能再补一句。@ 可点名。"
+    badge:"群",bots:(n)=>n+" 个 Bot",direct:"单独交流",hint:"点击名字在群里 @ 同事；单独交流请点 ↗。"
   }:{
-    badge:"Group",bots:(n)=>n===1?"1 bot":n+" bots",direct:"Direct a Bot",hint:"Speak if you have something to add. You can jump in after others. @ to address someone."
+    badge:"Group",bots:(n)=>n===1?"1 bot":n+" bots",direct:"Open direct chat",hint:"Click a name to @ a colleague here. Use ↗ for a direct chat; others can still jump in."
   };
 }
 function REnsureGroupStyle(){
@@ -11,17 +11,35 @@ function REnsureGroupStyle(){
   const s=document.createElement("style"); s.id="sand-beebot-group-style";
   s.textContent=`
     [data-sand-kind="group"]{position:relative}
-    .sand-beebot-group-badge{display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;background:#07C160;color:#fff;font-size:10px;font-weight:700;letter-spacing:.02em;vertical-align:middle}
+    .sand-beebot-group-badge{display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;background:var(--cursor-text-primary,CanvasText);color:var(--cursor-bg-primary,Canvas);font-size:10px;font-weight:700;letter-spacing:.02em;vertical-align:middle}
     .sand-beebot-group-sub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cursor-text-tertiary,#888);font-size:11px;font-weight:400;margin-top:2px}
     .sand-beebot-group-stack{position:relative;width:34px;height:34px;flex:0 0 34px}
-    .sand-beebot-group-stack svg{position:absolute;border-radius:8px;overflow:hidden;background:#fff}
-    #sand-beebot-group-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 16px;border-bottom:1px solid var(--cursor-stroke-tertiary,rgba(0,0,0,.08));background:var(--cursor-bg-chrome,#fafafa);font-size:12px}
-    #sand-beebot-group-bar button{border:0;border-radius:999px;background:#ecece8;padding:4px 10px;cursor:pointer;font-size:12px;color:#111}
-    #sand-beebot-group-bar button:hover{background:#e0e0dc}
-    #sand-beebot-group-bar .sand-beebot-group-hint{color:var(--cursor-text-tertiary,#888);margin-left:4px}
-    #sand-beebot-mention{position:fixed;z-index:99994;min-width:200px;max-height:220px;overflow:auto;background:#fff;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;font:13px system-ui}
-    #sand-beebot-mention button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:8px;cursor:pointer}
-    #sand-beebot-mention button:hover,#sand-beebot-mention button[data-active="true"]{background:#f4f4f2}
+    .sand-beebot-group-stack svg{position:absolute;border-radius:8px;overflow:hidden;background:var(--cursor-bg-primary,Canvas)}
+    #sand-beebot-group-bar{flex:none;min-width:0;padding:6px 16px;border-bottom:1px solid var(--cursor-stroke-tertiary,rgba(0,0,0,.08));background:var(--cursor-bg-chrome,Canvas);font-size:12px}
+    #sand-beebot-group-bar details{min-width:0}
+    #sand-beebot-group-bar summary{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;color:var(--cursor-text-secondary,GrayText);list-style:none}
+    #sand-beebot-group-bar summary::-webkit-details-marker{display:none}
+    #sand-beebot-group-bar summary::after{content:'⌄';margin-inline-start:auto}
+    #sand-beebot-group-bar details[open] summary::after{content:'⌃'}
+    #sand-beebot-group-bar summary:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px;border-radius:6px}
+    #sand-beebot-group-bar .sand-group-faces{display:flex;gap:3px;flex:none}
+    #sand-beebot-group-bar .sand-group-faces svg{display:block}
+    #sand-beebot-group-bar .sand-group-members{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 4px}
+    #sand-beebot-group-bar .sand-group-mention{display:inline-flex;gap:6px;align-items:center}
+    #sand-beebot-group-bar .sand-group-mention svg{flex:none}
+    #sand-beebot-group-bar .sand-group-person{display:inline-flex;align-items:center;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;overflow:hidden;max-width:100%}
+    #sand-beebot-group-bar button{border:0;background:transparent;padding:6px 10px;min-height:32px;cursor:pointer;font:inherit;color:var(--cursor-text-primary,CanvasText);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #sand-beebot-group-bar .sand-group-direct{border-left:1px solid var(--cursor-stroke-secondary,#8884);flex:none;color:var(--cursor-text-secondary,GrayText)}
+    #sand-beebot-group-bar button:focus-visible,#sand-beebot-mention button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:-2px}
+    #sand-beebot-group-bar button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+    #sand-beebot-group-bar .sand-beebot-group-hint{display:block;color:var(--cursor-text-secondary,GrayText);font-size:11px;margin:6px 0;overflow-wrap:anywhere}
+    #sand-beebot-mention{position:static;flex:none;box-sizing:border-box;width:100%;min-width:0;max-height:min(180px,25vh);overflow:auto;overscroll-behavior:contain;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);border-bottom:1px solid var(--cursor-stroke-secondary,#8884);padding:6px 0;font:13px/1.5 system-ui}
+    #sand-beebot-mention button{box-sizing:border-box}
+    @media(prefers-reduced-motion:reduce){#sand-beebot-mention{scroll-behavior:auto}}
+    #sand-beebot-mention button{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:8px 10px;min-height:36px;border-radius:8px;cursor:pointer;overflow-wrap:anywhere;white-space:normal;font:inherit}
+    #sand-beebot-mention small{display:block;color:var(--cursor-text-secondary,GrayText);font-size:10px}
+    #sand-beebot-mention .sand-mention-help{padding:5px 10px;font-size:11px;color:var(--cursor-text-secondary,GrayText)}
+    #sand-beebot-mention button:hover,#sand-beebot-mention button[data-active="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
   `;
   document.head.append(s);
 }
@@ -49,7 +67,7 @@ function RPaintStack(host,members){
     svg.style.left=(i*8)+"px";
     svg.style.top=(i*6)+"px";
     svg.style.zIndex=String(i+1);
-    svg.style.boxShadow="0 0 0 1px #fff";
+    svg.style.boxShadow="0 0 0 1px var(--cursor-bg-primary,Canvas)";
     host.append(svg);
   });
   if(extra>0){
@@ -70,11 +88,13 @@ function RDecorateGroupRow(el,group){
     badge.textContent=copy.badge;
     nameEl.append(" ",badge);
   }
+  const badge=el.querySelector(".sand-beebot-group-badge");
+  if(badge&&badge.textContent!==copy.badge) badge.textContent=copy.badge;
   let sub=el.querySelector(":scope > .sand-beebot-group-sub, .sand-agent-item__body > .sand-beebot-group-sub");
   if(!sub){
     sub=document.createElement("span");
     sub.className="sand-beebot-group-sub";
-    const body=el.querySelector(".sand-agent-item__body")||nameEl.parentElement||el;
+    const body=el.querySelector(".sand-agent-item__body")||(nameEl===el?el:nameEl.parentElement)||el;
     body.append(sub);
   }
   const names=members.map(m=>m.name).join(" · ");
@@ -101,11 +121,13 @@ function RActiveGroup(){
   if(!id||!RIsGroupId(id)) return null;
   return RRosterRows().find(r=>r&&r.id===id)||null;
 }
+const RGroupExpansion=new Map();
 function RPaintGroupBar(){
   const group=RActiveGroup();
   const header=document.querySelector(".sand-chat-header");
   const existing=document.getElementById("sand-beebot-group-bar");
-  if(!group||!header){ existing?.remove(); return; }
+  if(!group||!header){ existing?.remove(); RHideMention(); return; }
+  if(RMentionSession&&RMentionSession.groupId!==group.id) RHideMention();
   const copy=RGroupCopy();
   const members=RGroupMembers(group);
   let bar=existing;
@@ -114,79 +136,212 @@ function RPaintGroupBar(){
     bar.id="sand-beebot-group-bar";
     header.insertAdjacentElement("afterend",bar);
   }
-  const sig=group.id+"|"+members.map(m=>m.id).join(",");
+  const sig=JSON.stringify([group.id,window.__sandUiLanguage,members.map(m=>[m.id,m.name,m.shape,m.color])]);
   if(bar.getAttribute("data-sig")===sig) return;
-  bar.setAttribute("data-sig",sig);
+  const focused=bar.contains(document.activeElement)?document.activeElement:null;
+  const focusedMember=focused?.dataset.memberId,focusedDirect=focused?.classList.contains("sand-group-direct");
+  const focusedSummary=focused?.tagName==="SUMMARY";
+  if(bar.dataset.groupId)RGroupExpansion.set(bar.dataset.groupId,!!bar.querySelector("details")?.open);
+  bar.dataset.groupId=group.id;bar.setAttribute("data-sig",sig);
   bar.innerHTML="";
+  const details=document.createElement("details");details.open=RGroupExpansion.get(group.id)||false;
+  details.addEventListener("toggle",()=>RGroupExpansion.set(group.id,details.open));
+  const summary=document.createElement("summary"),faces=document.createElement("span");faces.className="sand-group-faces";faces.setAttribute("aria-hidden","true");
+  if(typeof RBotSvg==="function")members.slice(0,4).forEach(m=>faces.append(RBotSvg(m.shape,m.color,24)));
+  summary.append(faces,document.createTextNode(copy.bots(members.length)));
+  const memberList=document.createElement("div");memberList.className="sand-group-members";
+  details.append(summary,memberList);bar.append(details);
   const label=document.createElement("strong");
   label.textContent=copy.badge;
-  label.style.cssText="color:#07C160;font-size:11px;letter-spacing:.04em";
-  bar.append(label);
+  label.style.cssText="color:var(--cursor-text-secondary,GrayText);font-size:11px;letter-spacing:.04em";
+  memberList.append(label);
   members.forEach(m=>{
     const b=document.createElement("button");
     b.type="button";
-    b.textContent=m.name;
+    b.className="sand-group-mention";b.dataset.memberId=m.id;b.setAttribute("aria-label","@"+m.name);
+    if(typeof RBotSvg==="function")b.append(RBotSvg(m.shape,m.color,22));
+    b.append(document.createTextNode("@"+m.name));
+    b.title=copy.hint;
+    b.onpointerdown=event=>event.preventDefault(); // Keep the editor's caret.
     b.onclick=()=>{
-      const row=document.querySelector(`[data-agent-id="${m.id}"]`);
+      if(RActiveGroup()?.id!==group.id) return;
+      const editor=RGroupEditor();
+      if(!editor) return;
+      let selection=RReadMentionSelection(editor);
+      if(!selection){
+        editor.focus();
+        const range=document.createRange();range.selectNodeContents(editor);range.collapse(false);
+        const current=window.getSelection();current.removeAllRanges();current.addRange(range);
+        selection=RReadMentionSelection(editor);
+      }
+      if(selection) RInsertGroupMention(selection,m,group.id,false);
+    };
+    const direct=document.createElement("button");
+    direct.type="button";direct.className="sand-group-direct";direct.textContent="↗";direct.dataset.memberId=m.id;
+    direct.setAttribute("aria-label",copy.direct+": "+m.name);direct.title=copy.direct;
+    direct.onclick=()=>{
+      if(RActiveGroup()?.id!==group.id) return;
+      RHideMention();
+      const row=[...document.querySelectorAll("[data-agent-id]")].find(el=>el.getAttribute("data-agent-id")===m.id);
       row?.click();
     };
-    bar.append(b);
+    const person=document.createElement("span");person.className="sand-group-person";
+    person.append(b,direct);memberList.append(person);
   });
   const hint=document.createElement("span");
   hint.className="sand-beebot-group-hint";
   hint.textContent=copy.hint;
-  bar.append(hint);
+  details.append(hint);
+  if(focusedSummary)summary.focus({preventScroll:true});
+  else if(focusedMember&&details.open){
+    const target=[...memberList.querySelectorAll("button")].find(button=>button.dataset.memberId===focusedMember&&button.classList.contains("sand-group-direct")===focusedDirect);
+    (target||summary).focus({preventScroll:true});
+  }
 }
-function RHideMention(){document.getElementById("sand-beebot-mention")?.remove()}
-function RShowMention(anchor,members,query,insert){
+// Scope the adapter to the existing composer, never a Settings text field.
+let RMentionSession=null;
+const RGroupEditorSelector='.sand-prompt-form textarea, .sand-prompt-form [contenteditable="true"], .sand-chat-input-dock textarea, .sand-chat-input-dock [contenteditable="true"]';
+function RGroupEditor(){
+  return [...document.querySelectorAll(RGroupEditorSelector)].find(el=>!el.disabled&&el.getAttribute("aria-disabled")!=="true"&&el.getClientRects().length)||null;
+}
+function RReadMentionSelection(editor){
+  if(!editor?.matches(RGroupEditorSelector)||editor.disabled) return null;
+  if(editor.tagName==="TEXTAREA") return {editor,value:editor.value,start:editor.selectionStart,end:editor.selectionEnd};
+  const selection=window.getSelection();
+  if(!selection?.rangeCount) return null;
+  const range=selection.getRangeAt(0);
+  if(!editor.contains(range.startContainer)||!editor.contains(range.endContainer)) return null;
+  const before=range.cloneRange();before.selectNodeContents(editor);before.setEnd(range.startContainer,range.startOffset);
+  return {editor,value:editor.textContent||"",start:before.toString().length,end:before.toString().length+range.toString().length,range:range.cloneRange()};
+}
+function RMentionQuery(value,caret){
+  const prefix=value.slice(0,caret);
+  const match=/(?:^|[\s(（])@([^@\s{}]*)$/u.exec(prefix);
+  if(!match) return null;
+  // A code/quoted example should not become a directed message by accident.
+  const line=prefix.slice(prefix.lastIndexOf("\n")+1);
+  if(/^\s*>/.test(line)||((prefix.match(/`/g)||[]).length%2)) return null;
+  return {start:caret-match[1].length-1,query:match[1]};
+}
+function RMentionToken(member,members){
+  const name=member.name.trim();
+  const duplicate=members.some(other=>other.id!==member.id&&other.name.trim().normalize("NFC").toLowerCase()===name.normalize("NFC").toLowerCase());
+  return duplicate||/[@`{}\n]/.test(name)||/^(all|everyone|所有人|全体)$/i.test(name)?"@{"+member.id+"}":"@"+name;
+}
+function RInsertGroupMention(state,member,groupId,replaceQuery=true){
+  const group=RActiveGroup(),editor=state.editor;
+  if(!group||group.id!==groupId||!editor.isConnected||editor.disabled) {RHideMention();return false;}
+  const members=RGroupMembers(group),current=members.find(item=>item.id===member.id);
+  if(!current||(editor.value??editor.textContent??"")!==state.value) {RHideMention();return false;}
+  const query=replaceQuery?RMentionQuery(state.value,state.start):null;
+  const start=query?query.start:state.start,end=state.end;
+  const previous=state.value.slice(0,start);
+  const separator=previous&&!/[\s(（]$/u.test(previous)?" ":"";
+  const text=separator+RMentionToken(current,members)+" ";
+  RHideMention();editor.focus();
+  if(editor.tagName==="TEXTAREA"){
+    const next=state.value.slice(0,start)+text+state.value.slice(end);
+    // Native setter also notifies controlled React inputs on the input event.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,"value").set.call(editor,next);
+    editor.setSelectionRange(start+text.length,start+text.length);
+    editor.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:text}));
+    return true;
+  }
+  // Keep the editor's DOM, formatting, undo and normal input pipeline. Never
+  // replace textContent: it disconnects rich editors from their document state.
+  if(!state.range) return false;
+  const range=state.range.cloneRange();
+  if(!editor.contains(range.startContainer)||!editor.contains(range.endContainer)) return false;
+  if(query){
+    if(range.startContainer.nodeType!==Node.TEXT_NODE||range.startOffset<state.start-start) return false;
+    range.setStart(range.startContainer,range.startOffset-(state.start-start));
+  }
+  const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+  return document.execCommand("insertText",false,text);
+}
+function RHideMention(){
+  const session=RMentionSession;RMentionSession=null;
+  document.getElementById("sand-beebot-mention")?.remove();
+  if(session) for(const [key,value] of session.aria){
+    if(value===null) session.state.editor.removeAttribute(key);else session.state.editor.setAttribute(key,value);
+  }
+}
+function RShowMention(state,members,query,groupId){
   RHideMention();
-  const q=query.toLowerCase();
-  const hits=members.filter(m=>!q||m.name.toLowerCase().includes(q)||m.id.toLowerCase().includes(q));
+  const hits=members.filter(m=>!query||m.name.toLowerCase().includes(query.toLowerCase())||m.id.toLowerCase().includes(query.toLowerCase())).slice(0,8);
   if(!hits.length) return;
-  const menu=document.createElement("div");
-  menu.id="sand-beebot-mention";
-  const r=anchor.getBoundingClientRect();
-  menu.style.left=Math.max(12,r.left)+"px";
-  menu.style.bottom=Math.max(12,window.innerHeight-r.top+8)+"px";
-  hits.slice(0,8).forEach((m,i)=>{
-    const b=document.createElement("button");
-    b.type="button";
-    b.textContent="@"+m.name;
-    if(i===0) b.setAttribute("data-active","true");
-    b.onclick=()=>insert(m);
-    menu.append(b);
+  const menu=document.createElement("div");menu.id="sand-beebot-mention";menu.setAttribute("role","listbox");
+  menu.setAttribute("aria-label",RGroupCopy().badge+" @");
+  const session={state,groupId,hits,index:0,aria:new Map()};RMentionSession=session;
+  for(const key of ["aria-controls","aria-expanded","aria-activedescendant"]){session.aria.set(key,state.editor.getAttribute(key));}
+  state.editor.setAttribute("aria-controls",menu.id);state.editor.setAttribute("aria-expanded","true");
+  // A composer-owned section participates in layout; it never covers messages.
+  const host=state.editor.closest(".sand-chat-input-dock")||state.editor.closest(".sand-prompt-form");
+  if(!host){RHideMention();return;}
+  let anchor=state.editor;
+  while(anchor.parentElement&&anchor.parentElement!==host)anchor=anchor.parentElement;
+  hits.forEach((member,index)=>{
+    const option=document.createElement("button");option.type="button";option.tabIndex=-1;
+    option.id="sand-mention-option-"+index;option.setAttribute("role","option");option.textContent="@"+member.name;
+    if(RMentionToken(member,members).startsWith("@{")){const id=document.createElement("small");id.textContent=member.id;option.append(id);}
+    option.onpointerdown=event=>event.preventDefault();
+    option.onclick=()=>{if(RMentionSession===session) RInsertGroupMention(state,member,groupId);};menu.append(option);
   });
-  document.body.append(menu);
+  const help=document.createElement("div");help.className="sand-mention-help";
+  help.textContent=window.__sandUiLanguage==="zh"?"↑ ↓ 选择 · Enter 点名 · Esc 关闭":"↑ ↓ Choose · Enter Mention · Esc Close";
+  menu.append(help);host.insertBefore(menu,anchor);RSelectMention(0);
+}
+function RSelectMention(index){
+  const session=RMentionSession;if(!session) return;
+  session.index=(index+session.hits.length)%session.hits.length;
+  const options=document.querySelectorAll('#sand-beebot-mention [role="option"]');
+  options.forEach((option,i)=>{option.dataset.active=String(i===session.index);option.setAttribute("aria-selected",String(i===session.index));});
+  session.state.editor.setAttribute("aria-activedescendant",options[session.index].id);
+  // Scroll only the candidate section, never the conversation or the page.
+  const menu=document.getElementById("sand-beebot-mention"),option=options[session.index];
+  const top=option.getBoundingClientRect().top-menu.getBoundingClientRect().top+menu.scrollTop;
+  if(top<menu.scrollTop)menu.scrollTop=top;
+  else if(top+option.offsetHeight>menu.scrollTop+menu.clientHeight)menu.scrollTop=top+option.offsetHeight-menu.clientHeight;
 }
 function RBindMentions(){
   if(window.__sandGroupMentionBound) return;
   window.__sandGroupMentionBound=1;
-  const onInput=ev=>{
-    const el=ev.target;
-    if(!el||(el.tagName!=="TEXTAREA"&&el.getAttribute?.("contenteditable")!=="true")) { RHideMention(); return; }
-    const group=RActiveGroup();
-    if(!group){ RHideMention(); return; }
-    const members=RGroupMembers(group);
-    const value=el.value??el.textContent??"";
-    const at=value.lastIndexOf("@");
-    if(at<0){ RHideMention(); return; }
-    const q=value.slice(at+1);
-    if(/\s/.test(q)){ RHideMention(); return; }
-    RShowMention(el,members,q,m=>{
-      const next=value.slice(0,at)+"@"+m.name+" ";
-      if("value" in el){ el.value=next; el.dispatchEvent(new Event("input",{bubbles:!0})); }
-      else { el.textContent=next; }
-      RHideMention();
-      el.focus();
-    });
-  };
-  document.addEventListener("input",onInput,true);
-  document.addEventListener("keydown",ev=>{ if(ev.key==="Escape") RHideMention(); },true);
+  const composing=new WeakSet();
+  document.addEventListener("input",event=>{
+    if(event.isComposing||composing.has(event.target)) {RHideMention();return;}
+    const editor=event.target?.closest?.(RGroupEditorSelector),group=RActiveGroup();
+    const state=editor&&RReadMentionSelection(editor);
+    if(!group||!state||state.start!==state.end) {RHideMention();return;}
+    const query=RMentionQuery(state.value,state.start);
+    if(!query) {RHideMention();return;}
+    RShowMention(state,RGroupMembers(group),query.query,group.id);
+  },true);
+  document.addEventListener("compositionstart",event=>{composing.add(event.target);RHideMention();},true);
+  document.addEventListener("compositionend",event=>composing.delete(event.target),true);
+  document.addEventListener("keydown",event=>{
+    const session=RMentionSession;
+    if(!session||event.isComposing||composing.has(event.target)||event.keyCode===229) return;
+    if(RActiveGroup()?.id!==session.groupId) {RHideMention();return;}
+    if(event.target!==session.state.editor&&!session.state.editor.contains(event.target)) {RHideMention();return;}
+    const current=RReadMentionSelection(session.state.editor);
+    if(!current||current.start!==session.state.start||current.end!==session.state.end||current.value!==session.state.value) {RHideMention();return;}
+    if(event.key==="Escape"){event.preventDefault();event.stopImmediatePropagation();RHideMention();}
+    else if(event.key==="ArrowDown"||event.key==="ArrowUp"){event.preventDefault();event.stopImmediatePropagation();RSelectMention(session.index+(event.key==="ArrowDown"?1:-1));}
+    else if((event.key==="Enter"||event.key==="Tab")&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&!event.altKey){
+      event.preventDefault();event.stopImmediatePropagation();RInsertGroupMention(session.state,session.hits[session.index],session.groupId);
+    }else if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)) RHideMention();
+  },true);
+  document.addEventListener("pointerdown",event=>{if(!event.target?.closest?.("#sand-beebot-mention")) RHideMention();},true);
+  document.addEventListener("focusin",event=>{if(RMentionSession&&event.target!==RMentionSession.state.editor) RHideMention();},true);
+  window.addEventListener("resize",RHideMention);
+  window.addEventListener("beebot-node-selection",RHideMention);
+  window.addEventListener("sand-ui-language-changed",()=>{RHideMention();RPaintGroupBar();});
 }
 function RRefreshGroups(){
   REnsureGroupStyle();
   const rows=RRosterRows();
   const groups=new Map(rows.filter(r=>r&&RIsGroupId(r.id)).map(r=>[r.id,r]));
+  for(const id of RGroupExpansion.keys())if(!groups.has(id))RGroupExpansion.delete(id);
   for(const el of document.querySelectorAll("[data-agent-id]")){
     const id=el.getAttribute("data-agent-id");
     const group=id?groups.get(id):null;

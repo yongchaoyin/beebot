@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { signalOwnedRuntime } from "./owned-process-signal.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -371,10 +372,9 @@ export class HostRuntime {
   private stopHost(botId: string, host: HostProcess): Promise<void> {
     if (host.stop) return host.stop;
     host.stop = (async () => {
-      const send = (signal: NodeJS.Signals) => {
+      const send = async (signal: NodeJS.Signals) => {
         if (!host.child.pid) return;
-        try { process.kill(process.platform === "win32" ? host.child.pid : -host.child.pid, signal); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+        await signalOwnedRuntime(host.child.pid, signal);
       };
       if (host.child.exitCode === null && host.child.signalCode === null) host.child.kill("SIGTERM");
       const grace = new AbortController();
@@ -385,10 +385,10 @@ export class HostRuntime {
       if (host.child.pid && process.platform !== "win32") {
         let groupAlive = false;
         try { process.kill(-host.child.pid, 0); groupAlive = true; } catch {}
-        if (groupAlive) { send("SIGTERM"); await delay(1_500); }
+        if (groupAlive) { await send("SIGTERM"); await delay(1_500); }
       }
       // The Host can exit before descendants do; always clear the entire owned group.
-      send("SIGKILL");
+      await send("SIGKILL");
       await host.stopped;
       if (this.hosts.get(botId) === host) this.hosts.delete(botId);
     })();

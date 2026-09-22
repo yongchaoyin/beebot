@@ -1,3 +1,4 @@
+import type { WorkState } from "../../../../presence/status";
 import type { TranscriptCardEntry } from "../cards/transcript-card/protocol";
 import type { TimelineEventData } from "../cards/timeline-event-registry";
 import type { ToolResultCardSnapshot } from "../tool-results/model";
@@ -183,7 +184,7 @@ export function inferAttachmentKind(input: { mimeType?: string; fileName?: strin
   return "file";
 }
 
-export interface ConversationAgentSummary {
+export interface ConversationAgentSummary extends WorkState {
   id: string;
   name: string;
   updatedAt: number;
@@ -212,27 +213,31 @@ export type ConversationAgentLastEntry =
   | { readonly kind: "attachment"; readonly count: number; readonly kinds: Readonly<Record<string, number>> }
   | { readonly kind: "link"; readonly url: string };
 
-export type TranscriptDelivery = "sent" | "pending" | "queued" | "failed";
+export type TranscriptDelivery = "sent" | "pending" | "queued" | "failed" | "uncertain";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4719000
-export type TranscriptReplyPreview =
+export type TranscriptReplyPreview = { author?: string; isUser?: boolean; targetId?: string } & (
   | { kind: "user-text" | "assistant-text"; text: string }
   | { kind: "image"; url: string }
   | { kind: "file"; url: string; name?: string }
   | { kind: "link"; url: string }
-  | { kind: "missing" };
+  | { kind: "missing" });
 
 export interface TranscriptMessage {
   kind: "message";
   id: string;
   role: "user" | "assistant";
   author: string;
+  authorId?: string;
+  authorAvatar?: { color?: string; shape?: string; dataUrl?: string };
   text: string;
   /** Serialized Tiptap JSON returned on durable user-message transcript entries. */
   richText?: string;
   timestampMs: number;
   attachments?: DraftAttachment[];
   delivery?: TranscriptDelivery;
+  /** Unknown receipt is not proof of failure; never offer blind resend. */
+  deliveryFailure?: "rejected" | "unknown";
   clientNonce?: string;
   composedAtMs?: number;
   isStreaming?: boolean;

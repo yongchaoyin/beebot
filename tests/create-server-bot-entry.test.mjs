@@ -20,7 +20,7 @@ async function until(predicate, message = "expected UI state") {
 
 async function boot(t, { create, open } = {}) {
   const [source, paths] = await Promise.all([
-    readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8"),
+    Promise.all([readFile(path.join(repoRoot, "scripts/lib/beebot-bot-role.snippet.js"), "utf8"),readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8")]).then(parts=>parts.join("\n")),
     readFile(path.join(repoRoot, "scripts/lib/persona-shape-paths.json"), "utf8"),
   ]);
   const window = new Window({ url: "https://beebot.local/" });
@@ -174,9 +174,13 @@ test("main + local New Bot preserves the avatar, vendor and original roster beha
   ui.document.querySelector("#sand-create-bot-sheet [title='cloud']").click();
   ui.setField("Deployment server", "server-b", "change");ui.setField("Responsibilities", "Server-only draft");
   ui.setField("Deployment server", "", "change");
-  assert.equal(ui.field("API").value, "vendor-b");assert.equal(ui.field("Responsibilities"), null);
-  ui.submit().click();await until(() => ui.calls.local.length === 1);
-  assert.deepEqual(ui.calls.local, [{ name: "Local editor", avatarColor: "red", avatarShape: "cloud", inferenceVendorId: "vendor-b", isKickstartRequested: true, origin: "user" }]);
+  assert.equal(ui.field("API").value, "vendor-b");assert.equal(ui.document.querySelector('[data-create-field="responsibilities"]'), null);
+  ui.setField("What is this colleague's primary job?", "Chat interactions");
+  ui.submit().click();
+  // The inline form awaits the entire create callback. Recording the mock
+  // invocation is not completion: MOn registers the chosen vendor afterwards.
+  await until(() => !ui.document.getElementById("sand-create-bot-sheet"), "completed local creation");
+  assert.deepEqual(ui.calls.local, [{ name: "Local editor", avatarColor: "red", avatarShape: "cloud", inferenceVendorId: "vendor-b", isKickstartRequested: true, origin: "user", role:{primaryJob:"Chat interactions",responsibilities:[],outOfScope:[],deliverables:[],workingStyle:""} }]);
   assert.equal(ui.window.__sandAgentVendors["created-local"], "vendor-b");
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.opened.length, 0);
   assert.equal(ui.calls.closed, 1);
@@ -196,7 +200,7 @@ test("the original callback can change a server preset back to local without lea
   const ui = await boot(t);
   const pending = ui.window.__testCallbacks.create({ name: "Now local", deploymentServerId: "server-b", description: "Existing description" });
   await until(() => ui.field("Deployment server")?.options.length === 3);
-  ui.setField("Deployment server", "", "change");ui.submit().click();
+  ui.setField("Deployment server", "", "change");ui.setField("What is this colleague's primary job?", "Chat interactions");ui.submit().click();
   assert.deepEqual(plain(await pending), { agent: { id: "created-local" } });
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.local.length, 1);
   assert.equal(ui.calls.local[0].name, "Now local");assert.equal(ui.calls.local[0].description, "Existing description");
@@ -216,4 +220,32 @@ test("main + New group chat includes only local Bots and preserves local group c
   assert.deepEqual(ui.calls.group, [{ name: "Local collaboration", memberAgentIds: ["local-writer", "local-reviewer"] }]);
   assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.local.length, 0);assert.equal(ui.calls.update.length, 0);
   assert.equal(ui.calls.closed, 1);
+});
+
+
+test("inline local creation stays busy until the real dispatcher registers the selected vendor", async (t) => {
+  const ui = await boot(t);
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  ui.window.__testRoster.createAgent = async request => {
+    ui.calls.local.push(plain(request));
+    await pending;
+    return { agent: { id: "delayed-local" } };
+  };
+  await ui.openMenu("New Bot");
+  ui.setField("What is this colleague's primary job?", "Chat interactions");
+  ui.setField("Name", "Delayed colleague");ui.setField("API", "vendor-b", "change");
+  const section = ui.document.getElementById("sand-create-bot-sheet");
+  ui.submit().click();ui.submit().click();
+  await until(() => ui.calls.local.length === 1);
+  assert.equal(section.isConnected, true, "the form cannot close just because creation was invoked");
+  assert.equal(ui.submit().disabled, true);
+  assert.equal(ui.window.__sandAgentVendors?.["delayed-local"], undefined);
+  release();
+  await until(() => !section.isConnected, "completed create callback");
+  assert.equal(ui.calls.local.length, 1);
+  assert.equal(ui.window.__sandAgentVendors["delayed-local"], "vendor-b");
+  assert.equal(ui.calls.remote.length, 0);assert.equal(ui.calls.opened.length, 0);
+  assert.equal(ui.listeners.size, 0);
 });

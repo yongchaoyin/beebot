@@ -126,6 +126,39 @@ export function validateVendorSetup(input: VendorSetupInput): VendorSetupResult 
   return { ok: true, provider: input.provider, apiKey, http };
 }
 
+export function recoverInferenceVendorsFromSecrets(secrets: Record<string, string>): InferenceVendorAccount[] {
+  const vendors: InferenceVendorAccount[] = [];
+  const seen = new Set<string>();
+  const providerForSecretValue = (value: string): HttpInferenceVendor | null => {
+    if (secrets.DEEPSEEK_API_KEY === value) return "deepseek";
+    if (secrets.OPENAI_API_KEY === value) return "openai";
+    if (secrets.OPENROUTER_API_KEY === value) return "openrouter";
+    if (secrets.CUSTOM_API_KEY === value) return "custom";
+    return null;
+  };
+  for (const [key, value] of Object.entries(secrets)) {
+    const match = /^VENDOR_([A-Za-z0-9]+)_KEY$/.exec(key);
+    const id = match?.[1];
+    if (id == null || value.length === 0 || seen.has(id)) continue;
+    const provider = providerForSecretValue(value)
+      ?? (secrets.DEEPSEEK_API_KEY != null ? "deepseek" : null)
+      ?? (secrets.OPENAI_API_KEY != null ? "openai" : null)
+      ?? (secrets.OPENROUTER_API_KEY != null ? "openrouter" : null);
+    if (provider == null) continue;
+    seen.add(id);
+    const preset = vendorPreset(provider);
+    vendors.push({
+      id,
+      label: preset.label,
+      provider,
+      baseUrl: preset.defaultBaseUrl,
+      modelId: preset.defaultModelId,
+      secretKey: key,
+    });
+  }
+  return vendors;
+}
+
 export function mapAuthStatus<Status extends { readonly kind: string }>(
   status: Status,
   options: { readonly localAccountActive: boolean },

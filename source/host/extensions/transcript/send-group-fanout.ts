@@ -14,11 +14,11 @@ export async function dispatchMirrorOrGroupSend(
     fileAttachmentPaths,
     clientNonce,
     userMessageId,
+    replyToId,
     awaitTurn,
     acceptedAtMs,
     traceCtx,
     readAddressedTranscript,
-    nextTurnEpoch,
     markSendAccepted,
   } = args;
   if (tm.groupChat.isRemoteRoomSession(session)) {
@@ -43,13 +43,14 @@ export async function dispatchMirrorOrGroupSend(
     if (userEntry != null)
       tm.xuserDelegate?.publishRoomEntry(sharedRoomId, userEntry);
   }
-  const epoch = nextTurnEpoch(session);
-  tm.runLifecycle.beginSessionRun(session);
-  const done = tm.runLifecycle.enqueueExclusiveRun(
-    session.id,
-    () => tm.groupChat.runGroupTurn(session, epoch, traceCtx, "user"),
-    { lane: "user", source: "group", acceptedAtMs },
-  );
+  const userEntry = readAddressedTranscript().find((entry: any) => entry.id === userMessageId);
+  const content = trimmedPrompt || (userEntry?.kind === "user-attachment" ? "The user shared an attachment. Inspect the attached material before responding." : "");
+  const done = tm.groupChat.enqueueRoomMessage(session, {
+    id: userMessageId ?? clientNonce ?? crypto.randomUUID(),
+    speaker: { kind: "user" },
+    content,
+    ...(typeof (replyToId ?? userEntry?.replyTo) === "string" ? { replyToId: replyToId ?? userEntry.replyTo } : {}),
+  }, traceCtx, "user");
   markSendAccepted(clientNonce);
   if (awaitTurn) await done;
   else

@@ -1,9 +1,12 @@
+import { buildPresence } from "./build-presence.mjs";
+import { patchPresenceRenderer } from "./presence-renderer-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildNodeChat } from "./build-node-chat.mjs";
+import { patchQuotedReplies } from "./quoted-reply-patch.mjs";
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"servers",label:"Servers",icon:"servers"},{id:"router",label:"Router",icon:"git-branch"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
@@ -98,7 +101,10 @@ const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.m
 const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
-const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${createOverlay.slice(0, monAt)}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const COLLABORATION_REVIEW_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-collaboration-review.snippet.js"), "utf8");
+const CONVERSATION_STATUS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-conversation-status.snippet.js"), "utf8");
+const BOT_ROLE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-bot-role.snippet.js"), "utf8");
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${BOT_ROLE_SNIPPET}\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
 const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
 const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
@@ -136,8 +142,16 @@ export function patchOriginalLanding(source) {
   let patched = replaceExactlyOnce(source, LANDING_TITLE_BEFORE, LANDING_TITLE_AFTER, "landing title");
   patched = replaceExactlyOnce(patched, LANDING_GJN_BEFORE, LANDING_GJN_AFTER, "landing sign-in");
   patched = replaceExactlyOnce(patched, CREATE_AGENT_BEFORE, CREATE_AGENT_AFTER, "create bot sheet");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:{args:"object",reply:"send-result"}', 'getBotRole:{args:"object",reply:"record"},updateBotRole:{args:"object",reply:"record"},getCollaboration:{args:"object",reply:"record"},reviewCollaboration:{args:"object",reply:"record"},stopConversation:{args:"object",reply:"record"},sendPrompt:{args:"object",reply:"send-result"}', "explicit conversation control RPC");
+  patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'getBotRole:"roster",updateBotRole:"roster",getCollaboration:"transcript",reviewCollaboration:"send",stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
+  patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'getBotRole:we=>e.getBotRole(we),updateBotRole:we=>e.updateBotRole(we),getCollaboration:we=>e.getCollaboration(we),reviewCollaboration:we=>e.reviewCollaboration(we),stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
-  return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
+  // Bind the editor to the actual settings component's agent prop. Do not infer
+  // ownership from a selected sidebar row or a late asynchronous DOM lookup.
+  patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");
+  patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
+  patched = patchQuotedReplies(patched);
+  return patchPresenceRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
 }
 
 function sha256(bytes) {
@@ -203,13 +217,15 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     bytes: output.bytes,
     sha256: sha256(await readFile(output.path)),
   })));
+  const presence = await buildPresence({ rendererRoot: path.join(stageRoot, "dist", "renderer") });
   const record = {
     schemaVersion: 1,
     mode: "original-renderer-settings-extension",
     chunks: changes,
     chatAssets,
-    features: ["settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
-    transformations: ["settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
+    presence,
+    features: ["presence-theme", "presence-original-personas", "presence-work-status", "settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
+    transformations: ["presence-entry", "presence-personas", "settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);

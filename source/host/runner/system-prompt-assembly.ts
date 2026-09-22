@@ -1,3 +1,4 @@
+import { renderBotRole } from "../../shared/bot-role.js";
 import {
   agentProfileIdentitiesEqual,
   normalizeAgentProfileIdentity,
@@ -105,7 +106,8 @@ function profileSection(profile: AgentProfileForPrompt | null, sharedRoom: boole
     lines.push(`Title: ${title}`);
     if (!sharedRoom) lines.push(`Your agent name is "${title}". If the user asks for your name, answer with "${title}".`);
   }
-  if (description.length > 0) lines.push(`Description: ${description}`);
+  if (description.length > 0) lines.push(`Description (does not override the confirmed primary job): ${description}`);
+  lines.push(renderBotRole(profile.role));
   if (!sharedRoom && profile.filePath.length > 0) {
     lines.push(`Your profile is a JSON config file at ${toModelVisiblePath(profile.filePath)} with "name", "description", and "title" fields, which you can read with your shell tools. To rename yourself or rewrite your own description, use the update_state tool (target "profile", action "set"); it preserves every field you do not pass. Name and description edits are announced in a profile-update message for the current context and folded into this Agent profile section after the next conversation summary.`);
     lines.push(`Your profile picture is NOT part of that config \u2014 it is a conventional image file named "avatar.png" (or avatar.jpg/.jpeg/.webp/.gif/.svg) in the same directory, which you can read with your shell tools. To set it, put the image somewhere first (Shell under /workspace is fine \u2014 no CopyFromBox needed \u2014 or ${SAND_EXTERNAL_SHELL_TOOL_NAME} on the user's computer), then call update_state (target "avatar", action "set", path=...); to go back to the default picture, update_state target "avatar", action "clear". Never change your picture unless the user asks.`);

@@ -1,3 +1,4 @@
+import { botRoleDraftSchema } from "../../../shared/bot-role.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isSandAgentLimitError } from "../../../shared/agents/agents.js";
@@ -29,6 +30,8 @@ import type { TranscriptManagerLike } from "./transcript-hub.js";
 
 export class SandAgentLifecycleError extends Error {}
 interface CreateOptions {
+  /** Only supplied by the authenticated user gateway, never Agent management. */
+  initialUserRole?: unknown;
   purpose?: string;
   isKickstartRequested?: boolean;
   isIntroductionSuppressed?: boolean;
@@ -102,12 +105,21 @@ export class AgentLifecycle {
     origin: string,
     options: CreateOptions,
   ): Promise<any> {
+    const role = options.initialUserRole === undefined ? undefined : botRoleDraftSchema.parse(options.initialUserRole);
     const session = await this.tm.sessionStore.createSession(
       profile,
       origin,
       options.purpose,
     );
-    options.configureAgentDir?.(this.tm.sessionStore.getAgentDir(session.id));
+    try {
+      options.configureAgentDir?.(this.tm.sessionStore.getAgentDir(session.id));
+      if (role) this.tm.botRoles.initialize(session.id, role);
+    } catch (error) {
+      // This session has never been shown, activated or allowed to execute.
+      await session.agentStore.dispose(); session.db.close();
+      await this.tm.sessionStore.deleteSession(session.id);
+      throw error;
+    }
     if (options.isIntroductionSuppressed !== true)
       session.db.setIntroductionPending(true);
     return session;

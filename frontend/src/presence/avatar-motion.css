@@ -1,0 +1,18 @@
+/* Expressions survive reduced motion; animation is budgeted by the shared clock. */
+.bb-character { display:block; overflow:visible; contain:layout style; flex:none; }
+.bb-character__body { transform-box:view-box; transform-origin:32px 38px; }
+.bb-character__face { transform-box:view-box; transform-origin:32px 34px; }
+.bb-character__eyes { transform-box:fill-box; transform-origin:center; }
+.bb-character__mouth { transform-box:fill-box; transform-origin:center; }
+.bb-character[data-state="thinking"] .bb-character__eyes { transform:scaleY(.85); }
+.bb-character[data-state="needs_user"] .bb-character__eyes { transform:scaleY(1.12); }
+.bb-character[data-state="paused"] .bb-character__eyes,
+.bb-character[data-state="offline"] .bb-character__eyes { transform:scaleY(.45); }
+.bb-character[data-state="offline"] { opacity:.64; }
+.bb-character[data-state="error"] .bb-character__mouth { transform:rotate(180deg); }
+.bb-motion-setting { display:flex; gap:12px; align-items:center; justify-content:space-between; padding:12px 0; color:var(--bb-text); font-size:14px; }
+.bb-motion-setting label { display:flex; flex-direction:column; gap:4px; }
+.bb-motion-setting small { color:var(--bb-muted); font-size:12px; }
+.bb-motion-setting select { background:var(--bb-surface); color:var(--bb-text); border:1px solid var(--bb-control-border); border-radius:8px; padding:7px 10px; font:inherit; }
+.bb-motion-setting select:focus-visible { outline:2px solid var(--bb-focus); outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { .bb-character, .bb-character * { animation:none !important; transition:none !important; } }

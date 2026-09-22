@@ -1,5 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { writeFileReplaceSync } from "../atomic-write.js";
+import { readPersistedVendorSecrets } from "../vendor-secrets.js";
 
 import { DEFAULT_SAND_THEME_PREFERENCE, isSandThemePreference, type SandThemePreference } from "../../desktop.js";
 import { DEFAULT_UI_LANGUAGE, isUiLanguage, type UiLanguage } from "../../ui-language.js";
@@ -11,7 +14,7 @@ import { SidebarSections, type SidebarSection } from "../../sidebar-sections.js"
 import { coerceToEnabledTrack, isSandUpdateTrack, type SandUpdateTrack } from "../../update-track.js";
 import { isSandAgentModelSelection, type SandAgentModelSelection } from "../../agents/sand-agent-model.js";
 import { emptySandInferenceRouterUsage, isSandInferenceProvider, type SandInferenceProvider, type SandInferenceRouterUsage } from "../../inference-router.js";
-import { isHttpInferenceVendor, parseInferenceHttpConfig, parseInferenceVendorAccounts, vendorPreset, type InferenceHttpConfig, type InferenceVendorAccount } from "../../inference-vendor.js";
+import { isHttpInferenceVendor, parseInferenceHttpConfig, parseInferenceVendorAccounts, recoverInferenceVendorsFromSecrets, vendorPreset, type InferenceHttpConfig, type InferenceVendorAccount } from "../../inference-vendor.js";
 import { DEFAULT_SAND_BOX_RUNTIME, isSandBoxRuntime, type SandBoxRuntime } from "../../box-runtime.js";
 
 export const SETTINGS_VERSION = 1;
@@ -103,29 +106,86 @@ function parseSettings(value: unknown): SandStoredSettings | null {
 
 export class SandSettingsStore {
   constructor(readonly settingsPath: string) {}
+  private diskState: "unknown" | "ok" | "missing" | "invalid" = "unknown";
   load(): SandStoredSettings {
-    if (!existsSync(this.settingsPath)) return emptySettings();
-    try { const parsed = parseSettings(JSON.parse(readFileSync(this.settingsPath, "utf8")) as unknown); return parsed == null ? emptySettings() : this.applyPendingMigrations(parsed); }
-    catch { return emptySettings(); }
+    const disk = this.readDisk();
+    if (disk.status === "invalid") {
+      const backup = this.readBackup();
+      if (backup != null) {
+        console.error(`[sand] settings.json unreadable; restoring last good copy`);
+        this.diskState = "ok";
+        try { this.persist(backup); } catch {}
+        return this.hydrate(backup);
+      }
+      const recovered = this.withRecoveredVendors(emptySettings());
+      if ((recovered.inferenceVendors ?? []).length > 0) {
+        this.diskState = "ok";
+        return this.applyPendingMigrations(recovered);
+      }
+      this.diskState = "invalid";
+      return emptySettings();
+    }
+    this.diskState = disk.status;
+    return this.hydrate(disk.settings);
+  }
+  private readDisk(): { status: "ok" | "missing"; settings: SandStoredSettings } | { status: "invalid" } {
+    if (!existsSync(this.settingsPath)) return { status: "missing", settings: emptySettings() };
+    try {
+      const parsed = parseSettings(JSON.parse(readFileSync(this.settingsPath, "utf8")) as unknown);
+      if (parsed == null) return { status: "invalid" };
+      return { status: "ok", settings: parsed };
+    } catch {
+      return { status: "invalid" };
+    }
+  }
+  private readBackup(): SandStoredSettings | null {
+    const backupPath = `${this.settingsPath}.bak`;
+    if (!existsSync(backupPath)) return null;
+    try { return parseSettings(JSON.parse(readFileSync(backupPath, "utf8")) as unknown); }
+    catch { return null; }
+  }
+  private hydrate(settings: SandStoredSettings): SandStoredSettings {
+    return this.applyPendingMigrations(this.withRecoveredVendors(settings));
+  }
+  private withRecoveredVendors(settings: SandStoredSettings): SandStoredSettings {
+    if ((settings.inferenceVendors ?? []).length > 0) return settings;
+    const recovered = recoverInferenceVendorsFromSecrets(readPersistedVendorSecrets(join(dirname(this.settingsPath), "box-secrets.json")));
+    const first = recovered[0];
+    if (first == null) return settings;
+    return {
+      ...settings,
+      inferenceVendors: recovered,
+      defaultInferenceVendorId: first.id,
+      inferenceProvider: first.provider,
+      inferenceHttp: { baseUrl: first.baseUrl, modelId: first.modelId },
+      localAccountActive: true,
+      boxRuntime: settings.boxRuntime ?? "local-docker",
+    };
   }
   private applyPendingMigrations(settings: SandStoredSettings): SandStoredSettings {
-    if (settings.settingsMigrations.includes(SAND_DOWNGRADE_MAX_FAST_MIGRATION_ID)) return settings;
-    const migrated = { ...settings, settingsMigrations: [...settings.settingsMigrations, SAND_DOWNGRADE_MAX_FAST_MIGRATION_ID], ...(settings.agentDefaultModel === undefined ? {} : { agentDefaultModel: downgradePersistedFast(settings.agentDefaultModel) }) };
-    try { this.persist(migrated); } catch {}
-    return migrated;
+    let next = settings;
+    let dirty = false;
+    if (!next.settingsMigrations.includes(SAND_DOWNGRADE_MAX_FAST_MIGRATION_ID)) {
+      next = { ...next, settingsMigrations: [...next.settingsMigrations, SAND_DOWNGRADE_MAX_FAST_MIGRATION_ID], ...(next.agentDefaultModel === undefined ? {} : { agentDefaultModel: downgradePersistedFast(next.agentDefaultModel) }) };
+      dirty = true;
+    }
+    if (next.notifications?.isEnabled !== false || Object.keys(next.notifications ?? {}).length !== 1) {
+      next = { ...next, notifications: { isEnabled: false } };
+      dirty = true;
+    }
+    if (dirty) try { this.persist(next); } catch {}
+    return next;
   }
   persist(settings: SandStoredSettings): void {
-    mkdirSync(dirname(this.settingsPath), { recursive: true });
-    const payload = JSON.stringify(settings, null, 2);
-    const temp = `${this.settingsPath}.${process.pid}.tmp`;
-    writeFileSync(temp, payload, "utf8");
-    try {
-      renameSync(temp, this.settingsPath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EBUSY" && code !== "EXDEV") throw error;
-      writeFileSync(this.settingsPath, payload, "utf8");
-      try { unlinkSync(temp); } catch { /* The temp file is leftover only when the bind-mounted dest is already updated. */ }
+    if (this.diskState === "invalid") {
+      console.error(`[sand] refusing to overwrite unreadable settings file: ${this.settingsPath}`);
+      return;
+    }
+    const payload = `${JSON.stringify(settings, null, 2)}\n`;
+    writeFileReplaceSync(this.settingsPath, payload);
+    this.diskState = "ok";
+    if ((settings.inferenceVendors ?? []).length > 0) {
+      try { writeFileReplaceSync(`${this.settingsPath}.bak`, payload); } catch { /* backup is best-effort */ }
     }
   }
   private update(mutator: (settings: SandStoredSettings) => SandStoredSettings): void { this.persist(mutator(this.load())); }
@@ -177,7 +237,7 @@ export class SandSettingsStore {
   deleteMcpCustomInstructionByServerId(args: { serverId: string; displayName: string; deleteLegacyName: boolean }): void { this.update((s) => { const byId = { ...s.mcpCustomInstructionsByServerId }; delete byId[args.serverId]; const legacy = { ...s.mcpCustomInstructions }; if (args.deleteLegacyName) delete legacy[args.displayName]; return { ...s, mcpCustomInstructionsByServerId: byId, mcpCustomInstructions: legacy }; }); }
   setMcpCustomInstruction(name: string, value: string): void { this.update((s) => { const next = { ...s.mcpCustomInstructions }; const clamped = clampMcpCustomInstruction(value); if (clamped.trim().length === 0) { if (getDefaultMcpCustomInstruction(name).length > 0) next[name] = ""; else delete next[name]; } else next[name] = clamped; return { ...s, mcpCustomInstructions: next }; }); }
   deleteMcpCustomInstruction(name: string): void { const current = this.load(); if (!(name in current.mcpCustomInstructions)) return; const next = { ...current.mcpCustomInstructions }; delete next[name]; this.persist({ ...current, mcpCustomInstructions: next }); }
-  getNotificationConfig() { const current = this.load(); if (current.notifications?.isEnabled !== false || Object.keys(current.notifications).length !== 1) this.persist({ ...current, notifications: { isEnabled: false } }); return SAND_DISABLED_NOTIFICATION_CONFIG; }
+  getNotificationConfig() { return SAND_DISABLED_NOTIFICATION_CONFIG; }
   setNotificationConfig(_input: unknown): void { this.update((s) => ({ ...s, notifications: { isEnabled: false } })); }
   getAutoReviewInstructions(): SandAutoReviewInstructions {
     const loaded = this.load().autoReviewInstructions ?? DEFAULT_SAND_AUTO_REVIEW_INSTRUCTIONS;

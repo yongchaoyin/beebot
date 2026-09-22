@@ -1,3 +1,4 @@
+import { appendConversationNotice } from "./conversation-deliveries.js";
 import {
   areAgentActivitiesEqual,
   type SandAgentActivity,
@@ -82,6 +83,13 @@ export class RunLifecycle {
                 depthBackground: event.depthBackground,
               }),
             onWatchdog: (event) => {
+              if (event.stage === "trip") {
+                const groupId = this.tm.groupChat?.activeMemberRooms?.get(event.agentId);
+                const session = this.tm.sessions.liveSessions.get(groupId ?? event.agentId);
+                if (session) try { appendConversationNotice(this.tm, session,
+                  "前一项工作仍在运行，新消息已保留等待处理。需要停止时请使用本会话的停止操作；不会自动重做或并行启动同一 Bot。 / Earlier work is still running. New messages are retained. Use this conversation’s Stop action when needed; the same Bot will not be replayed or started in parallel.",
+                  undefined, "conversation_waiting_on_active_work"); } catch {}
+              }
               if (event.stage === "escape")
                 this.tm.ackObligations.retireAckRunToken(
                   event.agentId,
@@ -221,15 +229,15 @@ export class RunLifecycle {
   }
 
   endSessionRun(session: any): void {
-    this.setSessionComposing(session.id, false);
-    this.setSessionRetrying(session.id, false);
-    this.setSessionActivity(session.id, undefined);
-    this.sessionActivityHolds.delete(session.id);
     const remaining = (this.inFlightRunCounts.get(session) ?? 1) - 1;
     if (remaining > 0) {
       this.inFlightRunCounts.set(session, remaining);
       return;
     }
+    this.setSessionComposing(session.id, false);
+    this.setSessionRetrying(session.id, false);
+    this.setSessionActivity(session.id, undefined);
+    this.sessionActivityHolds.delete(session.id);
     this.inFlightRunCounts.delete(session);
     this.recordTurnCompleted(session);
     this.tm.turnRuntime.activeRequestPrompts.delete(session.id);

@@ -1,0 +1,167 @@
+@import "./tokens.css";
+@import "./avatar-motion.css";
+
+/* Explicit semantic selectors only. No hashed upstream classes, transcript
+   text rewriting, hidden controls, fixed transcript heights, or global key hooks. */
+html[data-beebot-theme="presence"] body {
+  color: var(--bb-text); background: var(--bb-bg); font-family: var(--bb-font);
+  -webkit-font-smoothing: antialiased;
+}
+html[data-beebot-theme="presence"] :is(button, input, textarea, select) { font-family: var(--bb-font); }
+html[data-beebot-theme="presence"] :is(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--bb-focus); outline-offset: 3px;
+}
+html[data-beebot-theme="presence"] ::selection { background: var(--bb-user); color: var(--bb-text); }
+html[data-beebot-theme="presence"] :is(.sand-agents-sidebar, .sand-sidebar) { background: var(--bb-sidebar); }
+html[data-beebot-theme="presence"] .sand-agents-sidebar__header { border-bottom: 0; min-height: 56px; }
+html[data-beebot-theme="presence"] .sand-agents-sidebar__new-actions { display: flex; flex: 1; align-items: center; min-width: 0; }
+html[data-beebot-theme="presence"] .bb-wordmark { display: inline-flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font: 600 15px/24px var(--bb-font); color: var(--bb-text); letter-spacing: -.3px; }
+html[data-beebot-theme="presence"] .sand-agents-list { padding-inline: 10px; }
+html[data-beebot-theme="presence"] .sand-agent-item {
+  min-height: 66px; border-radius: 10px; transition: background-color var(--bb-fast) var(--bb-ease);
+}
+html[data-beebot-theme="presence"] .sand-agent-item:hover { background: var(--bb-hover); }
+html[data-beebot-theme="presence"] .sand-agent-item:is([aria-current="page"], [aria-current="true"], [aria-selected="true"], [data-active="true"], [data-selected="true"]) {
+  background: var(--bb-selected); box-shadow: inset 3px 0 var(--bb-accent);
+}
+html[data-beebot-theme="presence"] .sand-agent-item__name { color: var(--bb-text); font-size: 14px; font-weight: 550; }
+html[data-beebot-theme="presence"] :is(.sand-agent-item__preview, .sand-agent-item__trailing) { color: var(--bb-muted); font-size: 12px; }
+html[data-beebot-theme="presence"] .sand-chat-header { min-height: 56px; background: var(--bb-bg); border-color: var(--bb-border); }
+html[data-beebot-theme="presence"] .sand-chat-header__identity { min-width: 0; color: var(--bb-text); }
+html[data-beebot-theme="presence"] #sand-conversation-heading { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+html[data-beebot-theme="presence"] .sand-chat-header__controls { gap: 6px; }
+html[data-beebot-theme="presence"] :is(.sand-chat-stage, .beebot-node-conversation) { background: var(--bb-bg); }
+html[data-beebot-theme="presence"] .sand-transcript-row[data-role="user"] > .sand-message-action-anchor { margin-inline-start: auto; }
+html[data-beebot-theme="presence"] .sand-message-action-anchor { max-width: min(84%, 640px); }
+html[data-beebot-theme="presence"] .sand-message-action-anchor > .sand-message { max-width: 100%; }
+html[data-beebot-theme="presence"] .sand-message-author { display: block; margin-bottom: 6px; color: var(--bb-muted); font: 12px/18px var(--bb-font); }
+html[data-beebot-theme="presence"] .sand-transcript-row[data-role="user"] > .sand-message-author { text-align: end; }
+html[data-beebot-theme="presence"] .sand-message {
+  background: var(--bb-surface); color: var(--bb-text); border-radius: var(--bb-message-radius); padding: 10px 14px;
+}
+html[data-beebot-theme="presence"] .sand-message:is([data-role="user"], .sand-message--user),
+html[data-beebot-theme="presence"] [data-role="user"] .sand-message { background: var(--bb-user); color: var(--bb-text); }
+html[data-beebot-theme="presence"] :is(.sand-message-prose, .sand-prompt-field, .sand-message__text) {
+  font-family: var(--bb-font); font-size: 15px; line-height: 24px; letter-spacing: 0;
+}
+html[data-beebot-theme="presence"] .sand-message-prose a { color: var(--bb-link); text-decoration: underline; text-underline-offset: 3px; }
+html[data-beebot-theme="presence"] :is(.sand-code-block, .sand-mermaid-block) {
+  max-width: 100%; color: var(--bb-code-text); background: var(--bb-code-bg); border-color: var(--bb-border); border-radius: 10px;
+}
+html[data-beebot-theme="presence"] .sand-code-block :is(pre, code) { font: 13px/1.65 var(--bb-mono); }
+html[data-beebot-theme="presence"] .sand-code-block pre { overflow-x: auto; }
+html[data-beebot-theme="presence"] .sand-message-prose :not(pre) > code { color: var(--bb-code-text); background: var(--bb-code-bg); font-size: 13px; }
+html[data-beebot-theme="presence"] .sand-message-hover-actions__button {
+  color: var(--bb-muted); background: var(--bb-surface); border-color: var(--bb-border); border-radius: 7px; min-height: 28px; font-size: 12px;
+}
+html[data-beebot-theme="presence"] .sand-message-hover-actions__button:hover { color: var(--bb-text); background: var(--bb-hover); }
+html[data-beebot-theme="presence"] :is(.sand-message-attachment, .sand-message-typing) { color: var(--bb-text); background: var(--bb-surface); border-color: var(--bb-border); }
+html[data-beebot-theme="presence"] .sand-message-typing__dot { background: var(--bb-muted); }
+html[data-beebot-theme="presence"] :is(.sand-transcript-time-separator, .sand-message-attachment small) { color: var(--bb-muted); font-size: 12px; }
+html[data-beebot-theme="presence"] .sand-chat-input-dock { background: var(--bb-bg); }
+html[data-beebot-theme="presence"] .sand-prompt-form { background: var(--bb-surface); border: 1px solid var(--bb-control-border); border-radius: var(--bb-radius); box-shadow: none; }
+html[data-beebot-theme="presence"] .sand-prompt-shell { border: 0; border-radius: inherit; box-shadow: none; background: transparent; }
+html[data-beebot-theme="presence"] .sand-prompt-field p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; color: var(--bb-muted); pointer-events: none; height: 0; }
+html[data-beebot-theme="presence"] .sand-prompt-form:focus-within { border-color: var(--bb-focus); box-shadow: 0 0 0 1px var(--bb-focus); }
+html[data-beebot-theme="presence"] .sand-prompt-field:focus-visible { outline: none; }
+html[data-beebot-theme="presence"] .sand-prompt-field { color: var(--bb-text); }
+html[data-beebot-theme="presence"] .sand-prompt-field::placeholder { color: var(--bb-muted); }
+html[data-beebot-theme="presence"] :is(.sand-prompt-send, .beebot-node-conversation .sand-prompt-actions-trailing .sand-prompt-send) {
+  width: 32px; height: 32px; border-radius: 9px; background: var(--bb-accent); color: var(--bb-on-accent);
+  transition: background-color var(--bb-fast), transform var(--bb-fast);
+}
+html[data-beebot-theme="presence"] .sand-prompt-send [data-icon-name="mic"] { display: none; }
+html[data-beebot-theme="presence"] .sand-prompt-send:enabled:hover { background: var(--bb-accent-hover); }
+html[data-beebot-theme="presence"] .sand-prompt-send:enabled:active { transform: scale(.94); }
+html[data-beebot-theme="presence"] .sand-prompt-send:disabled { cursor: not-allowed; opacity: .45; }
+html[data-beebot-theme="presence"] :is(.bb-quoted-reply, .bb-composer-quote) {
+  border-inline-start: 3px solid var(--bb-accent); border-radius: 4px 9px 9px 4px;
+  background: var(--bb-sidebar); color: var(--bb-muted); font: 13px/1.5 var(--bb-font);
+}
+html[data-beebot-theme="presence"] .bb-quoted-reply:hover { background: var(--bb-hover); }
+html[data-beebot-theme="presence"] .bb-quote-author { color: var(--bb-text); }
+html[data-beebot-theme="presence"] .bb-quote-feedback { font-size: 12px; color: var(--bb-muted); }
+html[data-beebot-theme="presence"] :is([data-bb-delivery], .beebot-message-footer) { color: var(--bb-muted); font: 12px/1.5 var(--bb-font); }
+html[data-beebot-theme="presence"] [data-bb-delivery]::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin-inline-end: 6px; border: 1px solid currentColor; border-radius: 50%; vertical-align: 1px;
+}
+html[data-beebot-theme="presence"] [data-bb-delivery][data-state="processing"]::before { background: var(--bb-accent); border-color: var(--bb-warning); }
+html[data-beebot-theme="presence"] [data-bb-delivery]:is([data-state="failed"], [data-state="needs-review"]) { color: var(--bb-danger); }
+html[data-beebot-theme="presence"] [data-bb-publication] {
+  display: block; width: fit-content; max-width: 100%; box-sizing: border-box; margin-block-start: 6px;
+  padding: 8px 11px; border: 1px solid var(--bb-border); border-inline-start: 3px solid var(--bb-accent);
+  border-radius: 8px; color: var(--bb-muted); background: var(--bb-surface); font: 12px/1.5 var(--bb-font);
+}
+html[data-beebot-theme="presence"] :is(#beebot-conversation-status, .beebot-chat-status) { color: var(--bb-muted); background: transparent; font: 12px/1.6 var(--bb-font); }
+html[data-beebot-theme="presence"] :is(.bb-create-layer) { background: var(--bb-scrim); }
+html[data-beebot-theme="presence"] :is(#sand-create-bot-sheet, #sand-create-group-sheet) {
+  background: var(--bb-surface); color: var(--bb-text); border: 1px solid var(--bb-border); border-radius: 16px; box-shadow: var(--bb-shadow);
+}
+html[data-beebot-theme="presence"] :is(.bb-create-submit) { background: var(--bb-accent); color: var(--bb-on-accent); border-color: transparent; }
+html[data-beebot-theme="presence"] :is(.bb-create-submit):enabled:hover { background: var(--bb-accent-hover); }
+html[data-beebot-theme="presence"] :is(#sand-create-bot-sheet, #sand-create-group-sheet) :is(input, textarea, select) { color: var(--bb-text); background: var(--bb-bg); border-color: var(--bb-control-border); }
+
+.bb-persona > .bb-character, .sand-agent-avatar > .bb-character { width:100%; height:100%; }
+/* A short acknowledgement on state change, never an endless mascot loop. */
+.bb-status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--bb-muted); font: 12px/1.5 var(--bb-font); }
+.bb-status::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--bb-accent); border: 1px solid var(--bb-warning); border-radius: 50%; }
+.bb-status[data-state="attention"] { color: var(--bb-warning); }
+.bb-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 720px) {
+  html[data-beebot-theme="presence"] .sand-virtual-transcript { padding: 20px 14px; }
+  html[data-beebot-theme="presence"] .sand-message-action-anchor { max-width: 96%; }
+  html[data-beebot-theme="presence"] .sand-message { max-width: 100%; }
+  html[data-beebot-theme="presence"] .sand-chat-header { padding-inline: 12px; }
+  html[data-beebot-theme="presence"] .sand-chat-header__identity { flex-wrap: wrap; column-gap: 8px; row-gap: 2px; }
+  html[data-beebot-theme="presence"] .bb-status { max-width: 150px; }
+  html[data-beebot-theme="presence"] .sand-message { padding: 9px 12px; }
+  html[data-beebot-theme="presence"] .sand-chat-input-dock { padding-inline: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-beebot-theme="presence"] { --bb-fast: 0ms; --bb-enter: 0ms; }
+  html[data-beebot-theme="presence"] .bb-character * { animation: none; transition: none; }
+  html[data-beebot-theme="presence"] .sand-prompt-send:enabled:active { transform: none; }
+}
+@media (forced-colors: active) {
+  html[data-beebot-theme="presence"] :is(.sand-message, .bb-quoted-reply, .bb-composer-quote, [data-bb-publication], .sand-prompt-form) { border: 1px solid CanvasText; }
+  html[data-beebot-theme="presence"] :is(button, a, input, textarea, select, [tabindex]):focus-visible { outline-color: Highlight; }
+  html[data-beebot-theme="presence"] .sand-agent-item:is([aria-current="true"], [aria-current="page"], [data-active="true"]) { outline: 2px solid Highlight; outline-offset: -2px; }
+  .bb-status::before { background: CanvasText; border-color: CanvasText; }
+}
+
+/* Legacy source and pinned native delivery surfaces use the same semantic colors.
+   Keep this after the original utility rules; never color text with button fill. */
+html[data-beebot-theme="presence"] :is(.sand-queued-send-notice, .sand-failed-send-actions, .sand-sent-while-offline-notice) {
+  color: var(--bb-muted); font-size: 12px; line-height: 1.6; flex-wrap: wrap;
+}
+html[data-beebot-theme="presence"] :is(.sand-queued-send-notice, .sand-failed-send-actions) button {
+  color: var(--bb-link); background: transparent; text-decoration: underline; text-underline-offset: 3px;
+}
+html[data-beebot-theme="presence"] .sand-failed-send-actions [role="status"] { color: var(--bb-danger); }
+html[data-beebot-theme="presence"] .sand-unread-divider { color: var(--bb-link); font-size: 12px; }
+html[data-beebot-theme="presence"] .sand-unread-divider::before,
+html[data-beebot-theme="presence"] .sand-unread-divider::after { background: var(--bb-border); }
+html[data-beebot-theme="presence"] .bb-status[data-state="waiting"]::before { background: transparent; border-color: currentColor; }
+
+html[data-beebot-theme="presence"] .sand-message-author { display:flex; gap:7px; align-items:center; min-height:20px; }
+html[data-beebot-theme="presence"] [data-role="user"] .sand-message-author { justify-content:flex-end; }
+.bb-status[data-state="error"] { color:var(--bb-danger); }
+.bb-status:is([data-state="offline"],[data-state="paused"]) { color:var(--bb-muted); }
+
+.bb-shape-selection { position:absolute; inset:2px; border-radius:10px; pointer-events:none; }
+.bb-shape-selection[data-selected="true"] { border:1.5px solid var(--bb-focus); }
+.bb-avatar-preview { align-self:center; margin:4px auto 12px; }
+
+/* Continuous-send states retained from the consolidated chat implementation. */
+/* Legacy and rebuilt delivery rows use the same semantic contrast tokens. */
+html[data-beebot-theme="presence"] :is(.sand-queued-send-notice, .sand-failed-send-actions, .sand-message-send-error, .sand-unread-marker) { color: var(--bb-muted); font-size: 12px; }
+html[data-beebot-theme="presence"] :is(.sand-queued-send-notice, .sand-failed-send-actions) button { color: var(--bb-link); text-decoration: underline; text-underline-offset: 3px; }
+html[data-beebot-theme="presence"] :is(.sand-send-error, .sand-message-send-error, .sand-failed-send-actions__label, .sand-failed-send-actions [role="status"]) { color: var(--bb-danger); }
+html[data-beebot-theme="presence"] .sand-unread-divider { color: var(--bb-link); }
+.bb-status[data-state="error"] { color: var(--bb-danger); }
+.bb-status:is([data-state="waiting"], [data-state="unknown"])::before { background: transparent; border-color: currentColor; }
+html[data-beebot-theme="presence"] .sand-uncertain-send-notice { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--bb-muted); }
+html[data-beebot-theme="presence"] .sand-uncertain-send-notice button { color: var(--bb-link); text-decoration: underline; text-underline-offset: 3px; }
+html[data-beebot-theme="presence"] .sand-uncertain-send-notice button:disabled { cursor: progress; }
+/* Upstream atomic utilities carry ID specificity; keep this override scoped. */
+html[data-beebot-theme="presence"] :is(.sand-queued-send-notice, .sand-failed-send-actions) { display: flex; flex-wrap: wrap; gap: 8px !important; align-items: center; margin-top: 6px !important; }

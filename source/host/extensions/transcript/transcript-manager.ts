@@ -19,6 +19,8 @@ import {
 } from "./ack-obligations.js";
 import { AgentLifecycle } from "./agent-lifecycle.js";
 import { AutomationRuntime } from "./automation-runtime.js";
+import { BotRoles } from "./bot-roles.js";
+import { CollaborationControls } from "./collaboration-controls.js";
 import { BackgroundWakes } from "./background-wakes.js";
 import { BoxHandoffResume } from "./box-handoff-resume.js";
 import { SandChannelDeliveryUnregisteredError } from "./channel-delivery-unregistered-error.js";
@@ -397,6 +399,18 @@ export class TranscriptManager {
   }
   disconnectChannel(agentId: string, platform: string) {
     return this.sessionStore.disconnectChannel(agentId, platform);
+  }
+
+  readonly botRoles = new BotRoles(this);
+  getBotRole(args: unknown) { return this.botRoles.snapshot(args); }
+  updateBotRole(args: unknown) { return this.botRoles.update(args); }
+
+  readonly collaborationControls = new CollaborationControls(this);
+  getCollaboration(args: unknown) { return this.collaborationControls.snapshot(args); }
+  reviewCollaboration(args: unknown) { return this.collaborationControls.review(args); }
+
+  stopConversation(agentId: string) {
+    return this.sendPipeline.stopConversation(agentId);
   }
 
   promptAcceptanceStatus(...args: any[]) {

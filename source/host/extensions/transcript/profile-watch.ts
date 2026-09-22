@@ -1,5 +1,6 @@
+import type { BotRoleRecord } from "../../../shared/bot-role.js";
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import type { EventEmitter } from "node:events";
 
 import { SAND_DEFAULT_AGENT_NAME } from "../../../shared/agents/agents.js";
@@ -133,6 +134,7 @@ export class ProfileWatch {
   resolveAgentProfile(session: { dbPath: string }): {
     name: string;
     description: string;
+    role?: BotRoleRecord | null;
     filePath: string;
     settingsFilePath: string;
   } {
@@ -142,6 +144,7 @@ export class ProfileWatch {
     return {
       name: profile?.name.trim() || SAND_DEFAULT_AGENT_NAME,
       description: profile?.description ?? "",
+      role: this.tm.groupChat.isGroupAgentId(basename(dir)) || this.tm.groupChat.isRemoteRoomAgentId(basename(dir)) ? null : this.tm.botRoles.read(basename(dir)),
       filePath,
       settingsFilePath: getSandSettingsPath(dir),
     };

@@ -14,9 +14,9 @@ import { resolveClaudeCodeCliPath } from "../../../shared/node/inference-router-
 import { getSandRootDir } from "../../host-paths.js";
 import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
 import { getBoxSecretsStorePath } from "../secrets/secrets-service.js";
-import { getSandProfilePath, readSandProfileFile } from "../../agents/agent-profile.js";
 import { streamCodexDirectResponses, type CodexDirectTool } from "./codex-direct-responses.js";
 import type { LabelMessage, PromptExecutor } from "./sand-labeling.js";
+export { resolveInferenceForAgent, MissingInferenceVendorError } from "./resolve-inference.js";
 
 type Loose = Record<string, any>;
 interface ProviderMessage extends LabelMessage { role: string; content: string | readonly unknown[] }
@@ -62,19 +62,6 @@ function httpVendorSession(provider: HttpInferenceVendor, vendor?: InferenceVend
     throw new Error(`${account?.label ?? preset.label} needs a Base URL and model ID.`);
   }
   return { apiKey, baseUrl: http.baseUrl, modelId: envOverride && envOverride.length > 0 ? envOverride : http.modelId };
-}
-
-export function resolveInferenceForAgent(agentId?: string): { provider: SandInferenceProvider; vendor?: InferenceVendorAccount } {
-  const settings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
-  if (agentId != null && agentId.length > 0) {
-    const profile = readSandProfileFile(getSandProfilePath(join(getSandRootDir(), "agents", agentId)))
-      ?? readSandProfileFile(getSandProfilePath(join(getSandRootDir(), agentId)));
-    const vendor = settings.getInferenceVendor(profile?.inferenceVendorId);
-    if (vendor != null) return { provider: vendor.provider, vendor };
-  }
-  const vendor = settings.getInferenceVendor(undefined);
-  if (vendor != null) return { provider: vendor.provider, vendor };
-  return { provider: settings.getInferenceProvider() };
 }
 
 function providerPrompt(messages: readonly ProviderMessage[]): string {

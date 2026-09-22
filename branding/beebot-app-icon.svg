@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect width="1024" height="1024" fill="#FFFFFF"/>
-  <g transform="translate(512 512) scale(2.7) translate(-114.27 -114.228)">
-    <path fill="#07C160" d="M228.541 114.228C228.541 130.133 225.184 145.994 218.738 160.534C212.674 174.217 203.904 186.669 193.065 196.988C155.933 232.34 99.497 238.596 55.5255 212.24C45.097 205.99 35.6851 198.072 27.7451 188.866C19.1926 178.953 12.3686 167.569 7.65781 155.351C2.60712 142.264 0 128.257 0 114.228C0 98.3219 3.35751 82.4611 9.80315 67.9215C15.8672 54.2382 24.6377 41.7862 35.4767 31.4668C72.6081 -3.88483 129.044 -10.1413 173.016 16.2153C183.444 22.4653 192.856 30.3829 200.796 39.5896C209.349 49.5018 216.173 60.8859 220.883 73.1037C225.934 86.1906 228.541 100.198 228.541 114.228Z"/>
-    <ellipse fill="#FFFFFF" cx="85.27" cy="106.27" rx="18" ry="13"/>
-    <ellipse fill="#FFFFFF" cx="143.27" cy="106.27" rx="18" ry="13"/>
+  <rect x="24" y="24" width="976" height="976" rx="216" fill="#F6F7F8"/>
+  <g transform="translate(128 104) scale(12)">
+    <path d="M18 10C9 10 5 19 5 32s5 23 17 23h20c12 0 17-9 17-22S54 10 43 10Z" fill="#ADC3EA"/>
+    <path d="M15 24q1-6 7-7" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round"/>
+    <rect x="21" y="28" width="4.5" height="7" rx="2.25" fill="#273347"/>
+    <rect x="38.5" y="28" width="4.5" height="7" rx="2.25" fill="#273347"/>
+    <path d="M29 41q3 3 6 0" fill="none" stroke="#273347" stroke-width="1.7" stroke-linecap="round"/>
   </g>
 </svg>

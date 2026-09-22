@@ -1,3 +1,4 @@
+import { BotRoleStore } from "../../agents/bot-role-store.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
@@ -110,7 +111,7 @@ export class SandAgentSessionStore {
   async mintAgent(mint: (agentId: string) => Promise<OpenAgentSession>): Promise<OpenAgentSession> { if (this.materialization?.mintAgent != null) return this.materialization.mintAgent(mint); let id = randomUUID(); while (this.agentDirExists(id)) id = randomUUID(); return mint(id); }
   async createFallbackSession(open: (agentId: string) => Promise<OpenAgentSession>): Promise<OpenAgentSession> { if (this.materialization?.createFallbackSession != null) return this.materialization.createFallbackSession(open); const [agentId] = await this.listAgentIds(); if (agentId == null) throw new Error("No fallback session is available"); return open(agentId); }
   async openSession(agentId: string): Promise<OpenAgentSession> { if (this.materialization?.openSession != null) return this.materialization.openSession(agentId); if (!this.agentExists(agentId)) throw new Error(`Agent missing: ${agentId}`); const dbPath = getAgentDbPath(this.rootDir, agentId); return { id: agentId, dbPath, db: new SandAgentDb(dbPath), agentStore: { dispose: async () => {} } }; }
-  async deleteSession(agentId: string): Promise<void> { const dbPath = getAgentDbPath(this.rootDir, agentId); this.extrasCache.delete(agentId); deleteSandAgentDbWriteGeneration(dbPath); await rm(this.getAgentDir(agentId), { recursive: true, force: true }); publishTranscriptMutation({ kind: "agent-removed", agentId }); this.options.onAgentRemoved?.(agentId); }
+  async deleteSession(agentId: string): Promise<void> { const dbPath = getAgentDbPath(this.rootDir, agentId); this.extrasCache.delete(agentId); deleteSandAgentDbWriteGeneration(dbPath); await rm(this.getAgentDir(agentId), { recursive: true, force: true }); new BotRoleStore(this.rootDir).forget(agentId); publishTranscriptMutation({ kind: "agent-removed", agentId }); this.options.onAgentRemoved?.(agentId); }
 
   activeAgentPointerPath(): string { return join(this.rootDir, ACTIVE_AGENT_FILENAME); }
   readActiveAgentId(): string | null { try { const parsed = JSON.parse(readFileSync(this.activeAgentPointerPath(), "utf8")) as { activeAgentId?: unknown }; const id = parsed.activeAgentId; return typeof id === "string" && id.length > 0 ? id : null; } catch { return null; } }

@@ -1,3 +1,4 @@
+import "./presence/entry";
 import { ProductionRenderer } from "./production/ProductionRenderer";
 import { acquireProductionRendererRuntime, mountProductionRenderer, requireProductionRendererMount } from "./production/bootstrap";
 import { PRODUCTION_RENDERER_GAPS } from "./production/evidence";

@@ -209,6 +209,12 @@ export class AckObligations {
       store.clear(agentId);
       return;
     }
+    if (this.tm.sendPipeline.hasReviewRequired(session.dbPath)) {
+      // Receipt recovery must not silently replay an operation whose outcome is
+      // unknown. The persisted inline notice asks the user to review instead.
+      this.clearAckRedriveTimer(agentId);
+      return;
+    }
     const runner = this.tm.runnerRegistry.getRunner(session);
     this.tm.runLifecycle.beginSessionRun(session);
     const ackToken = this.mintAckRunToken(session.id);
@@ -221,7 +227,7 @@ export class AckObligations {
           "handoff-resume",
         );
         try {
-          if (store.get(agentId) == null) return;
+          if (store.get(agentId) == null || this.tm.sendPipeline.hasReviewRequired(session.dbPath)) return;
           const startedAtMs = Date.now();
           const prompt = buildAckRedrivePrompt();
           const messageId = `ack-redrive-${randomUUID()}`;
