@@ -9,7 +9,7 @@ import {
 } from "./lib/config.mjs";
 import { buildFidelityReconstructedAsar } from "./clean-build.mjs";
 import { signAppBundleAdHoc } from "./lib/codesign.mjs";
-import { verifyOfficialMacReference, verifyReconstructedMacPackage } from "./lib/macos-package-verification.mjs";
+import { verifyOfficialMacReference, verifyReconstructedMacPackage, verifyChecksumPinnedRendererPackage } from "./lib/macos-package-verification.mjs";
 import { run } from "./lib/process.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
 
@@ -17,9 +17,9 @@ if (process.platform !== "darwin") {
   throw new Error("The reconstructed macOS application can only be packaged on macOS.");
 }
 
-// Keep the checksum-pinned shipped renderer as the polished UI authority. Small
-// reconstructed UI extensions are installed by the clean preload, leaving the
-// original renderer chunks byte-for-byte intact.
+// Preserve the checksum-pinned compatibility runtime; Honeyline owns the visual
+// layer. Every staged transformation and added asset is recorded and reproduced
+// during package verification. The immutable source archive is never edited.
 const { builtAsar, builtAsarUnpacked, runtimeApp } = await buildFidelityReconstructedAsar();
 // Keep the signed release audit separate from the reconstructed package audit:
 // the official app is reference-only and is never used as the runtime payload.
@@ -43,7 +43,14 @@ await cp(builtAsarUnpacked, packagedUnpacked, {
   dereference: false,
   preserveTimestamps: true
 });
-await cp(path.join(repoRoot, "branding", "beebot-app-icon.icns"), path.join(resources, "icon.icns"));
+// Generate from the owned SVG, rather than ship an inherited vendor icon.
+await run(process.execPath, [path.join(repoRoot, "scripts", "generate-app-icon.mjs")]);
+await cp(path.join(repoRoot, ".build", "app-icon", "beebot-app-icon.icns"), path.join(resources, "icon.icns"));
+await verifyChecksumPinnedRendererPackage({
+  archivePath: packagedAsar,
+  sourceRendererRoot: path.join(repoRoot, "src", "app", "dist", "renderer"),
+  officialArchivePath: path.join(runtimeApp, "Contents", "Resources", "app.asar"),
+});
 
 const infoPlist = path.join(outputApp, "Contents", "Info.plist");
 await run(SYSTEM_TOOLS.plutil, ["-remove", "ElectronAsarIntegrity", infoPlist]);

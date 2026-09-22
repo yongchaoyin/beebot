@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { RendererAgent } from "../../../../production/model";
 import { ComputerHeaderControl } from "../../computer/shell/view";
 import { SharedRoomHeaderTrigger, type SharedRoomHeaderTriggerProps } from "../../agent-info/shared-room/trigger";
+import { HoneylineWorkStatus } from "../../../../honeyline/components";
 import { AgentAvatar } from "./agent-avatar";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4886695 (ChatHeader aSn)
@@ -26,7 +27,7 @@ export function ConversationAgentHeader({ agent, isComputerActive, isInfoOpen, o
   const identity = <>
     <span className="sand-chat-header__avatar"><AgentAvatar agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size="md" /></span>
     <span id="sand-conversation-heading">{agent.name}</span>
-    {agent.isRunning ? <small>Working</small> : null}
+    <HoneylineWorkStatus agent={agent} />
   </>;
   return <div aria-labelledby="sand-conversation-heading" className="sand-chat-header" role="group">
     {onToggleSettings == null

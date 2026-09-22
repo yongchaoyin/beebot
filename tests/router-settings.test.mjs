@@ -74,6 +74,7 @@ test("packaging preserves Settings registration when landing and registry share 
     for (const name of ["index-UbX-y3il.js", "index-BlqerJhg.js"]) {
       await copyFile(path.join(repoRoot, "src/app/dist/renderer/assets", name), path.join(assets, name));
     }
+    await copyFile(path.join(repoRoot, "src/app/dist/renderer/index.html"), path.join(stageRoot, "dist/renderer/index.html"));
     const result = await applyOriginalRendererRouterPatch({ stageRoot });
     const main = await readFile(path.join(assets, "index-UbX-y3il.js"), "utf8");
     const sections = new Function(`${main.match(/const wDn=\[[^;]+?\]/)[0]};return wDn;`)();

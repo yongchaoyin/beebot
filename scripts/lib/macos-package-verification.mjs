@@ -1,3 +1,4 @@
+import { verifyHoneylineRendererArchive } from "./honeyline-package-verification.mjs";
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -96,6 +97,15 @@ export async function verifyChecksumPinnedRendererPackage({
     const parsed = JSON.parse(bytes.toString("utf8"));
     if (parsed?.schemaVersion !== 1 || parsed?.mode !== "original-renderer-settings-extension" || !Array.isArray(parsed.chunks)) {
       throw new Error("Renderer extension provenance contract is invalid");
+    }
+    if (parsed.honeyline?.version === 1) {
+      const verified = await verifyHoneylineRendererArchive({ archivePath, sourceRendererRoot, extension: parsed });
+      return {
+        mode: renderer.mode, provenancePath, provenanceSha256: sha256(provenanceBytes),
+        fileCount: expectedFiles.size, inventorySha256: provenance.inventorySha256,
+        upstreamAppAsarSha256: provenance.upstreamAppAsarSha256,
+        extension: { path: rendererExtensionPath, sha256: sha256(bytes), ...verified },
+      };
     }
     const allowedKeys = ["schemaVersion", "mode", "chunks", "features", "transformations"];
     if (Object.keys(parsed).sort().join("\0") !== allowedKeys.sort().join("\0")) throw new Error("Renderer extension provenance has unknown fields");

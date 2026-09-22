@@ -1,3 +1,5 @@
+import { buildHoneyline } from "./build-honeyline.mjs";
+import { patchHoneylineRenderer } from "./honeyline-renderer-patch.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
@@ -143,7 +145,7 @@ export function patchOriginalLanding(source) {
   patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
   patched = patchQuotedReplies(patched);
-  return `${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`;
+  return patchHoneylineRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
 }
 
 function sha256(bytes) {
@@ -209,13 +211,15 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     bytes: output.bytes,
     sha256: sha256(await readFile(output.path)),
   })));
+  const honeyline = await buildHoneyline({ rendererRoot: path.join(stageRoot, "dist", "renderer") });
   const record = {
     schemaVersion: 1,
     mode: "original-renderer-settings-extension",
     chunks: changes,
     chatAssets,
-    features: ["settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
-    transformations: ["settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
+    honeyline,
+    features: ["honeyline-theme", "honeyline-original-personas", "honeyline-work-status", "settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
+    transformations: ["honeyline-entry", "honeyline-personas", "settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);

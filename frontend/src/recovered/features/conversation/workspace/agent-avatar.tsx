@@ -1,5 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
-import { OnboardingCharacter, resolvePersonaColor, resolvePersonaShape } from "../../onboarding/signed-in/character";
+import { resolvePersonaColor, resolvePersonaShape } from "../../onboarding/signed-in/character";
+import { HoneylineCharacter } from "../../../../honeyline/components";
 import type { OnboardingCharacterState } from "../../onboarding/signed-in/scene";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2302348 (Iee avatar dispatcher; Mac SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182a3dcd717...)
@@ -7,6 +8,7 @@ import type { OnboardingCharacterState } from "../../onboarding/signed-in/scene"
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2921693 (Eee/Cee/QCe/hct/gct/dln persona mappings)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2755564 (sd sand-grok-bot-mark wrapper)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2933499 (sand-group-avatar and sand-shared-room-avatar branches)
+// Honeyline owns the persona drawing; dispatcher semantics remain unchanged.
 // The dispatcher order is artifact data URL -> shared-room -> group -> persona
 // mark. There is deliberately no initials or CSS-generated fallback branch.
 
@@ -80,7 +82,7 @@ function avatarStyle(sizePx: number): CSSProperties {
 
 function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, paused, isFollowingPointer, followTarget, emphasis, spinSignal }: { agentId: string; color: string; shape: string; state: PersonaState; size?: AgentAvatarSize } & Pick<AgentAvatarProps, "isStatic" | "paused" | "isFollowingPointer" | "followTarget" | "emphasis" | "spinSignal"> & { sizePx: number }) {
   return <span aria-hidden="true" className="sand-agent-avatar sand-grok-bot-mark" data-avatar-color={color} data-avatar-shape={shape} data-size={typeof size === "string" ? size : undefined} data-emphasis={emphasis || undefined} style={{ ...avatarStyle(sizePx), filter: emphasis ? "drop-shadow(0 0 3px color-mix(in srgb, currentColor 32%, transparent))" : undefined }}>
-    <OnboardingCharacter
+    <HoneylineCharacter
       color={color}
       emphasis={emphasis}
       followTarget={followTarget}
