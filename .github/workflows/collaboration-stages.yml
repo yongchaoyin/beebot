@@ -1,0 +1,108 @@
+name: Verified collaboration responsibility stages
+on:
+  push:
+    branches: [chore/collaboration-contracts-dev-20260922]
+    paths: [.github/workflows/collaboration-stages.yml, '.dev-submit/contracts-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify each exact stage tree and commit before publishing candidate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/contracts-{i:02}.bin').read_bytes() for i in range(10))
+          assert len(raw)==24344 and hashlib.sha256(raw).hexdigest()=='f90391963f35aff0911f5a660d230d44c586dcadfdc939a819de6e92ad27674e'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='02be4fec11cd4eb01a8e9f3864eb359427784c44'
+          git('checkout','--detach',parent)
+          expected=[('b0377be9812962777b91ebf8b1e2b0195dc79369','42f0dad6c2355fa40fb4eb2405ff9875d3caa9e1'),('8c7ddd87016704842642c90bf119706699647702','fe3d43a6146670eb5d9c3f363c449a2e5e81d95f'),('cfb86c91c9e450c52cec5a6c39aadcffb2f12bac','0a63ee0fbc5cd9d07fc9a0e80d1efbe0413ace0d')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert str(path).startswith(('source/','scripts/','tests/','docs/')) and '..' not in path.parts
+                  assert not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new']
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent)
+              assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified',sha,tree)
+          git('push','origin','HEAD:refs/heads/chore/collaboration-contracts-candidate-20260922')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cfb86c91c9e450c52cec5a6c39aadcffb2f12bac
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = cfb86c91c9e450c52cec5a6c39aadcffb2f12bac
+          mkdir -p /tmp/collaboration-verification
+          git log -3 --format='%H %s' > /tmp/collaboration-verification/commits.txt
+          node --version > /tmp/collaboration-verification/node.txt
+          sw_vers > /tmp/collaboration-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - name: Full source and regression checks
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/collaboration-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/collaboration-verification/frontend.log
+      - name: Lossless publication tree
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/collaboration-verification/publication.log
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/collaboration-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: collaboration-contracts-verification
+          path: /tmp/collaboration-verification/
+          retention-days: 7
