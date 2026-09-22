@@ -1,4 +1,5 @@
-import { stampCollaborationEntry, buildCollaborationContext } from "./collaboration-work.js";
+import { prepareGroupPublication } from "./group-publications.js";
+import { stampCollaborationEntry, buildCollaborationContext, collaborationReplay, collaborationTasks, workDecisionContext, isWorkDecisionCurrent } from "./collaboration-work.js";
 import { describeReplyChain } from "./message-reply-contract.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
@@ -224,6 +225,7 @@ function messageOf(entry: TranscriptEntry): Record<string, any> | undefined {
 }
 
 export class TurnRuntime {
+  readonly collaborationVersions = new WeakMap<object, Record<string, number>>();
   readonly replyThreadTargets = new Map<LiveTranscriptSession, string>();
   readonly forkTurnSessions = new Set<LiveTranscriptSession>();
   readonly activeRequestPrompts = new Map<string, string>();
@@ -426,6 +428,7 @@ export class TurnRuntime {
       try {
         const unansweredPrompts =
           this.tm.widgetResponses.collectUnansweredQuestionPrompts(session);
+        this.collaborationVersions.set(session, Object.fromEntries([...collaborationTasks(session.db.getTranscriptEntries()).values()].map(task => [task.id, task.contractVersion])));
         const result = await runner.run(prompt + buildCollaborationContext(session.db.getTranscriptEntries(), session.id), {
           ...options,
           ...unansweredPrompts,
@@ -752,11 +755,14 @@ export class TurnRuntime {
           sendId,
           entries,
         );
-        const threaded = this.tm.sendPipeline.applyAutoReplyThread(
+        let threaded = this.tm.sendPipeline.applyAutoReplyThread(
           validated,
           runSession,
           entries,
         ) as SendMessage;
+        if (runSession && threaded.type === "attachment" && !threaded.channel) {
+          threaded = prepareGroupPublication(runSession.dbPath, threaded, false).message as SendMessage;
+        }
         const batchId =
           threaded.type === "attachment" && runSession != null
             ? this.tm.sendPipeline.claimSendAttachmentBatchId(runSession.id)
@@ -769,14 +775,23 @@ export class TurnRuntime {
           update.boxHandoff == null
             ? base
             : stampBoxRequestEntry(base, update.boxHandoff);
-        let entry =
+        let entry: TranscriptEntry =
           runSession != null && this.forkTurnSessions.has(runSession)
             ? { ...stamped, branched: true }
             : stamped;
+        const decisionSession = runSession ?? this.tm.sessions.activeSession;
+        if (threaded.type === "widget" && decisionSession) {
+          const workId = entry.workOnId ?? entries.find(e => e.id === entry.replyTo)?.workOnId ?? entry.replyTo;
+          const scoped = workDecisionContext(decisionSession.db.getTranscriptEntries(), workId, this.collaborationVersions.get(decisionSession));
+          if (scoped) entry = {...entry, workOnId: scoped.taskId, decisionContext: scoped,
+            ...(!isWorkDecisionCurrent(decisionSession.db.getTranscriptEntries(), scoped) ? {decisionStatus:"stale",widgetDismissed:true} : {})};
+        }
         if (incoming.collaboration) {
           const target = runSession ?? this.tm.sessions.activeSession;
           if (!target) throw new Error("No active conversation for this work action.");
-          entry = stampCollaborationEntry(entry, target.db.getTranscriptEntries(), target.id, [target.id]);
+          const replay = collaborationReplay(target.db.getTranscriptEntries(), target.id, incoming);
+          if (replay) return replay.id;
+          entry = stampCollaborationEntry(entry, target.db.getTranscriptEntries(), target.id, [target.id], false, target.dbPath);
           if (target.db.appendTranscriptEntry(entry) === false) throw new Error("Work publication could not be saved. Nothing was claimed.");
           if (isForActiveAgent || runSession == null) {
             appendEntry(entry); this.tm.roster.emit({type: "appended", entry}, target.id);

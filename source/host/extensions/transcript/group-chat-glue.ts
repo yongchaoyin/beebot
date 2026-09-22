@@ -1,4 +1,4 @@
-import { stampCollaborationEntry, buildCollaborationContext, type CollaborationEvent } from "./collaboration-work.js";
+import { stampCollaborationEntry, buildCollaborationContext, collaborationTasks, collaborationReplay, workDecisionContext, isWorkDecisionCurrent, type CollaborationEvent } from "./collaboration-work.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -403,6 +403,7 @@ export class GroupChatGlue {
     let lastReactionApplied = false;
     let lastSentMessageId: string | undefined;
     let contextUserMessageId: string | null = null;
+    let contextWorkVersions: Record<string, number> = {};
     let trackActivity = createGroupMemberActivityTracker();
     const transport = {
       onUpdate: (update: any) => {
@@ -427,7 +428,7 @@ export class GroupChatGlue {
             // Seal only explicit public output. Raw text deltas can contain the
             // agent's private scratchpad and are not a public chat message.
             this.streamGroupMemberUpdate(roomSession, effective.member, update, live);
-            lastSentMessageId = effective.publish({...publication, contextUserMessageId});
+            lastSentMessageId = effective.publish({...publication, contextUserMessageId, contextWorkVersions});
           } else if (update.message?.type === "text") sent.push(update.message.content);
         }
       },
@@ -488,6 +489,7 @@ export class GroupChatGlue {
             });
             try {
               const latestHistory = this.readGroupHistory(roomSession);
+              contextWorkVersions = Object.fromEntries([...collaborationTasks(roomSession.db.getTranscriptEntries()).values()].map(task => [task.id, task.contractVersion]));
               contextUserMessageId = [...latestHistory].reverse().find(message => message.speaker.kind === "user")?.id ?? null;
               const sourceIds = new Set(effective.sourceMessageIds || []);
               const anchor = latestHistory.findLastIndex(message => !!message.id && sourceIds.has(message.id));
@@ -631,9 +633,12 @@ export class GroupChatGlue {
     const workOnId = publication?.workOnId ?? (typeof parent?.workOnId === "string" ? parent.workOnId : undefined);
     if (workOnId) requireMessageReference(entriesInRoom, workOnId, "work_on");
     const message = publication?.message ?? {type: "text", content};
+    const replay = collaborationReplay(session.db.getTranscriptEntries(), member.id, message);
+    if (replay) { if (publication) publication.replayed = true; return replay.id; }
+    const scopedDecision = workDecisionContext(session.db.getTranscriptEntries(), workOnId, publication?.contextWorkVersions);
     const latestUser = [...entriesInRoom].reverse().find((entry: TranscriptEntry) => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
     const decisionUserId = publication?.contextUserMessageId !== undefined ? publication.contextUserMessageId : latestUser?.id ?? null;
-    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: scopedDecision ?? {userMessageId: decisionUserId}, ...((scopedDecision ? !isWorkDecisionCurrent(session.db.getTranscriptEntries(), scopedDecision) : decisionUserId !== (latestUser?.id ?? null)) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive && !message.collaboration) {
@@ -676,7 +681,7 @@ export class GroupChatGlue {
       timestampMs: Date.now(),
       author,
     };
-    const workEntry = stampCollaborationEntry(entry, session.db.getTranscriptEntries(), member.id, readSandGroupConfig(dirname(session.dbPath))?.memberIds ?? [], this.tm.sharedRooms.sharedRoomConfigOf(session) != null);
+    const workEntry = stampCollaborationEntry(entry, session.db.getTranscriptEntries(), member.id, readSandGroupConfig(dirname(session.dbPath))?.memberIds ?? [], this.tm.sharedRooms.sharedRoomConfigOf(session) != null, session.dbPath);
     if (session.db.appendTranscriptEntry(workEntry) === false) throw new Error("Group message was not saved.");
     if (isActive) {
       appendEntry(workEntry); this.tm.roster.emit({type: "appended", entry: workEntry}, session.id);

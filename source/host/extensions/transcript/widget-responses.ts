@@ -1,3 +1,4 @@
+import { isWorkDecisionCurrent } from "./collaboration-work.js";
 import { dirname } from "node:path";
 import { readSandGroupConfig } from "../../groups/group-store.js";
 import { createHash } from "node:crypto";
@@ -40,6 +41,10 @@ export class WidgetResponses {
     const skippedQuestionPrompts: string[] = [];
     const dismissedQuestionPrompts: string[] = [];
     for (const entry of entries) {
+      // Another topic is not an answer to this work-scoped question. Keep its
+      // user decision pending until answered, dismissed, stopped or revised.
+      if ((entry.decisionContext as any)?.taskId && isWorkDecisionCurrent(entries, entry.decisionContext as any)
+        && entry.widgetDismissed !== true) continue;
       if (
         entry.kind !== "send-message" ||
         entry.respondedValue != null ||
@@ -84,7 +89,7 @@ export class WidgetResponses {
     const authorId = (currentEntry.author as any)?.id;
     if (groupConfig && (!authorId || !groupConfig.memberIds.includes(authorId))) return {accepted: false};
     const latestUser = [...getTranscript()].reverse().find(entry => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
-    if (currentEntry.decisionContext && (currentEntry.decisionContext as any).userMessageId !== (latestUser?.id ?? null)) {
+    if (currentEntry.decisionContext && ((currentEntry.decisionContext as any).taskId ? !isWorkDecisionCurrent(getTranscript(), currentEntry.decisionContext as any) : (currentEntry.decisionContext as any).userMessageId !== (latestUser?.id ?? null))) {
       const stale = (entry: TranscriptEntry): TranscriptEntry => ({...entry, decisionStatus: "stale", widgetDismissed: true});
       targetSession.db.updateTranscriptEntry(entryId, stale);
       const updated = updateEntry(entryId, stale);if (updated) this.tm.roster.emit({type: "updated", entry: updated}, agentId);
@@ -435,7 +440,9 @@ export class WidgetResponses {
     )
       return false;
 
-    if ((existing.message as any).widget.dismissOnMoveOn === true) {
+    const workContext = (existing.decisionContext as any)?.taskId ? existing.decisionContext as any : undefined;
+    if (workContext && !isWorkDecisionCurrent(transcript, workContext)) return false;
+    if ((existing.message as any).widget.dismissOnMoveOn === true && !workContext) {
       const hasLaterUserMoment = (
         scope: readonly TranscriptEntry[],
       ): boolean => {

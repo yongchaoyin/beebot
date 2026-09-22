@@ -58,6 +58,7 @@ export function prepareGroupPublication(dbPath: string, raw: unknown, sharedRoom
   if (message.type === "widget" && !message.widget) throw new Error("A group question needs a prompt and answer options. Nothing was published.");
   if (message.type === "cursor-agent" && !message.bcId) throw new Error("A cloud agent reference requires its real agent ID.");
   const body: Record<string, any> = {...message};
+  if (message.collaboration && typeof (raw as any)?.collaborationKey === "string" && (raw as any).collaborationKey.length <= 256) body.collaborationKey = (raw as any).collaborationKey;
   if (message.type === "attachment") {
     const snapshot = snapshotFile(dbPath, message.url!);
     body.url = snapshot.url;body.artifact = snapshot.artifact;

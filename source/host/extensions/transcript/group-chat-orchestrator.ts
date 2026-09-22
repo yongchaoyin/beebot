@@ -23,6 +23,8 @@ export interface GroupPublication {
   workOnId?: string;
   awaitingUser?: boolean;
   contextUserMessageId?: string | null;
+  contextWorkVersions?: Record<string, number>;
+  replayed?: boolean;
 }
 export interface GroupOrchestratorDeps {
   resolveMembers(ids: readonly string[]): Promise<GroupMember[]>;
@@ -228,6 +230,7 @@ export class GroupChatOrchestrator {
       if (published.has(key)) return;
       if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
       const id = this.deps.postMemberMessage(member, item.content, item);
+      if (item.replayed) return id || undefined;
       published.add(key); posted++;
       if (replyToId) {
         repliedIds.add(replyToId);

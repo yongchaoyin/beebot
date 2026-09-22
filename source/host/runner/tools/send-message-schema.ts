@@ -20,6 +20,7 @@ const TYPE_FIELDS: readonly { field: keyof SendMessageInput; types: readonly Sen
 ];
 export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   const issues: SendMessageIssue[] = [];
+  if (value.collaboration && value.intent) issues.push({path: ["intent"], message: "A work action already defines routing. Do not override it with a chat intent."});
   if (value.collaboration && (value.type !== "text" || value.channel || !value.reply_to)) issues.push({path: ["collaboration"], message: "Work actions require a quoted text message in the current local conversation."});
   if (value.work_on && (!value.reply_to || value.channel || value.type === "secret-request")) issues.push({ path: ["work_on"], message: "work_on requires reply_to in this conversation, cannot target external channels or credential requests, and never grants permission or completes work." });
   for (const { field, types } of TYPE_FIELDS) if (!types.includes(value.type) && isFieldProvided(value[field])) { const allowed = types.map((type) => `type:${type}`).join(" or "); issues.push({ path: [String(field)], message: `${String(field)} is only valid with ${allowed} and cannot ride a type:${value.type} message \u2014 it would be silently dropped. Nothing was sent. Re-send as separate SendMessage calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.` }); }

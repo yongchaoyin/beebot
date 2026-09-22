@@ -1,4 +1,4 @@
-import { COLLABORATION_GUIDANCE } from "./collaboration-schema.js";
+import { COLLABORATION_GUIDANCE, COLLABORATION_DELIVERY_GUIDANCE } from "./collaboration-schema.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -80,7 +80,7 @@ export function createSendMessageTool(deps: SendMessageDependencies<Context>) {
         return errorResult(SAND_AWAITING_USER_SEND_MESSAGE_BLOCKED);
       }
       const timestampMs = Date.now();
-      const messageId = deps.onSendMessage(message, timestampMs);
+      const messageId = deps.onSendMessage(message.collaboration ? {...message, collaborationKey: meta.toolCallId} : message, timestampMs);
       return new SendMessageResult({
         result: {
           case: "success",
@@ -101,7 +101,7 @@ export function createSendMessageTool(deps: SendMessageDependencies<Context>) {
   };
   return createZodAgentTool("SEND_MESSAGE", {
     name: SAND_SEND_MESSAGE_TOOL_NAME,
-    descriptionGenerator: () => SAND_SEND_MESSAGE_TOOL_DESCRIPTION + "\n\n" + COLLABORATION_GUIDANCE,
+    descriptionGenerator: () => SAND_SEND_MESSAGE_TOOL_DESCRIPTION + "\n\n" + COLLABORATION_GUIDANCE + "\n" + COLLABORATION_DELIVERY_GUIDANCE,
     parameters: sendMessageParameters,
     execute: withSafeParsedArgs(
       sendMessageParameters,
