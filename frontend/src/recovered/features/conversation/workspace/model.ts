@@ -227,12 +227,16 @@ export interface TranscriptMessage {
   id: string;
   role: "user" | "assistant";
   author: string;
+  authorId?: string;
+  authorAvatar?: { color?: string; shape?: string; dataUrl?: string };
   text: string;
   /** Serialized Tiptap JSON returned on durable user-message transcript entries. */
   richText?: string;
   timestampMs: number;
   attachments?: DraftAttachment[];
   delivery?: TranscriptDelivery;
+  /** Unknown receipt is not proof of failure; never offer blind resend. */
+  deliveryFailure?: "rejected" | "unknown";
   clientNonce?: string;
   composedAtMs?: number;
   isStreaming?: boolean;

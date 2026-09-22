@@ -25,7 +25,7 @@ import "./view.css";
 // readiness byte 5,441,790. The expanded mirror is navigation-only.
 
 const WALLPAPER_URL = rendererRuntimeAssetUrl("demo-computer-wallpaper-BO7Ye4dV.jpg");
-const APP_ICON_URL = rendererRuntimeAssetUrl("app-icon-C7NKj2u7.png");
+const APP_ICON_URL = new URL("../../../../../../branding/beebot-app-icon.svg", import.meta.url).href;
 const APP_ICON_SIZE_PX = 64;
 const EMPTY_COMPUTER: OnboardingComputerSnapshot = { isComputerReady: false, computerState: null, pullPercent: null };
 
@@ -93,7 +93,7 @@ export function SceneCast({ step, meetBeat, demoBeat, jobsBeat, draft, avatarTar
     const style = { transform: `translate(${placement.x}px, ${placement.y}px) scale(${placement.scale})`, opacity: placement.opacity, transitionDuration: `${prefersReducedMotion() ? 0 : transition.duration}ms`, transitionTimingFunction: transition.easing };
     const content = <Character placement={placement} pointerShown={step === "computer-demo" && placement.id === "hero"} renderCharacter={renderCharacter} />;
     return <div className={`sand-onboarding__cast-${placement.id}`} data-character-state={placement.state} key={placement.id} onTransitionEnd={(event: TransitionEvent<HTMLDivElement>) => { if (placement.id === "sales-forecast" && isAvatarLandingTransition(event.propertyName)) onSalesForecastLanded?.(); }} style={style}>
-      {placement.bob == null ? content : <span style={{ "--cast-bob-amp": `${placement.bob.amplitudePx}px`, animationName: "sand-onboarding-cast-bob", animationDirection: "alternate", animationIterationCount: "infinite", animationTimingFunction: "ease-in-out", animationDuration: `${placement.bob.periodMs}ms`, animationDelay: `${placement.bob.delayMs}ms`, display: "block" } as CSSProperties}>{content}</span>}
+      {content}
     </div>;
   })}</div>;
 }
@@ -177,7 +177,7 @@ export function SignedInOnboardingStep({ step, draft, dailyTools, meetBeat = 0, 
     <div aria-label="Character shape" role="radiogroup">{CHARACTER_SHAPES.map((shape) => <button aria-checked={normalizedDraft.shape === shape} aria-label={`${shape} shape`} key={shape} onClick={() => onDraftChange({ ...normalizedDraft, shape })} role="radio" title={shape} type="button" />)}</div>
     <label htmlFor="sand-onboarding-create-name">Name</label><input id="sand-onboarding-create-name" onChange={(event) => onDraftChange({ ...normalizedDraft, name: event.currentTarget.value, pickedTemplateId: null })} placeholder="New Bot" spellCheck={false} type="text" value={normalizedDraft.name} /><button disabled={!canSubmitOnboardingDraft(normalizedDraft)} onClick={onCreate} type="button">Get started</button>
     </div><SuggestionRail dailyTools={dailyTools} onPick={(suggestion, identity) => onDraftChange({ name: suggestion.name, description: flattenSuggestionDescription(suggestion.description), color: identity.color, shape: identity.shape, pickedTemplateId: suggestion.templateId })} pickedTemplateId={normalizedDraft.pickedTemplateId} renderCharacter={renderCharacter} /></div></section>;
-  return <div className="sand-onboarding__hand-off"><span aria-hidden="true"><img alt="" className="sand-1lliihq sand-2lah0s sand-47corl sand-87ps6o sand-10xuot4" draggable={false} height={APP_ICON_SIZE_PX} src={APP_ICON_URL} width={APP_ICON_SIZE_PX} /><span>Grok Bot</span></span><p aria-live="polite" id={`sand-onboarding-${step}-heading`}>{error == null ? handOffStatus(computer) : "Grok Bot couldn’t finish setting up"}</p>{error == null ? null : <><p>{error}</p><button autoFocus onClick={onCreate} type="button">Try again</button></>}</div>;
+  return <div className="sand-onboarding__hand-off"><span aria-hidden="true"><img alt="" className="sand-1lliihq sand-2lah0s sand-47corl sand-87ps6o sand-10xuot4" draggable={false} height={APP_ICON_SIZE_PX} src={APP_ICON_URL} width={APP_ICON_SIZE_PX} /><span>BeeBot</span></span><p aria-live="polite" id={`sand-onboarding-${step}-heading`}>{error == null ? handOffStatus(computer) : "BeeBot couldn’t finish setting up"}</p>{error == null ? null : <><p>{error}</p><button autoFocus onClick={onCreate} type="button">Try again</button></>}</div>;
 }
 
 export function SignedInOnboarding({ bridge, client, accountSlot, computerReadiness, computerStatus, isAccountOnboarded, renderCharacter, onComplete }: SignedInOnboardingProps) {

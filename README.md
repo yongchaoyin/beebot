@@ -2,8 +2,8 @@
 
 English | [中文](README.zh.md)
 
-BeeBot is a local computer agent for macOS. You give a goal and a boundary;
-bots work like a hive on one shared Linux computer. Each bot has its own
+BeeBot is a simple macOS assistant for work and everyday life. You give a goal
+and a boundary; bots collaborate as colleagues on one shared Linux computer. Each bot has its own
 identity, memory, and desktop, and talks to the model vendor you choose.
 There is no Cursor account lock-in.
 
@@ -17,11 +17,11 @@ to connect and sign in. Then use the main sidebar **+ → New bot** and choose i
 deployment server. Remote Bots appear in the same sidebar. See the [server guide](docs/node-server.md) and
 [implementation status](docs/distributed-hive-implementation.md) for the current
 scope. Automatic cross-server Bot delegation and multi-tenant hosting are later
-stages; the existing local hive remains available.
+stages; the existing local collaboration remains available.
 
 ## Design philosophy
 
-BeeBot's core is: you give a goal and a boundary, and bots work like a hive.
+BeeBot's core is: you give a goal and a boundary, and bots work together as colleagues.
 They divide the work, exchange what they need, cover for each other, and
 finish the delivery. You can step in at any time. When a judgment is needed,
 they bring you back.
@@ -34,7 +34,7 @@ thread.
 
 Each bot is a colleague, not a disposable worker. It has a name, a specialty,
 memory, and judgment. The longer it works with you, the better it knows you.
-Temporary subagents that run a single GUI or browser step are not hive
+Temporary subagents that run a single GUI or browser step are not team
 members.
 
 ### Group is a shared workplace
@@ -43,7 +43,7 @@ A group is a place where members share a goal, progress, and results, and can
 see what the others are doing. Chat can be a surface of that place. The
 center is the work, not taking turns speaking.
 
-### The hive forms the division of labor
+### The team forms the division of labor
 
 You do not have to break the job into tickets and assign each one. Members
 claim work from their ability and the current situation, ask for help, and
@@ -59,14 +59,14 @@ manager bot.
 
 Speak when there is something to add. Cover a gap when needed. Stay quiet
 when there is nothing to contribute. The system should remember who claimed
-what, how far it got, and where the result is, so the hive does not duplicate
+what, how far it got, and where the result is, so the team does not duplicate
 work, talk forever, or leave the last mile unowned.
 
 ### How you talk to them
 
 | You say | The product should hear |
 | --- | --- |
-| "Get this done." | Hand the goal and boundary to the hive. They collaborate until they deliver or need your judgment. |
+| "Get this done." | Hand the goal and boundary to the team. They collaborate until they deliver or need your judgment. |
 | "@Research, look this up." | A directed ask. Not an all-hands. |
 | "@Strategy, you lead this time." | A coordination relationship for this task, not a promotion. |
 
@@ -77,7 +77,7 @@ of spinning until you happen to look.
 
 ### One shared computer
 
-The hive shares one persistent Linux machine. That is the physical form of
+The team shares one persistent Linux machine. That is the physical form of
 working together, not a metaphor.
 
 - **Shared:** `/workspace`, installed tools, and browser logins. A file or
@@ -108,6 +108,10 @@ Today's Group is still a concurrent chat room (mentions, silence as
 `(pass)`). The philosophy above is the product north star. The gap is moving
 from talking together to delivering together.
 
+## Neutral appearance and expressive avatars
+
+The interface uses neutral light/dark surfaces and a restrained blue accent, not an insect-themed visual identity. Six original avatar silhouettes share one state-driven motion engine in editable and packaged renderers. In the avatar editor, **Avatar motion** offers **Natural**, **Subtle**, and **Off**. System reduced-motion, window visibility and focus take priority; historical messages and group collages stay still. Custom photos and saved persona preferences are retained. See [implementation and validation](docs/implementation/presence-theme.md).
+
 ## Current features
 
 ### Local computer
@@ -117,7 +121,7 @@ Docker VM** runs that computer in a Docker container on this Mac (loopback
 ports only, settings and API keys bind-mounted in). Docker Desktop, or another
 compatible local Docker daemon, must be running. Each bot gets its own
 desktop on that machine; files, installed tools, and browser logins persist
-for the whole hive.
+for the whole team.
 
 ### Model APIs
 
@@ -158,10 +162,11 @@ BeeBot started from an unofficial, source-oriented reconstruction of the public
 Grok Bot 0.18.0 macOS app. Readable TypeScript for the Electron, host,
 coordinator, local-execution, and protocol boundaries lives under `source/`.
 Packaged builds still use the checksum-pinned 0.18 renderer as the UI baseline
-and apply a narrow settings and create-bot patch on top.
+and apply reproducible BeeBot settings, conversation, neutral-theme and avatar adapters on top.
 
-The Dock name and bundle identity are BeeBot. Some in-app chrome still says
-Grok Bot because that shipped renderer is retained byte-for-byte.
+The Dock name and bundle identity are BeeBot. The authenticated upstream files
+remain immutable; the packaged copy receives the declared adapters. Historical
+evidence and protocol identifiers retain their original names.
 
 Original BeeBot contributions are MIT-licensed. Reconstructed upstream material
 and the preserved 0.18.0 installers are not covered by that grant. See
