@@ -1,3 +1,4 @@
+import { deliverGroupMessage } from "./group-message-delivery.js";
 import { dirname } from "node:path";
 import { readSandGroupConfig } from "../../groups/group-store.js";
 import type { TranscriptManagerLike } from "./transcript-hub.js";
@@ -18,7 +19,6 @@ export async function dispatchMirrorOrGroupSend(
     acceptedAtMs,
     traceCtx,
     readAddressedTranscript,
-    nextTurnEpoch,
     markSendAccepted,
   } = args;
   if (tm.groupChat.isRemoteRoomSession(session)) {
@@ -43,13 +43,9 @@ export async function dispatchMirrorOrGroupSend(
     if (userEntry != null)
       tm.xuserDelegate?.publishRoomEntry(sharedRoomId, userEntry);
   }
-  const epoch = nextTurnEpoch(session);
-  tm.runLifecycle.beginSessionRun(session);
-  const done = tm.runLifecycle.enqueueExclusiveRun(
-    session.id,
-    () => tm.groupChat.runGroupTurn(session, epoch, traceCtx, "user"),
-    { lane: "user", source: "group", acceptedAtMs },
-  );
+  if (typeof userMessageId !== "string")
+    throw new Error("A group message needs a durable source message before dispatch.");
+  const { done } = await deliverGroupMessage(tm, session, userMessageId, traceCtx);
   markSendAccepted(clientNonce);
   if (awaitTurn) await done;
   else

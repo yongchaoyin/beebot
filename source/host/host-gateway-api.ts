@@ -214,6 +214,7 @@ export function createHostGatewayApi(
       });
       return { accepted: true };
     },
+    stopConversation: (args: unknown) => method(manager, "stopConversation")(args),
     promptAcceptanceStatus: (args: any) =>
       method(manager, "promptAcceptanceStatus")(args),
     respondToWidget: (args: any) => {

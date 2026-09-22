@@ -1,3 +1,4 @@
+import { recoverConversationDeliveries, stopConversation } from "./conversation-recovery.js";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -398,6 +399,9 @@ export class TranscriptManager {
   disconnectChannel(agentId: string, platform: string) {
     return this.sessionStore.disconnectChannel(agentId, platform);
   }
+
+  recoverConversationDeliveries(): Promise<void> { return recoverConversationDeliveries(this); }
+  stopConversation(args: unknown) { return stopConversation(this, args); }
 
   promptAcceptanceStatus(...args: any[]) {
     return invoke(this.sendPipeline, "promptAcceptanceStatus", args);

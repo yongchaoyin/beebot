@@ -24,7 +24,10 @@ export interface GroupOrchestratorDeps {
     systemPrompt: string;
     prompt: string;
   }): Promise<readonly string[]>;
-  postMemberMessage(member: GroupMember, content: string): void;
+  postMemberMessage(member: GroupMember, content: string, context?: { replyToId?: string }): string | void;
+  onMemberStarted?(member: GroupMember, triggers: readonly GroupMessage[]): boolean | void;
+  onMemberSettled?(member: GroupMember, triggers: readonly GroupMessage[], replyIds: readonly string[], posted: number): void;
+  onMemberError?(member: GroupMember, error: unknown, triggers: readonly GroupMessage[]): void;
   finalizeMemberTurn?(member: GroupMember): void;
   isSharedRoom?: boolean;
 }
@@ -45,19 +48,43 @@ interface TurnContext {
 
 /** Message-led room: independent colleague lanes, not an all-members round barrier. */
 export class GroupChatOrchestrator {
+  private incoming: GroupMessage[] = [];
+  private wake: (() => void) | undefined;
+  private accepting = true;
+  private running = false;
+  private arrival = 0;
+
   constructor(readonly deps: GroupOrchestratorDeps) {}
+
+  /** New conversation messages wake idle recipients; they do not invalidate active replies. */
+  receive(messages: readonly GroupMessage[]): boolean {
+    if (!this.accepting || !this.deps.isCurrent()) return false;
+    this.incoming.push(...messages.map(message => ({ ...message,
+      requestIds: message.requestIds ?? [message.id ?? `arrival-${++this.arrival}`],
+    })));
+    this.wake?.();
+    return true;
+  }
 
   async run(args: {
     group: GroupDescription;
     memberIds: readonly string[];
+    initialMessages?: readonly GroupMessage[];
   }): Promise<void> {
+    if (this.running) throw new Error("A group orchestrator already has a consumer.");
+    this.running = true;
     const resolved = await this.deps.resolveMembers(args.memberIds);
     const members = [...new Map(resolved.filter((member) => args.memberIds.includes(member.id)).map((member) => [member.id, member])).values()];
-    if (members.length === 0 || !this.deps.isCurrent()) return;
+    if (members.length === 0 || !this.deps.isCurrent()) {
+      this.accepting = false;
+      return;
+    }
 
     // All bookkeeping is run-local: a Bot keeps its identity, but another room's
     // messages, observed history and turn budget must never become this room's state.
     const turns = new Map<string, number>();
+    const failures: unknown[] = [];
+    const deliveredMessages = new Set<string>();
     const seenMessages = new Map<string, Map<string, number>>();
     const inboxes = new Map<string, GroupMessage[]>();
     const active = new Map<string, Promise<string>>();
@@ -69,7 +96,12 @@ export class GroupChatOrchestrator {
 
     const enqueue = (messages: readonly GroupMessage[]) => {
       for (const message of messages) {
-        for (const member of resolveMessageResponders(members, [message])) {
+        if (message.id && deliveredMessages.has(message.id)) continue;
+        if (message.id) deliveredMessages.add(message.id);
+        const recipients = message.recipientIds
+          ? members.filter(member => message.recipientIds!.includes(member.id))
+          : resolveMessageResponders(members, [message]);
+        for (const member of recipients) {
           const inbox = inboxes.get(member.id) || [];
           inbox.push(message);
           inboxes.set(member.id, inbox);
@@ -84,11 +116,14 @@ export class GroupChatOrchestrator {
       catch (error) { routingFailure = { error }; open = false; }
     };
     const initial = this.deps.readHistory();
-    enqueue(initial.slice(-1));
-    if (initial.length === 0) for (const member of members) inboxes.set(member.id, []);
+    const first = args.initialMessages ?? initial.slice(-1);
+    enqueue(first.map(message => ({ ...message, requestIds: message.requestIds ?? [message.id ?? "initial"] })));
+    if (initial.length === 0 && args.initialMessages === undefined)
+      for (const member of members) inboxes.set(member.id, []);
 
     try {
-      while ((inboxes.size || active.size) && isCurrent()) {
+      while (isCurrent()) {
+        enqueue(this.incoming.splice(0));
         // One immutable view for this dispatch. A later reply must not advance a
         // busy colleague's cursor past messages that arrived during their work.
         const history = [...this.deps.readHistory()];
@@ -96,9 +131,11 @@ export class GroupChatOrchestrator {
           const triggers = inboxes.get(member.id);
           if (!triggers || active.has(member.id)) continue;
           inboxes.delete(member.id);
-          if ((turns.get(member.id) || 0) >= GROUP_MAX_MEMBER_TURNS) {
+          const roots = [...new Set(triggers.flatMap(message => message.requestIds ?? ["initial"]))];
+          const budgetKeys = (roots.length ? roots : ["initial"]).map(root => JSON.stringify([root, member.id]));
+          if (budgetKeys.every(key => (turns.get(key) || 0) >= GROUP_MAX_MEMBER_TURNS)) {
             limited.add(member.id);
-            continue; // Let other already-addressed colleagues finish their work.
+            continue; // Pause cyclic discussion, not unrelated new user questions.
           }
           const seen = seenMessages.get(member.id);
           const unread = seen === undefined
@@ -108,26 +145,40 @@ export class GroupChatOrchestrator {
             ? history.slice(-SHARED_ROOM_HISTORY_LIMIT)
             : unread.filter((message) => message.speaker.kind !== "member" || message.speaker.id !== member.id);
           seenMessages.set(member.id, countMessages(history));
-          turns.set(member.id, (turns.get(member.id) || 0) + 1);
+          for (const key of budgetKeys) turns.set(key, (turns.get(key) || 0) + 1);
           // Preserve failure isolation: one failed member cannot silence peers.
           // The owning runtime retains responsibility for its execution errors.
           const task = this.speak(args.group, member, members, published, onMessage,
             { newMessages, triggers }, isCurrent).then(
             () => member.id,
-            () => member.id,
+            error => {
+              if (this.deps.onMemberError) {
+                try { this.deps.onMemberError(member, error, triggers); }
+                catch (reportError) { failures.push(reportError); }
+              } else failures.push(error);
+              return member.id;
+            },
           );
           active.set(member.id, task);
         }
-        if (!active.size) break;
-        const finished = await Promise.race(active.values());
-        active.delete(finished);
+        if (!active.size && !this.incoming.length) break;
+        let wake!: () => void;
+        const arrival = new Promise<null>(resolve => { wake = () => resolve(null); });
+        this.wake = wake;
+        if (this.incoming.length) wake();
+        const finished = await Promise.race([...active.values(), arrival]);
+        this.wake = undefined;
+        if (finished !== null) active.delete(finished);
       }
       if (routingFailure) throw routingFailure.error;
+      if (failures.length) throw new AggregateError(failures, "One or more colleagues could not process their messages.");
       if (isCurrent() && limited.size) throw new GroupChatTurnLimitError([...limited]);
     } finally {
       // A routing error, interruption or safety pause must not leave late room
       // publications behind. Draining does NOT claim to undo external side effects.
       open = false;
+      this.accepting = false;
+      this.wake = undefined;
       await Promise.allSettled(active.values());
     }
   }
@@ -143,17 +194,24 @@ export class GroupChatOrchestrator {
   ): Promise<number> {
     if (!isCurrent()) return 0;
     try {
+      if (this.deps.onMemberStarted?.(member, context.triggers) === false) return 0;
       const sent = await this.runOneTurn(group, member, members, context);
       let posted = 0;
+      const replyIds: string[] = [];
+      const roots = [...new Set(context.triggers.flatMap(message => message.requestIds ?? ["initial"]))];
+      const replyToId = context.triggers.at(-1)?.id;
       for (const content of sent) {
         if (!isCurrent()) break;
-        const key = JSON.stringify([member.id, content]);
+        const key = JSON.stringify([roots, member.id, content]);
         if (published.has(key)) continue;
-        this.deps.postMemberMessage(member, content);
+        const id = this.deps.postMemberMessage(member, content, replyToId ? { replyToId } : {});
+        if (typeof id === "string") replyIds.push(id);
         published.add(key);
-        onMessage({ speaker: { kind: "member", id: member.id, name: member.name }, content });
+        onMessage({ ...(typeof id === "string" ? { id } : {}), requestIds: roots,
+          speaker: { kind: "member", id: member.id, name: member.name }, content });
         posted += 1;
       }
+      this.deps.onMemberSettled?.(member, context.triggers, replyIds, posted);
       return posted;
     } finally {
       this.deps.finalizeMemberTurn?.(member);

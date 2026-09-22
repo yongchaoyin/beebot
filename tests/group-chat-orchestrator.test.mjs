@@ -115,7 +115,7 @@ test("one member throwing does not silence the others", async () => {
         history.push({ speaker: { kind: "member", id: member.id, name: member.name }, content });
       },
     });
-    await orchestrator.run({ group: { name: "Room", description: "" }, memberIds: ["a", "b"] });
+    await assert.rejects(orchestrator.run({ group: { name: "Room", description: "" }, memberIds: ["a", "b"] }), AggregateError);
     assert.deepEqual(posted, ["Bob made it"]);
   } finally {
     await loaded.dispose();

@@ -1,3 +1,6 @@
+import { resolveGroupRecipientIds } from "./group-message-delivery.js";
+import { ConversationDeliveries, initialConversationDelivery, deliveryOf } from "./conversation-delivery.js";
+import { SandSendNotPersistedError } from "./send-not-persisted-error.js";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -225,6 +228,15 @@ export class SendPipeline {
           conversationId: session.id,
           wasInFlight,
         });
+      const priorEcho = options.clientNonce == null ? undefined : readTranscript().find(entry =>
+        entry.clientNonce === options.clientNonce && entry.beebotDelivery != null);
+      if (priorEcho) {
+        const receipt = deliveryOf(priorEcho, session.id);
+        if (!receipt?.inputDigest || receipt.inputDigest !== acceptance?.digest)
+          throw new Error("NONCE_DIGEST_MISMATCH: an earlier durable message needs verification, not replay.");
+      } else if (options.clientNonce && readTranscript().some(entry => entry.clientNonce === options.clientNonce)) {
+        throw new Error("This message already exists without a recoverable delivery record. Verify it before sending new work.");
+      }
       session.db.setIntroductionPending(false);
       const needsRosterRefresh = applySendRosterSideEffects(
         this.tm,
@@ -238,6 +250,18 @@ export class SendPipeline {
         options.isFork === true,
         readTranscript,
       );
+      const isLocalGroup = this.tm.groupChat.isGroupSession(session) && !this.tm.groupChat.isRemoteRoomSession(session);
+      const deliveryRecipients = priorEcho ? deliveryOf(priorEcho, session.id)!.recipients.map(item => item.botId)
+        : isLocalGroup ? await resolveGroupRecipientIds(this.tm, session, trimmedPrompt || "[Attached files]")
+        : this.tm.groupChat.isRemoteRoomSession(session) ? [] : [session.id];
+      const deliveryInput = { prompt: trimmedPrompt, attachmentPaths,
+        ...(options.richText == null ? {} : { richText: options.richText }),
+        ...(threading.replyToId == null ? {} : { replyToId: threading.replyToId }),
+        ...(threading.isFork ? { isFork: true } : {}),
+      };
+      const stampDelivery = (entry: TranscriptEntry): TranscriptEntry => deliveryRecipients.length
+        ? { ...entry, beebotDelivery: initialConversationDelivery(session.id, entry.id, deliveryRecipients, deliveryInput, acceptance?.digest) }
+        : entry;
       const names = options.attachmentNames ?? [];
       const batchId =
         attachmentPaths.length > 0 ? crypto.randomUUID() : undefined;
@@ -248,10 +272,10 @@ export class SendPipeline {
         if (!isDurable) acceptedDurably = false;
       };
       const echoes: EchoEntry[] = [];
-      let userMessageId: string | undefined;
+      let userMessageId: string | undefined = priorEcho?.id;
       const sizes = await statAttachedFileSizes(attachmentPaths);
       try {
-        for (const [index, path] of attachmentPaths.entries()) {
+        for (const [index, path] of (priorEcho ? [] : attachmentPaths).entries()) {
           const name = names[index];
           const byteSize = sizes.get(path);
           const built = await createUserAttachmentEntry(
@@ -273,18 +297,18 @@ export class SendPipeline {
           );
           echoes.push(
             appendEcho(
-              (entries) => ({
-                ...built,
-                id: nextEntryId(entries, "user-attachment"),
-              }),
+              (entries) => {
+                const entry = { ...built, id: nextEntryId(entries, "user-attachment") };
+                return !trimmedPrompt && index === 0 ? stampDelivery(entry) : entry;
+              },
               { onPersistOutcome: observePersistOutcome },
             ),
           );
         }
-        if ((options.appendUserMessage ?? true) && trimmedPrompt.length > 0) {
+        if (!priorEcho && (options.appendUserMessage ?? true) && trimmedPrompt.length > 0) {
           const echo = appendEcho(
             (entries) =>
-              createUserMessage(
+              stampDelivery(createUserMessage(
                 nextEntryId(entries, "user-message"),
                 trimmedPrompt,
                 {
@@ -303,7 +327,7 @@ export class SendPipeline {
                     ? {}
                     : { composedAtMs: options.composedAtMs }),
                 },
-              ),
+              )),
             { onPersistOutcome: observePersistOutcome },
           );
           userMessageId = echo.entry.id;
@@ -318,9 +342,20 @@ export class SendPipeline {
         throw error;
       }
       if (!acceptedDurably) {
-        console.warn(
-          "[sand] send accepted NON-durably (persist dropped on a locked db); the echo still shipped so the send proceeds, but a host crash before the next successful write would lose the entry",
-        );
+        for (const { entry } of echoes) {
+          session.db.deleteTranscriptEntry(entry.id);
+          if (this.tm.sessions.inMemoryTranscriptAgentId === session.id) removeEntry(entry.id);
+        }
+        throw new SandSendNotPersistedError();
+      }
+      userMessageId ??= echoes[0]?.entry.id;
+      if (userMessageId && !this.tm.groupChat.isGroupSession(session) && !this.tm.groupChat.isRemoteRoomSession(session)) {
+        new ConversationDeliveries(this.tm, session).accept(userMessageId, [session.id], {
+          prompt: trimmedPrompt, attachmentPaths,
+          ...(typeof options.richText === "string" ? { richText: options.richText } : {}),
+          ...(threading.replyToId ? { replyToId: threading.replyToId } : {}),
+          ...(threading.isFork ? { isFork: true } : {}),
+        });
       }
       if (options.clientNonce != null && acceptance != null)
         this.tm.acceptanceLedger.recordPending({

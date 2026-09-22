@@ -565,7 +565,10 @@ export class SandHost {
       "resumeInterruptedUpgradeTurns"
     )?.();
     void optionalMethod(transcript, "rearmPendingWakes")?.();
-    void optionalMethod(transcript, "redriveUnfulfilledAckObligations")?.();
+    void (async () => {
+      await optionalMethod(transcript, "recoverConversationDeliveries")?.();
+      await optionalMethod(transcript, "redriveUnfulfilledAckObligations")?.();
+    })().catch((error: unknown) => console.error("[beebot] message recovery requires attention", error instanceof Error ? error.name : "unknown"));
 
     optionalMethod(this.telemetryLogsOrUndefined() ?? {}, "reportHostStartup")?.({
       auto_update: String(

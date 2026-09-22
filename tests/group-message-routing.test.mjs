@@ -94,7 +94,7 @@ test("open discussion remains concurrent; a crashing colleague does not silence 
     if (member.id === "a") throw new Error("model unavailable");
     return ["(pass)"];
   }, [user("一起评审")]);
-  await r.run();
+  await assert.rejects(r.run(), AggregateError);
   assert.equal(peak, 3); assert.equal(r.finalized.length, 3);
 });
 

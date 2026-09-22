@@ -116,7 +116,7 @@ test("a failing colleague does not prevent another handoff and all started turns
     if (member.id === "a") throw new Error("Tool failed");
     return member.id === "b" ? ["@{c} Check my result."] : ["(pass)"];
   }, "@{a} @{b} Work independently.");
-  await ui.run();
+  await assert.rejects(ui.run(), AggregateError);
   assert.deepEqual(ui.calls.map(call => call.member.id).sort(), ["a", "b", "c"]);
   assert.deepEqual(ui.finalized.sort(), ["a", "b", "c"]);
 });

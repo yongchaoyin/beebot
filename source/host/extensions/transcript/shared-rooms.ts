@@ -1,3 +1,4 @@
+import { deliverGroupMessage } from "./group-message-delivery.js";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -94,22 +95,9 @@ export class SharedRooms {
       message,
       Date.now(),
     );
-    this.tm.groupChat.postGroupMemberMessage(roomSession, member, message);
-    const epoch = this.tm.sendPipeline.nextTurnEpoch(roomSession);
-    this.tm.runLifecycle.beginSessionRun(roomSession);
-    void this.tm.runLifecycle.enqueueExclusiveRun(
-      roomSession.id,
-      () => {
-        this.tm.turnRuntime.activeRequestSources.set(roomSession.id, "agent");
-        return this.tm.groupChat.runGroupTurn(
-          roomSession,
-          epoch,
-          undefined,
-          "agent",
-        );
-      },
-      { lane: "agent", source: "agent" },
-    );
+    const messageId = this.tm.groupChat.postGroupMemberMessage(roomSession, member, message);
+    const { done } = await deliverGroupMessage(this.tm, roomSession, messageId);
+    void done.catch(() => {}); // The delivery owner persists a visible failure notice.
     return `Posted to "${groupName}". Its members will see it and reply on their own turns.`;
   }
 
@@ -647,21 +635,8 @@ export class SharedRooms {
       void this.tm.roster.emitAgentUpdate(session.id);
     }
     this.publishSharedRoomEntryIfNeeded(session, entry);
-    const epoch = this.tm.sendPipeline.nextTurnEpoch(session);
-    this.tm.runLifecycle.beginSessionRun(session);
-    void this.tm.runLifecycle.enqueueExclusiveRun(
-      session.id,
-      () => {
-        this.tm.turnRuntime.activeRequestSources.set(session.id, "agent");
-        return this.tm.groupChat.runGroupTurn(
-          session,
-          epoch,
-          undefined,
-          "agent",
-        );
-      },
-      { lane: "agent", source: "agent" },
-    );
+    const { done } = await deliverGroupMessage(this.tm, session, entry.id);
+    void done.catch(() => {}); // The delivery owner persists a visible failure notice.
   }
 
   async runRemoteRequestedMemberTurn(args: any): Promise<string[]> {

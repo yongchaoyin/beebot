@@ -330,7 +330,7 @@ export class TurnRuntime {
     prompt: string,
     options: TurnOptions,
     epoch: number,
-  ): Promise<void> {
+  ): Promise<{ phase: "responded" | "failed" | "uncertain" | "cancelled" }> {
     const turnTrace = beginTurnTrace({
       parentCtx: options.traceCtx,
       conversationId: session.id,
@@ -399,8 +399,7 @@ export class TurnRuntime {
             options.ackToken,
           );
           setTurnTraceAttributes(turnTrace, { "sand.outcome": "superseded" });
-          this.tm.runLifecycle.endSessionRun(session);
-          return;
+          return { phase: "cancelled" };
         }
       }
 
@@ -409,6 +408,7 @@ export class TurnRuntime {
       else this.activeRequestPrompts.delete(session.id);
       if (options.replyContext != null)
         this.replyThreadTargets.set(session, options.replyContext.targetId);
+      else if (options.messageId != null) this.replyThreadTargets.set(session, options.messageId);
       else this.replyThreadTargets.delete(session);
       if (options.isFork === true) this.forkTurnSessions.add(session);
       else this.forkTurnSessions.delete(session);
@@ -479,6 +479,10 @@ export class TurnRuntime {
         });
         await this.tm.roster.emitAgentUpdate(session.id);
         this.tm.automationRuntime.emitAutomations(session);
+        return { phase: settledResult.aborted || settledResult.quiescedForUpgrade
+          ? "uncertain"
+          : settledResult.sentMessageCount > 0 || settledResult.reacted || settledResult.awaitingUserSelection
+            ? "responded" : "failed" };
       } catch (error) {
         console.error(
           `[sand][turn] agent run failed for ${session.id}`,
@@ -504,6 +508,7 @@ export class TurnRuntime {
           });
         }
         await this.tm.roster.emitAgentUpdate(session.id);
+        return { phase: "failed" };
       } finally {
         for (const map of [
           this.activeTurns,
@@ -521,7 +526,6 @@ export class TurnRuntime {
         if (this.activeTurnEpochs.get(session.id) === epoch)
           this.activeTurnEpochs.delete(session.id);
         this.tm.ackObligations.retireAckRunToken(session.id, options.ackToken);
-        this.tm.runLifecycle.endSessionRun(session);
       }
     } finally {
       try {

@@ -1,5 +1,5 @@
 export const GROUP_CONFIG_VERSION = 1; export const GROUP_MAX_MEMBER_TURNS = 10; export const GROUP_MAX_ROUNDS = 3; export const GROUP_PROMPT_HISTORY_LIMIT = 24; export const GROUP_MAX_MESSAGES_PER_TURN = 2; export const SHARED_ROOM_HISTORY_LIMIT = 24; export const GROUP_CHAT_TAG_PREFIX = "[Group chat: "; export const SAND_HIDDEN_PROMPT_MARKER = "[SAND_HIDDEN_PROMPT]";
-export interface GroupMember { id: string; name: string; description: string } export interface GroupDescription { name: string; description: string } export type GroupMessage = { speaker: { kind: "user"; name?: string } | { kind: "member"; id: string; name: string }; content: string };
+export interface GroupMember { id: string; name: string; description: string } export interface GroupDescription { name: string; description: string } export type GroupMessage = { id?: string; requestIds?: readonly string[]; recipientIds?: readonly string[]; replyToId?: string; speaker: { kind: "user"; name?: string } | { kind: "member"; id: string; name: string }; content: string };
 export function orderRoundSpeakers<T>(memberIds: readonly T[], round: number): T[] { if (memberIds.length === 0) return []; const offset = (round % memberIds.length + memberIds.length) % memberIds.length; return [...memberIds.slice(offset), ...memberIds.slice(0, offset)]; }
 export function isSameMemberSet(a: readonly string[], b: readonly string[]): boolean { if (a.length !== b.length) return false; const set = new Set(a); return b.every((id) => set.has(id)); }
 export class SandGroupNestingError extends Error { readonly nestedGroupIds: string[]; constructor(ids: readonly string[]) { super(`A group chat can only contain individual agents, not other group chats. Remove the group chat${ids.length === 1 ? "" : "s"} from the member list.`); this.name = "SandGroupNestingError"; this.nestedGroupIds = [...ids]; } }
@@ -76,7 +76,7 @@ export function parseGroupMentions(text: string, members: readonly Pick<GroupMem
 export function resolveMessageResponders<T extends Pick<GroupMember, "id" | "name">>(members: readonly T[], messages: readonly GroupMessage[]): T[] {
   const selected = new Set<string>();
   for (const message of messages) {
-    if (isPassContent(message.content)) continue;
+    if (message.speaker.kind === "member" && isPassContent(message.content)) continue;
     const targets = parseGroupMentions(message.content, members);
     for (const member of members) {
       if (message.speaker.kind === "member" && member.id === message.speaker.id) continue;

@@ -75,6 +75,7 @@ type LiveSession = any;
 export class GroupChatGlue {
   readonly dmPreemptedGroupMemberIds = new Set<string>();
   readonly remoteTurnMemberIdsByRoom = new Map<string, string>();
+  readonly activeMemberRooms = new Map<string, string>();
 
   constructor(readonly tm: TranscriptManagerLike) {}
 
@@ -279,9 +280,8 @@ export class GroupChatGlue {
           lane,
           requestSource,
         ),
-      postMemberMessage: (member, content) => {
-        this.postGroupMemberMessage(session, member, content, streamFor(member));
-      },
+      postMemberMessage: (member, content, context) =>
+        this.postGroupMemberMessage(session, member, content, streamFor(member), context?.replyToId),
       finalizeMemberTurn: (member) =>
         this.finalizeGroupMemberStream(session, streamFor(member)),
       isCurrent: () => this.tm.sendPipeline.currentTurnEpoch(session) === epoch,
@@ -332,7 +332,8 @@ export class GroupChatGlue {
     if (isRemoteAgentId(request.member.id)) {
       return this.runRemoteGroupMemberTurn(roomSession, request.member);
     }
-    if (!this.tm.execution.canExecuteGroupMember) return [];
+    if (!this.tm.execution.canExecuteGroupMember)
+      throw new Error("Group member execution is not available.");
 
     let effective = request;
     if (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null) {
@@ -347,19 +348,13 @@ export class GroupChatGlue {
       };
     }
 
-    let memberSession: LiveSession;
-    try {
-      memberSession = await this.pinMemberSessionForGroupTurn(
-        effective.member.id,
-      );
-    } catch {
-      return [];
-    }
+    let memberSession = await this.pinMemberSessionForGroupTurn(effective.member.id);
     const sent: string[] = [];
     let lastReactionApplied = false;
     let trackActivity = createGroupMemberActivityTracker();
     const transport = {
       onUpdate: (update: any) => {
+        if (!isRoomTurnCurrent()) return; // Late callbacks cannot revive an explicitly stopped conversation.
         this.tm.runLifecycle.applyActivityTransition(
           memberSession.id,
           trackActivity(update),
@@ -402,7 +397,7 @@ export class GroupChatGlue {
           );
           let registeredRunner: any;
           try {
-            if (attempt > 1 && !isRoomTurnCurrent()) return;
+            if (!isRoomTurnCurrent()) return;
             registeredRunner = this.tm.execution.createGroupMemberRunner(
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
@@ -416,6 +411,7 @@ export class GroupChatGlue {
               memberSession.id,
               registeredRunner,
             );
+            this.activeMemberRooms.set(memberSession.id, roomSession.id);
             this.tm.runnerRegistry.wireRunnerLifecycle(
               registeredRunner,
               memberSession,
@@ -441,6 +437,8 @@ export class GroupChatGlue {
               setTurnTraceAttributes(memberTurnTrace, {
                 "sand.outcome": resolveTurnTraceOutcome(memberResult),
               });
+              if (memberResult.aborted || memberResult.quiescedForUpgrade)
+                throw Object.assign(new Error("The member execution was interrupted; verify prior effects."), { code: "execution_uncertain" });
             } catch (error) {
               markTurnTraceError(memberTurnTrace, error);
               throw error;
@@ -449,8 +447,6 @@ export class GroupChatGlue {
                 memberTurnTrace?.span.end();
               } catch {}
             }
-          } catch {
-            // A failed member turn is a pass, not a room-wide failure.
           } finally {
             if (
               this.tm.runnerRegistry.activeGroupMemberRunners.get(
@@ -460,6 +456,7 @@ export class GroupChatGlue {
               this.tm.runnerRegistry.activeGroupMemberRunners.delete(
                 memberSession.id,
               );
+              this.activeMemberRooms.delete(memberSession.id);
             }
             this.tm.runLifecycle.endSessionRun(memberSession);
           }
@@ -493,9 +490,9 @@ export class GroupChatGlue {
     member: GroupMember,
   ): Promise<string[]> {
     const delegate = this.tm.xuserDelegate;
-    if (delegate == null || !delegate.isEnabled()) return [];
+    if (delegate == null || !delegate.isEnabled()) throw new Error("Remote colleague is unavailable.");
     const config = this.tm.sharedRooms.sharedRoomConfigOf(roomSession);
-    if (config?.sharedRoomId == null) return [];
+    if (config?.sharedRoomId == null) throw new Error("Remote room is unavailable.");
     const ids = [
       ...config.memberIds,
       ...(config.remoteMembers ?? []).map(formatRemoteAgentId),
@@ -515,8 +512,6 @@ export class GroupChatGlue {
           -SHARED_ROOM_HISTORY_LIMIT,
         ),
       });
-    } catch {
-      return [];
     } finally {
       this.setRemoteTurnMember(roomSession.id);
     }
@@ -565,35 +560,24 @@ export class GroupChatGlue {
     member: GroupMember,
     content: string,
     live?: GroupMemberStream,
-  ): void {
+    replyToId?: string,
+  ): string {
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive) {
       const previewId = live.sealed.shift();
-      if (previewId != null) {
-        const finalized = updateEntry(previewId, (entry) =>
-          entry.kind === "send-message"
-            ? {
-                kind: "send-message",
-                id: entry.id,
-                message: { type: "text", content },
-                ...(entry.timestampMs == null
-                  ? {}
-                  : { timestampMs: entry.timestampMs }),
-                author,
-              }
-            : entry,
-        );
-        if (finalized != null) {
-          this.tm.roster.emit({ type: "updated", entry: finalized });
-          session.db.appendTranscriptEntry(finalized);
-          this.tm.sessions.markActiveSessionArrival(session);
-          this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(
-            session,
-            finalized,
-          );
-          return;
-        }
+      const preview = previewId && getTranscript().find(entry => entry.id === previewId && entry.kind === "send-message");
+      if (preview) {
+        const finalized: TranscriptEntry = { kind: "send-message", id: preview.id,
+          message: { type: "text", content, ...(replyToId ? { reply_to: replyToId } : {}) },
+          ...(replyToId ? { replyTo: replyToId } : {}),
+          ...(preview.timestampMs == null ? {} : { timestampMs: preview.timestampMs }), author };
+        if (session.db.appendTranscriptEntry(finalized) === false) throw new Error("Group reply could not be saved.");
+        updateEntry(preview.id, () => finalized);
+        this.tm.roster.emit({ type: "updated", entry: finalized });
+        this.tm.sessions.markActiveSessionArrival(session);
+        this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, finalized);
+        return finalized.id;
       }
     }
     const entries = isActive
@@ -602,17 +586,22 @@ export class GroupChatGlue {
     const entry: TranscriptEntry = {
       kind: "send-message",
       id: nextEntryId(entries, "send-message"),
-      message: { type: "text", content },
+      message: { type: "text", content, ...(replyToId ? { reply_to: replyToId } : {}) },
+      ...(replyToId ? { replyTo: replyToId } : {}),
       timestampMs: Date.now(),
       author,
     };
-    if (isActive) this.tm.appendEntry(entry);
-    else {
-      session.db.appendTranscriptEntry(entry);
+    if (session.db.appendTranscriptEntry(entry) === false) throw new Error("Group reply could not be saved.");
+    if (isActive) {
+      appendEntry(entry);
+      this.tm.roster.emit({ type: "appended", entry });
+      this.tm.sessions.markActiveSessionArrival(session);
+    } else {
       this.tm.sessionStore.markSessionActivity(session);
       void this.tm.roster.emitAgentUpdate(session.id);
     }
     this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, entry);
+    return entry.id;
   }
 
   streamGroupMemberUpdate(
@@ -687,19 +676,22 @@ export class GroupChatGlue {
   }
 
   readGroupHistory(session: LiveSession): GroupMessage[] {
-    const entries =
-      this.tm.sessions.activeSession?.id === session.id
-        ? getTranscript()
-        : session.db.getTranscriptEntries();
+    // The durable room is authoritative; a mounted transcript may be windowed or
+    // not yet refreshed during startup. Streaming previews are not new messages.
+    const entries = session.db.getTranscriptEntries();
     const messages: GroupMessage[] = [];
     for (const entry of entries) {
-      if (
+      if (entry.beebotNotice != null) continue;
+      if (entry.kind === "user-attachment" && typeof entry.file_path === "string") {
+        messages.push({ id: entry.id, speaker: { kind: "user" }, content: `User attached a file: ${JSON.stringify(entry.file_name ?? entry.file_path)}` });
+      } else if (
         entry.kind === "message" &&
         entry.role === "user" &&
         String(entry.content ?? "").trim()
       ) {
         const name = (entry.fromUser as any)?.name;
         messages.push({
+          id: entry.id,
           speaker: name == null ? { kind: "user" } : { kind: "user", name },
           content: String(entry.content),
         });
@@ -710,6 +702,7 @@ export class GroupChatGlue {
         entry.streaming !== true
       ) {
         messages.push({
+          id: entry.id,
           speaker: {
             kind: "member",
             id: (entry.author as any).id,
