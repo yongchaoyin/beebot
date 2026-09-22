@@ -31,7 +31,7 @@ jobs:
           def safe(name):
               p=pathlib.PurePosixPath(name)
               assert not p.is_absolute() and '..' not in p.parts
-              assert name in ['README.md','README.zh.md','AGENTS.md','.github/workflows/check.yml'] or name.startswith(('source/','frontend/','scripts/','tests/','docs/'))
+              assert name in ['README.md','README.zh.md','AGENTS.md','.github/workflows/check.yml','branding/beebot-app-icon.svg','deploy/install-node.sh','deploy/node.Dockerfile'] or name.startswith(('source/','frontend/','scripts/','tests/','docs/')),name
           base='253a460e8f1c0c6f735237f3334ebb3c67a517f6'
           assert manifest['base']==base
           parents=['f713067e8773d0e53af661784d04e4a288531fb6','5217957de163d5e6ca23f90582031e2d69945e98','253a460e8f1c0c6f735237f3334ebb3c67a517f6','276ba91f0c1f2496638787a8957e7cee35e0f7d6','7fab604ebbc926150e64964c0d79aeb2d3860acf','ec7384d1246ed45e46c7668ad13b2f49f0078019','c4f38ebc8c72863f761a3a9bcfb30d024a6439d9','ddd0d0f6715b35cca04f126b3ef9a8b7041bef5d']
