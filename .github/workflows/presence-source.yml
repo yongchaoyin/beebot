@@ -1,55 +1,66 @@
-name: presence QA environment
+name: presence candidate validation
 on:
   push:
     branches: [work/presence-source-20260922]
     paths: [.github/workflows/presence-source.yml]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: presence-candidate-publication
+  cancel-in-progress: false
 jobs:
-  linux:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5.0
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Archive locked Linux QA dependencies
-        run: |
-          mkdir -p /tmp/presence-env
-          tar -czf /tmp/presence-env/deps.tar.gz node_modules
-          cp "$(which node)" /tmp/presence-env/node
-          cd /tmp/presence-env && sha256sum deps.tar.gz node > SHA256SUMS
-      - uses: actions/upload-artifact@v4
-        with:
-          name: presence-linux-locked-env
-          path: /tmp/presence-env
-          retention-days: 3
-  renderer:
+  candidate:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: source
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
-          lfs: true
+          path: tooling
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 6ca9d5ecc8ce1f01f376e730909f4b2892c218d1
+          path: source
+          lfs: true
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
-      - run: npm ci --no-audit --no-fund
-      - run: npm run bootstrap
-      - name: Archive checksum-verified renderer for adapter tests
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Apply reviewed hash-locked candidate without helper files
+        run: python3 ../tooling/.presence-candidate/apply.py
+      - name: Install unchanged locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Hydrate checksum-pinned runtime
+        run: npm run bootstrap 2>&1 | tee /tmp/presence-report/bootstrap.log
+      - name: Generate neutral application icon
+        run: npm run icon:generate 2>&1 | tee /tmp/presence-report/icon.log
+      - name: Run full macOS source checks and tests
+        run: npm run check 2>&1 | tee /tmp/presence-report/check.log
+      - name: Build editable frontend
+        run: npm run frontend:build 2>&1 | tee /tmp/presence-report/build.log
+      - name: Verify publication tree
+        run: npm run publication:check 2>&1 | tee /tmp/presence-report/publication.log
+      - name: Recheck exact source and publish new feature branch only
         run: |
-          mkdir -p /tmp/presence-native
-          tar -czf /tmp/presence-native/renderer.tar.gz src/app/dist/renderer
-          shasum -a 256 src/app/dist/renderer/assets/index-UbX-y3il.js > /tmp/presence-native/renderer.sha256
+          set -euo pipefail
+          python3 ../tooling/.presence-candidate/apply.py --verify
+          branch=feat/neutral-presence-avatars-20260922
+          existing=$(git ls-remote --heads origin "refs/heads/$branch")
+          test -z "$existing" || { echo 'Target branch already exists; refusing overwrite'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --stat > /tmp/presence-report/change-stat.txt
+          git commit -m 'feat(ui): neutral Presence theme and live colleague avatars'
+          git rev-parse HEAD > /tmp/presence-report/commit.txt
+          git push origin "HEAD:refs/heads/$branch"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: presence-native-renderer
-          path: /tmp/presence-native
-          retention-days: 3
+          name: presence-candidate-validation
+          path: /tmp/presence-report
+          retention-days: 7
