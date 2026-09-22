@@ -399,6 +399,10 @@ export class TranscriptManager {
     return this.sessionStore.disconnectChannel(agentId, platform);
   }
 
+  stopConversation(agentId: string) {
+    return this.sendPipeline.stopConversation(agentId);
+  }
+
   promptAcceptanceStatus(...args: any[]) {
     return invoke(this.sendPipeline, "promptAcceptanceStatus", args);
   }

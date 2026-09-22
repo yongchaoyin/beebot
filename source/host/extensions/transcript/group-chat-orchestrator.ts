@@ -24,9 +24,16 @@ export interface GroupOrchestratorDeps {
     systemPrompt: string;
     prompt: string;
   }): Promise<readonly string[]>;
-  postMemberMessage(member: GroupMember, content: string): void;
+  postMemberMessage(member: GroupMember, content: string): string | void;
   finalizeMemberTurn?(member: GroupMember): void;
   isSharedRoom?: boolean;
+  inbox?: GroupMessageInbox;
+  onQueued?(message: GroupMessage, members: readonly GroupMember[]): void;
+  onStarted?(member: GroupMember, messages: readonly GroupMessage[]): void;
+  onFinished?(member: GroupMember, messages: readonly GroupMessage[], replied: boolean): void;
+  onCancelled?(member: GroupMember, messages: readonly GroupMessage[]): void;
+  onInterrupted?(member: GroupMember, messages: readonly GroupMessage[]): void;
+  onMemberFailure?(member: GroupMember, error: unknown, messages: readonly GroupMessage[]): void;
 }
 
 /** A safety pause is not a successful delivery or a cancellation of external work. */
@@ -36,6 +43,29 @@ export class GroupChatTurnLimitError extends Error {
     super("Group discussion paused at its turn limit. Review the conversation before continuing; work has not been marked complete.");
     this.name = "GroupChatTurnLimitError";
   }
+}
+
+/** A room accepts messages while members work; arrival never cancels a turn. */
+export class GroupMessageInbox {
+  private pending: GroupMessage[] = [];
+  private signal = Promise.withResolvers<void>();
+  accepting = true;
+  push(message: GroupMessage): boolean {
+    if (!this.accepting) return false;
+    this.pending.push(message);
+    this.signal.resolve();
+    return true;
+  }
+  take(): GroupMessage[] {
+    const messages = this.pending;
+    this.pending = [];
+    this.signal = Promise.withResolvers<void>();
+    return messages;
+  }
+  wait(): Promise<void> {
+    return this.pending.length || !this.accepting ? Promise.resolve() : this.signal.promise;
+  }
+  close(): void { this.accepting = false; this.signal.resolve(); }
 }
 
 interface TurnContext {
@@ -53,7 +83,8 @@ export class GroupChatOrchestrator {
   }): Promise<void> {
     const resolved = await this.deps.resolveMembers(args.memberIds);
     const members = [...new Map(resolved.filter((member) => args.memberIds.includes(member.id)).map((member) => [member.id, member])).values()];
-    if (members.length === 0 || !this.deps.isCurrent()) return;
+    if (members.length === 0) throw new Error("No valid Bot is available in this group.");
+    if (!this.deps.isCurrent()) return;
 
     // All bookkeeping is run-local: a Bot keeps its identity, but another room's
     // messages, observed history and turn budget must never become this room's state.
@@ -69,7 +100,9 @@ export class GroupChatOrchestrator {
 
     const enqueue = (messages: readonly GroupMessage[]) => {
       for (const message of messages) {
-        for (const member of resolveMessageResponders(members, [message])) {
+        const targets = resolveMessageResponders(members, [message]);
+        this.deps.onQueued?.(message, targets);
+        for (const member of targets) {
           const inbox = inboxes.get(member.id) || [];
           inbox.push(message);
           inboxes.set(member.id, inbox);
@@ -84,11 +117,17 @@ export class GroupChatOrchestrator {
       catch (error) { routingFailure = { error }; open = false; }
     };
     const initial = this.deps.readHistory();
-    enqueue(initial.slice(-1));
-    if (initial.length === 0) for (const member of members) inboxes.set(member.id, []);
+    enqueue(this.deps.inbox ? this.deps.inbox.take() : initial.slice(-1));
+    if (!this.deps.inbox && initial.length === 0) for (const member of members) inboxes.set(member.id, []);
 
     try {
-      while ((inboxes.size || active.size) && isCurrent()) {
+      while (isCurrent()) {
+        const incoming = this.deps.inbox?.take() ?? [];
+        if (incoming.some(message => message.speaker.kind === "user")) {
+          // Human follow-ups begin a fresh discussion budget; Bot chatter cannot.
+          turns.clear(); limited.clear(); published.clear();
+        }
+        enqueue(incoming);
         // One immutable view for this dispatch. A later reply must not advance a
         // busy colleague's cursor past messages that arrived during their work.
         const history = [...this.deps.readHistory()];
@@ -98,6 +137,7 @@ export class GroupChatOrchestrator {
           inboxes.delete(member.id);
           if ((turns.get(member.id) || 0) >= GROUP_MAX_MEMBER_TURNS) {
             limited.add(member.id);
+            this.deps.onCancelled?.(member, triggers);
             continue; // Let other already-addressed colleagues finish their work.
           }
           const seen = seenMessages.get(member.id);
@@ -111,16 +151,28 @@ export class GroupChatOrchestrator {
           turns.set(member.id, (turns.get(member.id) || 0) + 1);
           // Preserve failure isolation: one failed member cannot silence peers.
           // The owning runtime retains responsibility for its execution errors.
+          this.deps.onStarted?.(member, triggers);
           const task = this.speak(args.group, member, members, published, onMessage,
             { newMessages, triggers }, isCurrent).then(
-            () => member.id,
-            () => member.id,
+            count => {
+              if (isCurrent()) this.deps.onFinished?.(member, triggers, count > 0);
+              else this.deps.onInterrupted?.(member, triggers);
+              return member.id;
+            },
+            error => {
+              if (isCurrent()) this.deps.onMemberFailure?.(member, error, triggers);
+              else this.deps.onInterrupted?.(member, triggers);
+              return member.id;
+            },
           );
           active.set(member.id, task);
         }
         if (!active.size) break;
-        const finished = await Promise.race(active.values());
-        active.delete(finished);
+        const finished = await Promise.race([
+          ...active.values(),
+          ...(this.deps.inbox ? [this.deps.inbox.wait().then(() => null)] : []),
+        ]);
+        if (finished !== null) active.delete(finished);
       }
       if (routingFailure) throw routingFailure.error;
       if (isCurrent() && limited.size) throw new GroupChatTurnLimitError([...limited]);
@@ -128,6 +180,11 @@ export class GroupChatOrchestrator {
       // A routing error, interruption or safety pause must not leave late room
       // publications behind. Draining does NOT claim to undo external side effects.
       open = false;
+      this.deps.inbox?.close();
+      for (const member of members) {
+        const pending = inboxes.get(member.id);
+        if (pending?.length) this.deps.onCancelled?.(member, pending);
+      }
       await Promise.allSettled(active.values());
     }
   }
@@ -149,9 +206,9 @@ export class GroupChatOrchestrator {
         if (!isCurrent()) break;
         const key = JSON.stringify([member.id, content]);
         if (published.has(key)) continue;
-        this.deps.postMemberMessage(member, content);
+        const id = this.deps.postMemberMessage(member, content);
         published.add(key);
-        onMessage({ speaker: { kind: "member", id: member.id, name: member.name }, content });
+        onMessage({ ...(id ? { id } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content });
         posted += 1;
       }
       return posted;
@@ -204,11 +261,12 @@ export class GroupChatOrchestrator {
 }
 
 function messageKey(message: GroupMessage): string {
-  return JSON.stringify([message.speaker.kind, message.speaker.kind === "member" ? message.speaker.id : null, message.content]);
+  return message.id ? JSON.stringify(["id", message.id]) : JSON.stringify([message.speaker.kind, message.speaker.kind === "member" ? message.speaker.id : null, message.content]);
 }
 
 /**
- * The transcript projection has no message IDs. Finalized streaming previews
+ * Use durable IDs when available. Legacy projections fall back to occurrences.
+ * Finalized streaming previews
  * can appear before already-observed messages, so an array-length cursor loses
  * context. Count each speaker/content occurrence at dispatch time instead.
  * This is run-local observation, NOT a durable delivery acknowledgement.

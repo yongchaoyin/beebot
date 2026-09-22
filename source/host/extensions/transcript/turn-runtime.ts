@@ -1,3 +1,4 @@
+import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
 import { sandDualSurfaceToolTelemetry } from "../../../shared/agents/agent-tool-names.js";
 import { SAND_REACTION_AGENT } from "../../../shared/transcript.js";
@@ -471,6 +472,11 @@ export class TurnRuntime {
             });
           }
         }
+        if (options.messageId && this.tm.sendPipeline.deliveries.has(session.dbPath, options.messageId)) {
+          const state = settledResult.aborted || settledResult.quiescedForUpgrade ? "needs-review" : settledResult.sentMessageCount > 0 ? "replied" : "processed";
+          publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.settle(session.dbPath, options.messageId, session.id, state));
+          if (state === "needs-review" || state === "processed") appendConversationNotice(this.tm, session, state === "needs-review" ? "处理已中断，请核查已发生的操作后继续；未自动重做。 / Work was interrupted. Review prior actions before continuing." : "本次处理没有返回可见答复，消息仍然保留。 / This attempt returned no visible reply. Your message is retained.", options.messageId, state === "needs-review" ? "delivery_interrupted" : "delivery_empty");
+        }
         turn.finalize(
           result.aborted || result.quiescedForUpgrade ? "cancelled" : "success",
         );
@@ -480,6 +486,10 @@ export class TurnRuntime {
         await this.tm.roster.emitAgentUpdate(session.id);
         this.tm.automationRuntime.emitAutomations(session);
       } catch (error) {
+        if (options.messageId && this.tm.sendPipeline.deliveries.has(session.dbPath, options.messageId)) {
+          publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.settle(session.dbPath, options.messageId, session.id, "failed"));
+          appendConversationNotice(this.tm, session, "此次处理失败，消息已保留。请核查已有操作后引用这条消息重试。 / This request failed. Inspect prior actions and reply to this message to retry.", options.messageId, "delivery_failed");
+        }
         console.error(
           `[sand][turn] agent run failed for ${session.id}`,
           error,

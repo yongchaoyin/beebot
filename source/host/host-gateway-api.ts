@@ -214,6 +214,11 @@ export function createHostGatewayApi(
       });
       return { accepted: true };
     },
+    stopConversation: (args: any) => {
+      if (typeof args?.agentId !== "string" || !args.agentId.trim()) throw new Error("A conversation ID is required.");
+      markActive("user_action");
+      return method(manager, "stopConversation")(args.agentId);
+    },
     promptAcceptanceStatus: (args: any) =>
       method(manager, "promptAcceptanceStatus")(args),
     respondToWidget: (args: any) => {

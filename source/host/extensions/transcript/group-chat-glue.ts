@@ -1,3 +1,4 @@
+import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -42,6 +43,7 @@ import {
 } from "../../send-trace-host.js";
 import {
   GroupChatOrchestrator,
+  GroupMessageInbox,
   type GroupOrchestratorDeps,
 } from "./group-chat-orchestrator.js";
 import { describeAgentRunError } from "./agent-run-error.js";
@@ -73,6 +75,26 @@ export function createGroupMemberStream(): GroupMemberStream {
 type LiveSession = any;
 
 export class GroupChatGlue {
+  readonly activeRooms = new Map<string, { epoch: number; inbox: GroupMessageInbox; done: Promise<void> }>();
+
+  enqueueRoomMessage(session: LiveSession, message: GroupMessage, traceCtx?: unknown, lane = "background"): Promise<void> {
+    const active = this.activeRooms.get(session.id);
+    if (active && active.epoch === this.tm.sendPipeline.currentTurnEpoch(session) && active.inbox.push(message)) return active.done;
+    const inbox = new GroupMessageInbox();
+    inbox.push(message);
+    const epoch = this.tm.sendPipeline.nextExecutionEpoch(session);
+    this.tm.runLifecycle.beginSessionRun(session);
+    const done = Promise.resolve().then(() => this.runGroupTurn(session, epoch, traceCtx, lane, inbox));
+    const state = { epoch, inbox, done };
+    this.activeRooms.set(session.id, state);
+    void done.finally(() => {
+      inbox.close();
+      if (this.activeRooms.get(session.id) === state) this.activeRooms.delete(session.id);
+    }).catch(() => {});
+    return done;
+  }
+
+  readonly activeMemberRooms = new Map<string, string>();
   readonly dmPreemptedGroupMemberIds = new Set<string>();
   readonly remoteTurnMemberIdsByRoom = new Map<string, string>();
 
@@ -221,12 +243,13 @@ export class GroupChatGlue {
     epoch: number,
     traceCtx?: unknown,
     lane = "background",
+    inbox?: GroupMessageInbox,
   ): Promise<void> {
     try {
       const config = readSandGroupConfig(dirname(session.dbPath));
-      if (config == null) return;
+      if (config == null) throw new Error("This group is no longer available.");
       const orchestrator = new GroupChatOrchestrator(
-        this.groupOrchestratorDeps(session, epoch, traceCtx, lane),
+        { ...this.groupOrchestratorDeps(session, epoch, traceCtx, lane), ...(inbox ? { inbox } : {}) },
       );
       await orchestrator.run({
         group: this.groupIdentityFor(session),
@@ -237,6 +260,8 @@ export class GroupChatGlue {
       });
       await this.tm.roster.emitAgentUpdate(session.id);
     } catch (error) {
+      for (const record of this.tm.sendPipeline.deliveries.pause(session.dbPath)) publishDelivery(this.tm, session, record);
+      appendConversationNotice(this.tm, session, "本群处理已暂停，尚未完成；已保留消息，请检查后继续。 / Group processing paused without completing. Your messages are retained; review before continuing.", undefined, "group_processing_failed");
       this.tm.trayErrors.pushError({
         agentId: session.id,
         title: "Group chat failed",
@@ -244,6 +269,7 @@ export class GroupChatGlue {
       });
       await this.tm.roster.emitAgentUpdate(session.id);
     } finally {
+      inbox?.close();
       this.tm.runLifecycle.endSessionRun(session);
     }
   }
@@ -265,6 +291,9 @@ export class GroupChatGlue {
     };
     const config = readSandGroupConfig(dirname(session.dbPath));
     const remoteMembers = config?.remoteMembers ?? [];
+    const delivery = (member: GroupMember, messages: readonly GroupMessage[], state: "processing" | "processed" | "replied" | "failed" | "needs-review" | "cancelled") => {
+      for (const message of messages) if (message.id) publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.settle(session.dbPath, message.id, member.id, state));
+    };
     return {
       isSharedRoom: config?.sharedRoomId != null,
       resolveMembers: (ids) => this.resolveGroupMembers(ids, remoteMembers),
@@ -279,8 +308,25 @@ export class GroupChatGlue {
           lane,
           requestSource,
         ),
-      postMemberMessage: (member, content) => {
-        this.postGroupMemberMessage(session, member, content, streamFor(member));
+      postMemberMessage: (member, content) => this.postGroupMemberMessage(session, member, content, streamFor(member)),
+      onQueued: (message, members) => {
+        if (message.id && (members.length || message.speaker.kind === "user")) publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.route(session.dbPath, message.id, members.map(member => member.id)));
+      },
+      onStarted: (member, messages) => delivery(member, messages, "processing"),
+      onFinished: (member, messages, replied) => {
+        delivery(member, messages, replied ? "replied" : "processed");
+        if (!replied) for (const message of messages) {
+          if (message.id && message.speaker.kind === "user" && this.tm.sendPipeline.deliveries.list(session.dbPath).find((record: any) => record.id === message.id)?.state === "processed") {
+            appendConversationNotice(this.tm, session, "成员已结束本次处理，但没有返回可见答复。你可以引用这条消息追问。 / The addressed members finished without a visible reply. Reply to this message to follow up.", message.id, "delivery_empty");
+          }
+        }
+      },
+      onCancelled: (member, messages) => delivery(member, messages, "cancelled"),
+      onInterrupted: (member, messages) => delivery(member, messages, "needs-review"),
+      onMemberFailure: (member, error, messages) => {
+        delivery(member, messages, "failed");
+        appendConversationNotice(this.tm, session, `${member.name}：此次处理失败，消息已保留。请核查已有操作后引用原消息继续。 / This request failed. Review prior actions before continuing.`, messages.find(message => message.id)?.id, "delivery_failed");
+        this.tm.trayErrors.pushError({ agentId: session.id, title: `${member.name} could not respond`, ...describeAgentRunError(error) });
       },
       finalizeMemberTurn: (member) =>
         this.finalizeGroupMemberStream(session, streamFor(member)),
@@ -332,7 +378,7 @@ export class GroupChatGlue {
     if (isRemoteAgentId(request.member.id)) {
       return this.runRemoteGroupMemberTurn(roomSession, request.member);
     }
-    if (!this.tm.execution.canExecuteGroupMember) return [];
+    if (!this.tm.execution.canExecuteGroupMember) throw new Error("Group execution is not available.");
 
     let effective = request;
     if (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null) {
@@ -352,14 +398,15 @@ export class GroupChatGlue {
       memberSession = await this.pinMemberSessionForGroupTurn(
         effective.member.id,
       );
-    } catch {
-      return [];
+    } catch (error) {
+      throw error;
     }
     const sent: string[] = [];
     let lastReactionApplied = false;
     let trackActivity = createGroupMemberActivityTracker();
     const transport = {
       onUpdate: (update: any) => {
+        if (!isRoomTurnCurrent()) return;
         this.tm.runLifecycle.applyActivityTransition(
           memberSession.id,
           trackActivity(update),
@@ -402,7 +449,7 @@ export class GroupChatGlue {
           );
           let registeredRunner: any;
           try {
-            if (attempt > 1 && !isRoomTurnCurrent()) return;
+            if (!isRoomTurnCurrent()) return;
             registeredRunner = this.tm.execution.createGroupMemberRunner(
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
@@ -416,6 +463,7 @@ export class GroupChatGlue {
               memberSession.id,
               registeredRunner,
             );
+            this.activeMemberRooms.set(memberSession.id, roomSession.id);
             this.tm.runnerRegistry.wireRunnerLifecycle(
               registeredRunner,
               memberSession,
@@ -449,8 +497,6 @@ export class GroupChatGlue {
                 memberTurnTrace?.span.end();
               } catch {}
             }
-          } catch {
-            // A failed member turn is a pass, not a room-wide failure.
           } finally {
             if (
               this.tm.runnerRegistry.activeGroupMemberRunners.get(
@@ -460,6 +506,7 @@ export class GroupChatGlue {
               this.tm.runnerRegistry.activeGroupMemberRunners.delete(
                 memberSession.id,
               );
+              this.activeMemberRooms.delete(memberSession.id);
             }
             this.tm.runLifecycle.endSessionRun(memberSession);
           }
@@ -565,7 +612,7 @@ export class GroupChatGlue {
     member: GroupMember,
     content: string,
     live?: GroupMemberStream,
-  ): void {
+  ): string | undefined {
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive) {
@@ -592,7 +639,7 @@ export class GroupChatGlue {
             session,
             finalized,
           );
-          return;
+          return finalized.id;
         }
       }
     }
@@ -613,6 +660,7 @@ export class GroupChatGlue {
       void this.tm.roster.emitAgentUpdate(session.id);
     }
     this.tm.sharedRooms.publishSharedRoomEntryIfNeeded(session, entry);
+    return entry.id;
   }
 
   streamGroupMemberUpdate(
@@ -700,6 +748,8 @@ export class GroupChatGlue {
       ) {
         const name = (entry.fromUser as any)?.name;
         messages.push({
+          id: entry.id,
+          ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           speaker: name == null ? { kind: "user" } : { kind: "user", name },
           content: String(entry.content),
         });
@@ -710,6 +760,8 @@ export class GroupChatGlue {
         entry.streaming !== true
       ) {
         messages.push({
+          id: entry.id,
+          ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           speaker: {
             kind: "member",
             id: (entry.author as any).id,

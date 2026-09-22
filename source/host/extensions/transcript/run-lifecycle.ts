@@ -221,15 +221,15 @@ export class RunLifecycle {
   }
 
   endSessionRun(session: any): void {
-    this.setSessionComposing(session.id, false);
-    this.setSessionRetrying(session.id, false);
-    this.setSessionActivity(session.id, undefined);
-    this.sessionActivityHolds.delete(session.id);
     const remaining = (this.inFlightRunCounts.get(session) ?? 1) - 1;
     if (remaining > 0) {
       this.inFlightRunCounts.set(session, remaining);
       return;
     }
+    this.setSessionComposing(session.id, false);
+    this.setSessionRetrying(session.id, false);
+    this.setSessionActivity(session.id, undefined);
+    this.sessionActivityHolds.delete(session.id);
     this.inFlightRunCounts.delete(session);
     this.recordTurnCompleted(session);
     this.tm.turnRuntime.activeRequestPrompts.delete(session.id);

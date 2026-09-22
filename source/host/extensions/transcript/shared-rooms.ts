@@ -94,22 +94,10 @@ export class SharedRooms {
       message,
       Date.now(),
     );
-    this.tm.groupChat.postGroupMemberMessage(roomSession, member, message);
-    const epoch = this.tm.sendPipeline.nextTurnEpoch(roomSession);
-    this.tm.runLifecycle.beginSessionRun(roomSession);
-    void this.tm.runLifecycle.enqueueExclusiveRun(
-      roomSession.id,
-      () => {
-        this.tm.turnRuntime.activeRequestSources.set(roomSession.id, "agent");
-        return this.tm.groupChat.runGroupTurn(
-          roomSession,
-          epoch,
-          undefined,
-          "agent",
-        );
-      },
-      { lane: "agent", source: "agent" },
-    );
+    const postedMessageId = this.tm.groupChat.postGroupMemberMessage(roomSession, member, message);
+    void this.tm.groupChat.enqueueRoomMessage(roomSession, {
+      id: postedMessageId ?? crypto.randomUUID(), speaker: { kind: "member", id: member.id, name: member.name }, content: message,
+    }, undefined, "agent").catch((error: unknown) => console.error("[sand] group delivery failed", error));
     return `Posted to "${groupName}". Its members will see it and reply on their own turns.`;
   }
 
@@ -647,21 +635,9 @@ export class SharedRooms {
       void this.tm.roster.emitAgentUpdate(session.id);
     }
     this.publishSharedRoomEntryIfNeeded(session, entry);
-    const epoch = this.tm.sendPipeline.nextTurnEpoch(session);
-    this.tm.runLifecycle.beginSessionRun(session);
-    void this.tm.runLifecycle.enqueueExclusiveRun(
-      session.id,
-      () => {
-        this.tm.turnRuntime.activeRequestSources.set(session.id, "agent");
-        return this.tm.groupChat.runGroupTurn(
-          session,
-          epoch,
-          undefined,
-          "agent",
-        );
-      },
-      { lane: "agent", source: "agent" },
-    );
+    void this.tm.groupChat.enqueueRoomMessage(session, {
+      id: entry.id, speaker: { kind: "user", name: args.authorName }, content: text,
+    }, undefined, "agent").catch((error: unknown) => console.error("[sand] shared-room delivery failed", error));
   }
 
   async runRemoteRequestedMemberTurn(args: any): Promise<string[]> {

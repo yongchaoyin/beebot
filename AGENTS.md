@@ -21,6 +21,12 @@ collaboration happens through real Bot-to-Bot messages, discussion and handoffs,
 not a single coordinator impersonating multiple colleagues. Changes to either
 surface must include regression coverage for the other where they share code.
 
+Ordinary chat must remain continuous, with replies, decisions, errors and recovery
+in the conversation. This is NOT a global ban on dialogs: user-initiated New Bot,
+New Group and settings may use centered management dialogs. Do not put creation
+forms into the narrow sidebar just to avoid a modal. Always exercise second and
+third sends while work is running, in both single-Bot and Group conversations.
+
 ## Implementation paths
 
 The shipped renderer uses a pinned upstream baseline plus the adapters in

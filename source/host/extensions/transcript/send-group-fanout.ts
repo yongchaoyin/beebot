@@ -18,7 +18,6 @@ export async function dispatchMirrorOrGroupSend(
     acceptedAtMs,
     traceCtx,
     readAddressedTranscript,
-    nextTurnEpoch,
     markSendAccepted,
   } = args;
   if (tm.groupChat.isRemoteRoomSession(session)) {
@@ -43,13 +42,11 @@ export async function dispatchMirrorOrGroupSend(
     if (userEntry != null)
       tm.xuserDelegate?.publishRoomEntry(sharedRoomId, userEntry);
   }
-  const epoch = nextTurnEpoch(session);
-  tm.runLifecycle.beginSessionRun(session);
-  const done = tm.runLifecycle.enqueueExclusiveRun(
-    session.id,
-    () => tm.groupChat.runGroupTurn(session, epoch, traceCtx, "user"),
-    { lane: "user", source: "group", acceptedAtMs },
-  );
+  const done = tm.groupChat.enqueueRoomMessage(session, {
+    id: userMessageId ?? clientNonce ?? crypto.randomUUID(),
+    speaker: { kind: "user" },
+    content: trimmedPrompt,
+  }, traceCtx, "user");
   markSendAccepted(clientNonce);
   if (awaitTurn) await done;
   else
