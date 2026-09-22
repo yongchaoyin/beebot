@@ -78,3 +78,16 @@ test("a disposed status binding can mount again on the same live runtime",async 
  assert.equal(ui.document.querySelectorAll("#beebot-conversation-status").length,1);
  assert.ok(ui.document.querySelector("[data-bb-delivery]"));
 });
+
+test("work responsibility stays inline and retains disclosure/focus as review state changes",async t=>{
+ const ui=await setup(t),task={id:"handoff",title:"<img src=x onerror=alert(1)>",deliverable:"Code and checks",criteria:["No repeated send"],assigneeId:"b",ownerId:"b",state:"claimed",version:2,contractVersion:1};
+ const source={id:"handoff",kind:"send-message",collaborationEvent:{schemaVersion:1,action:"assign",task:{...task,state:"offered",version:1}}};
+ ui.entries.set({entries:[source,{id:"claim",collaborationEvent:{schemaVersion:1,action:"claim",task}}]});await tick();
+ const details=ui.document.querySelector("[data-bb-work]");assert.ok(details);assert.equal(ui.document.querySelector("img"),null);
+ assert.match(details.textContent,/B · Claimed/);details.open=true;details.firstElementChild.focus();
+ ui.entries.set({entries:[source,{id:"claim",collaborationEvent:{schemaVersion:1,action:"claim",task}},{id:"review",collaborationEvent:{schemaVersion:1,action:"review",task:{...task,state:"reviewed",version:3,review:{kind:"peer"}}}}]});await tick();
+ assert.equal(ui.document.querySelector("[data-bb-work]"),details);assert.equal(details.open,true);
+ assert.equal(ui.document.activeElement,details.firstElementChild);assert.match(details.textContent,/not user acceptance/);
+ assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
+ ui.selected.set({currentAgentId:"other"});await tick();assert.equal(ui.document.querySelector("[data-bb-work]"),null);
+});

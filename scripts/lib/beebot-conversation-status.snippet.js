@@ -28,7 +28,11 @@ function RBindConversationStatus(runtime) {
       #beebot-conversation-status button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
       .bb-conversation-summary{flex:1;min-width:120px}.bb-conversation-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:8px;flex-basis:100%;padding:8px 0;border-top:1px solid var(--cursor-stroke-secondary,#8884)}
       .bb-conversation-confirm>span{flex:1;min-width:180px}.bb-conversation-feedback{flex-basis:100%;overflow-wrap:anywhere}.bb-conversation-feedback:empty{display:none}
-      [data-bb-delivery],[data-bb-publication]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
+      [data-bb-delivery],[data-bb-publication],[data-bb-work]{display:block;width:fit-content;max-width:100%;margin:4px 0 6px;font:11px/1.5 system-ui;color:var(--cursor-text-secondary,GrayText);overflow-wrap:anywhere}
+      [data-bb-work]{display:block;width:100%;margin:6px 0;color:var(--cursor-text-secondary,GrayText);font:12px/1.6 system-ui;overflow-wrap:anywhere}
+      [data-bb-work] summary{cursor:pointer;min-height:28px;padding:3px 0}
+      [data-bb-work] summary:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
+      [data-bb-work] p{margin:4px 0 8px;white-space:pre-wrap;padding:8px 12px;border-inline-start:2px solid var(--cursor-stroke-secondary,#8884)}
       [data-bb-delivery][data-state="failed"],[data-bb-delivery][data-state="needs-review"]{font-weight:550}
     `;document.head.append(style);
   }
@@ -41,7 +45,7 @@ function RBindConversationStatus(runtime) {
     if(current!==id){
       id=current;epoch++;intent=null;pending=false;feedback="";offEntries?.();offEntries=undefined;entryStore=null;
       if(id){entryStore=runtime.transcript.snapshotsFor(id);offEntries=entryStore.subscribe(schedule);}
-      for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication]"))node.remove();
+      for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication],[data-bb-work]"))node.remove();
     }
     const remote=document.body?.dataset.beebotRemoteActive==="true";
     const state=snapshot(),entries=!remote&&id&&Array.isArray(state?.entries)?state.entries:[];
@@ -71,6 +75,26 @@ function RBindConversationStatus(runtime) {
           :t("外部文件链接，未在本机验证。","External file link, not locally verified.")).join("；");
       if(badge.textContent!==value)badge.textContent=value;
       badge.title=files.map(file=>file.sha256||"").filter(Boolean).join("\n");
+    }
+    const workById=new Map();
+    for(const entry of entries)if(entry.collaborationEvent?.schemaVersion===1&&entry.collaborationEvent.action!=="finalize"&&entry.collaborationEvent.task?.id)workById.set(entry.collaborationEvent.task.id,entry.collaborationEvent.task);
+    function validDependencies(task,seen=new Set()){
+      if(seen.has(task.id))return false;const next=new Set(seen).add(task.id);
+      return (task.dependsOn||[]).every(id=>{const parent=workById.get(id);return parent?.state==="reviewed"&&parent.submission?.contractVersion===parent.contractVersion&&(!task.ownerId||task.dependencyVersions?.[id]===parent.contractVersion)&&validDependencies(parent,next);});
+    }
+    const sources=new Map(entries.filter(entry=>entry.collaborationEvent?.action==="assign").map(entry=>[entry.id,entry]));
+    const workLabels={offered:t("待接手","Awaiting claim"),claimed:t("已接手","Claimed"),blocked:t("等待条件满足","Blocked"),submitted:t("等待复核","Awaiting review"),reviewed:t("复核记录已保存","Review recorded"),changes_requested:t("需要修改","Changes requested")};
+    for(const row of document.querySelectorAll("[data-row-key]")){
+      const source=sources.get(row.getAttribute("data-row-key")),task=source&&workById.get(source.id);let detail=row.querySelector(":scope > [data-bb-work]");
+      if(!task||!workLabels[task.state]){detail?.remove();continue;}
+      if(!detail){detail=document.createElement("details");detail.dataset.bbWork=task.id;detail.append(document.createElement("summary"),document.createElement("p"));row.append(detail);}
+      const owner=names.get(task.ownerId??task.assigneeId)||t("待认领","Open assignment");
+      const status=!validDependencies(task)?t("依赖待核查，非完成状态","Dependencies need review, not complete"):task.state==="reviewed"?(task.review?.kind==="self"?t("自检通过，非独立复核","Self-checked, not independent review"):t("同伴复核通过，非用户验收","Peer-reviewed, not user acceptance")):workLabels[task.state];
+      const title=`${owner} · ${status} · ${task.title}`;
+      if(detail.firstElementChild.textContent!==title)detail.firstElementChild.textContent=title;
+      const body=`${t("交付","Deliverable")}: ${task.deliverable}\n${t("验收条件","Acceptance criteria")}:\n${(task.criteria||[]).map((c,i)=>`${i+1}. ${c}`).join("\n")}\n${t("约定版本","Contract version")}: ${task.contractVersion}${task.reason?`\n${task.reason}`:""}`;
+      if(detail.lastElementChild.textContent!==body)detail.lastElementChild.textContent=body;
+      detail.dataset.state=task.state;
     }
     const unresolved=entries.filter(entry=>["queued","processing","needs-review"].includes(entry?.delivery?.state));
     const processing=unresolved.filter(entry=>["queued","processing"].includes(entry.delivery.state)).length;
@@ -108,8 +132,8 @@ function RBindConversationStatus(runtime) {
   window.addEventListener("sand-ui-language-changed",schedule);window.addEventListener("beebot-node-selection",schedule);
   // Virtualization mounts rows independently of data arrival. Child changes only
   // (not attributes/text) prevent our own badge updates from creating a loop.
-  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery],[data-bb-publication]'))))schedule();});
+  const observer=new MutationObserver(records=>{if(records.some(record=>[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&!node.matches?.('[data-bb-delivery],[data-bb-publication],[data-bb-work]'))))schedule();});
   observer.observe(document.body,{subtree:true,childList:true});
-  window.__beebotConversationStatus={runtime,dispose(){disposed=true;if(window.__beebotConversationStatus?.runtime===runtime)delete window.__beebotConversationStatus;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery],[data-bb-publication]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
+  window.__beebotConversationStatus={runtime,dispose(){disposed=true;if(window.__beebotConversationStatus?.runtime===runtime)delete window.__beebotConversationStatus;epoch++;offEntries?.();for(const dispose of disposers)dispose?.();observer.disconnect();toolbar.remove();for(const node of document.querySelectorAll('[data-bb-delivery],[data-bb-publication],[data-bb-work]'))node.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",schedule);}};
   render();
 }

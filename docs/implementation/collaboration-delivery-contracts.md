@@ -91,3 +91,23 @@ evaluation. A new natural-language constraint is not automatically an enforceabl
 contract revision; use explicit Stop for urgent effects. Existing tool/OS approval
 and shared-disk security boundaries remain authoritative. Native application QA,
 real-model acceptance and signing/distribution require separate release checks.
+
+## Inline UI projection
+
+The actual packaged conversation-status adapter displays a collapsed disclosure
+on the ORIGINAL assignment message. It reads only Host-stamped journal data,
+never interpreting a Bot's text as proof of completion. Owner, requirements and
+review type are available inline, with dependency-version warnings. There is no
+new dashboard, dialog, automatic retry or extra permission button. A claim is
+labeled claimed, not running. Peer review is not user acceptance; single-Bot review
+is labeled self-check. Expanded state and keyboard focus survive live updates;
+chat switches and remote conversations clear the local projection.
+
+Chromium/Playwright exercised the actual adapter in an offline component fixture:
+1280/390px, Chinese/English, light/dark, expanding, review update, preserved focus,
+unchanged draft, dependency readiness, conversation switch and remote isolation.
+The outer chat and data were fixtures, not native application or model behavior.
+Localhost navigation was blocked by administrator policy, so already-available
+HTML/source were rendered offline; no browser/network policy was changed. The
+existing Node DOM regression covers hostile titles and disclosure reuse. Browser
+screenshots/logs are outside the repository, not production application assets.
