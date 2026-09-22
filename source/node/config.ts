@@ -64,7 +64,8 @@ export function configureNodeModel(dataDir: string, baseUrl: string, modelId: st
     } else mkdirSync(directory, { mode: 0o700 });
     keyFile = path.join(directory, `${randomUUID()}.key`);
     const config = validateConfig({ ...current, model: { baseUrl, modelId, apiKeyFile: keyFile } });
-    writeFileSync(keyFile, key + "\n", { flag: "wx", mode: 0o600 });
+    // Do not append a byte beyond the validated/readable credential limit.
+    writeFileSync(keyFile, key, { flag: "wx", mode: 0o600 });
     temporary = path.join(dataDir, `.node-${randomUUID()}.json`);
     writeFileSync(temporary, JSON.stringify(config, null, 2) + "\n", { flag: "wx", mode: 0o600 });
     renameSync(temporary, path.join(dataDir, "node.json")); committed = true;

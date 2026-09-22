@@ -76,6 +76,16 @@ test('CLI rejects keys in argv, accepts stdin, and doctor does not leak or claim
   const report = invoke('doctor', dir); assert.equal(report.status, 0, report.stderr);
   assert.equal(JSON.parse(report.stdout).readiness.model, 'configured_not_tested');
   assert.equal(JSON.parse(report.stdout).readiness.executionProbe, 'not_run'); assert.ok(!report.stdout.includes(key));
+  const boundaryKey = 'x'.repeat(16 * 1024);
+  const boundary = invoke('configure-model', dir, [...args, '--api-key-stdin'], boundaryKey);
+  assert.equal(boundary.status, 0, boundary.stderr);
+  assert.equal(statSync(api.loadConfig(dir).model.apiKeyFile).size, 16 * 1024);
+  const boundaryReport = invoke('doctor', dir);
+  assert.equal(boundaryReport.status, 0, boundaryReport.stderr);
+  assert.equal(JSON.parse(boundaryReport.stdout).readiness.model, 'configured_not_tested');
+  const oversized = invoke('configure-model', dir, [...args, '--api-key-stdin'], boundaryKey + 'x');
+  assert.notEqual(oversized.status, 0); assert.ok(!oversized.stderr.includes(boundaryKey));
+  assert.equal(invoke('doctor', dir).status, 0, 'rejected key must not replace valid configuration');
 });
 
 async function port() { const probe = createServer(); await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve)); const value = probe.address().port; await new Promise(resolve => probe.close(resolve)); return value; }
