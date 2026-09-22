@@ -1,0 +1,118 @@
+name: verify conversation stage
+
+on:
+  push:
+    branches: [chore/continuity-verification-workspace-20260922]
+    paths: ['.beebot-stage/**', '.github/workflows/continuity-stage.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Validate the exact reviewed patch before applying it
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage-evidence"
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, pathlib, re
+          root = pathlib.Path('.beebot-stage')
+          request = json.loads((root / 'request.json').read_text())
+          assert re.fullmatch(r'p[012]', request['stage'])
+          assert re.fullmatch(r'[0-9a-f]{40}', request['base'])
+          assert re.fullmatch(r'[0-9a-f]{40}', request['expectedTree'])
+          assert isinstance(request['parts'], int) and 0 < request['parts'] <= 256
+          chunks = []
+          for index in range(request['parts']):
+              path = root / f"{request['stage']}-{index:02d}.b64"
+              raw = path.read_bytes().strip()
+              assert len(raw) <= 4096
+              chunk = base64.b64decode(raw, validate=True)
+              print(path.name, hashlib.sha256(chunk).hexdigest())
+              chunks.append(chunk)
+          packed = b''.join(chunks)
+          assert hashlib.sha256(packed).hexdigest() == request['gzipSha256'], 'compressed patch identity mismatch'
+          patch = gzip.decompress(packed)
+          assert len(patch) < 5_000_000
+          assert hashlib.sha256(patch).hexdigest() == request['patchSha256'], 'patch identity mismatch'
+          dest = pathlib.Path(os.environ['RUNNER_TEMP']) / 'stage-evidence'
+          (dest / 'stage.patch').write_bytes(patch)
+          (dest / 'request.json').write_text(json.dumps(request, indent=2) + '\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f"STAGE={request['stage']}\nBASE={request['base']}\nEXPECTED_TREE={request['expectedTree']}\n")
+          PY
+      - name: Apply to the real parent and create a candidate commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$BASE"
+          git apply --index --check "$RUNNER_TEMP/stage-evidence/stage.patch"
+          git apply --index "$RUNNER_TEMP/stage-evidence/stage.patch"
+          git diff --cached --check
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+          MESSAGE=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/stage-evidence/request.json"))["message"])')
+          git -c user.name='BeeBot stage verification' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "$MESSAGE" -m "Validated stage $STAGE, exact reviewed source tree $EXPECTED_TREE. Native UI interaction and distribution signing are separate acceptance gates."
+          git rev-parse HEAD > "$RUNNER_TEMP/stage-evidence/commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/stage-evidence/tree.txt"
+          git show --stat --oneline HEAD > "$RUNNER_TEMP/stage-evidence/changes.txt"
+      - name: Install locked dependencies and hydrate the pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/stage-evidence/install.txt"
+          npm run bootstrap 2>&1 | tee "$RUNNER_TEMP/stage-evidence/bootstrap.txt"
+      - name: Run complete repository checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check 2>&1 | tee "$RUNNER_TEMP/stage-evidence/check.txt"
+          npm run frontend:build 2>&1 | tee "$RUNNER_TEMP/stage-evidence/frontend-build.txt"
+          npm run publication:check 2>&1 | tee "$RUNNER_TEMP/stage-evidence/publication.txt"
+      - name: Exercise the real clean Host and Shell with deterministic test responses
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run node:test:integration 2>&1 | tee "$RUNNER_TEMP/stage-evidence/host-integration.txt"
+      - name: Publish only the verified candidate branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          git diff --exit-code
+          BRANCH="verification/continuity-${STAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+          unset AUTH GH_TOKEN
+          printf '%s\n' "$BRANCH" > "$RUNNER_TEMP/stage-evidence/branch.txt"
+          printf 'success\n' > "$RUNNER_TEMP/stage-evidence/conclusion.txt"
+      - name: Preserve renderer resources and verification evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage-evidence"
+          if [ -d src/app/dist/renderer ]; then
+            tar -czf "$RUNNER_TEMP/stage-evidence/pinned-renderer.tar.gz" src/app/dist/renderer
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conversation-stage-${{ github.run_id }}
+          path: ${{ runner.temp }}/stage-evidence/
+          retention-days: 2
+          if-no-files-found: error
