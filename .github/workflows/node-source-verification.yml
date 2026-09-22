@@ -16,18 +16,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
-      - name: Install locked packages without running platform install hooks
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Export a Linux-only verification toolchain, not a release
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Export supplemental packages and public SSH test executables
         run: |
-          mkdir verification-tooling
-          cp "$(command -v node)" verification-tooling/node
-          tar --exclude='node_modules/electron' --exclude='node_modules/@jimp' --exclude='node_modules/pdfjs-dist' -czf verification-tooling/dependencies.tar.gz node_modules
+          mkdir -p verification-tooling/bin verification-tooling/lib
+          tar -czf verification-tooling/supplemental.tar.gz node_modules/@jimp node_modules/pdfjs-dist
+          for f in /usr/bin/ssh /usr/bin/ssh-keyscan /usr/bin/ssh-keygen; do
+            cp "$f" verification-tooling/bin/
+            ldd "$f" | awk '/=> \/.* \(/ {print $3}' | while read -r lib; do cp "$lib" verification-tooling/lib/; done
+          done
           cd verification-tooling
-          sha256sum node dependencies.tar.gz > SHA256SUMS
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: node-linux-verification-tooling
+          name: node-linux-supplemental-tools
           path: verification-tooling/
           retention-days: 2
           if-no-files-found: error
