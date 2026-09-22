@@ -1,0 +1,26 @@
+name: Colleague real runtime validation
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/colleague-runtime-validation.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ccb44556ed97a1298492f7005a5518b085f315ab
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Confirm exact source revision
+        run: test "$(git rev-parse HEAD)" = ccb44556ed97a1298492f7005a5518b085f315ab
+      - name: Real Host and Shell, deterministic model, isolated temporary profiles
+        run: npm run node:test:integration
