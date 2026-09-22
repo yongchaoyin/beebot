@@ -1,3 +1,4 @@
+import { publishDelivery } from "./conversation-deliveries.js";
 import { buildComposedOfflineNote } from "./send-message-shaping.js";
 import type {
   TranscriptEntry,
@@ -76,6 +77,8 @@ export async function dispatchUserTurn(
     ackGuard,
   } = args;
   const runner = tm.runnerRegistry.getRunner(session);
+  const controlEpoch = tm.sendPipeline.currentControlEpoch(session);
+  if (userMessageId) publishDelivery(tm, session, tm.sendPipeline.deliveries.route(session.dbPath, userMessageId, [session.id]));
   const recentUserMessages =
     userMessageId == null
       ? undefined
@@ -107,50 +110,30 @@ export async function dispatchUserTurn(
     composeNote.length > 0
       ? `${composeNote}\n${expandedPrompt}`
       : expandedPrompt;
-  const epoch = nextTurnEpoch(session);
-  const carriesRecovery = userMessageId != null && !isFork;
-  if (carriesRecovery && recentUserMessages != null) {
-    latestRecoverySends.set(session.id, {
-      epoch,
-      messageId: userMessageId,
-      recentUserMessages,
-    });
-  } else {
-    recoveryBreakEpochs.set(session.id, epoch);
-  }
-
+  // Normal follow-ups are not an interrupt. The same Bot may have a group
+  // commitment; keep that commitment and queue its private reply independently.
   tm.runLifecycle.beginSessionRun(session);
-  const hadActiveGroupMemberRun =
-    tm.runnerRegistry.activeGroupMemberRunners
-      .get(session.id)
-      ?.interrupt("superseded by a direct user message") ?? false;
-  if (hadActiveGroupMemberRun)
-    tm.groupChat.dmPreemptedGroupMemberIds.add(session.id);
-  const hadActiveOneToOneRun = runner.interrupt(
-    "superseded by a new user message",
-    { carriesRecovery },
-  );
-  if (hadActiveOneToOneRun)
-    tm.backgroundWakes.dmPreemptedWakeAgentIds.add(session.id);
-  const hadActiveRun = hadActiveOneToOneRun || hadActiveGroupMemberRun;
-  tm.telemetry.reportTurnInterrupt({
-    conversationId: session.id,
-    reason: "superseded",
-    hadActiveRun,
-    wasInFlight,
-  });
-  tm.ackObligations.confirmAckObligationAfterInterrupt(
-    session,
-    acceptedAtMs,
-    hadActiveRun,
-  );
   const ackToken = tm.ackObligations.mintAckRunToken(session.id);
   const queueStartEpochMs = Date.now();
   const queueStartPerfMs = performance.now();
   const turnDone = tm.runLifecycle.enqueueExclusiveRun(
     session.id,
-    () =>
-      tm.turnRuntime.runTurn(
+    async () => {
+      let handedToRuntime = false;
+      try {
+      if (tm.sendPipeline.currentControlEpoch(session) !== controlEpoch) {
+        if (userMessageId) publishDelivery(tm, session, tm.sendPipeline.deliveries.settle(session.dbPath, userMessageId, session.id, "cancelled"));
+        return;
+      }
+      if (userMessageId) publishDelivery(tm, session, tm.sendPipeline.deliveries.settle(session.dbPath, userMessageId, session.id, "processing"));
+      // Allocate execution identity only at dequeue, not while another reply is
+      // active. Otherwise a third message makes the second look obsolete.
+      const epoch = nextTurnEpoch(session);
+      if (userMessageId != null && !isFork && recentUserMessages != null) {
+        latestRecoverySends.set(session.id, { epoch, messageId: userMessageId, recentUserMessages });
+      } else recoveryBreakEpochs.set(session.id, epoch);
+      handedToRuntime = true;
+      return await tm.turnRuntime.runTurn(
         session,
         runner,
         promptForRun,
@@ -172,7 +155,14 @@ export async function dispatchUserTurn(
           ackToken,
         },
         epoch,
-      ),
+      );
+      } finally {
+        if (!handedToRuntime) {
+          tm.ackObligations.retireAckRunToken(session.id, ackToken);
+          tm.runLifecycle.endSessionRun(session);
+        }
+      }
+    },
     {
       lane: "user",
       source: "turn",

@@ -1,3 +1,7 @@
+import { workDecisionCurrent } from "./collaboration.js";
+import { dirname } from "node:path";
+import { readSandGroupConfig } from "../../groups/group-store.js";
+import { createHash } from "node:crypto";
 import { errorLogTag } from "../../../shared/errors.js";
 import {
   getMainTranscriptEntries,
@@ -71,14 +75,31 @@ export class WidgetResponses {
     if (trimmedValue.length === 0) return { accepted: false };
     await this.tm.sessions.ensureActionTarget(agentId);
     const targetAgentId = this.tm.sessions.activeSession?.id;
+    if (targetAgentId !== agentId) return {accepted: false};
+    const targetSession = this.tm.sessions.activeSession;
+    const currentEntry = getTranscript().find(entry => entry.id === entryId);
+    if (currentEntry?.kind !== "send-message" || (currentEntry.message as any)?.type !== "widget") return {accepted: false};
+    const widget = (currentEntry.message as any).widget;
+    if (widget?.allowCustom !== true && !widget?.options?.some((option: any) => String(option.value ?? option.label).trim() === trimmedValue)) return {accepted: false};
+    const groupConfig = readSandGroupConfig(dirname(targetSession.dbPath));
+    const authorId = (currentEntry.author as any)?.id;
+    if (groupConfig && (!authorId || !groupConfig.memberIds.includes(authorId))) return {accepted: false};
+    const latestUser = [...getTranscript()].reverse().find(entry => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
+    if (currentEntry.decisionContext && ((currentEntry.decisionContext as any).taskId
+      ? !workDecisionCurrent(targetSession.db.getTranscriptEntries(), currentEntry.decisionContext)
+      : (currentEntry.decisionContext as any).userMessageId !== (latestUser?.id ?? null))) {
+      const stale = (entry: TranscriptEntry): TranscriptEntry => ({...entry, decisionStatus: "stale", widgetDismissed: true});
+      targetSession.db.updateTranscriptEntry(entryId, stale);
+      const updated = updateEntry(entryId, stale);if (updated) this.tm.roster.emit({type: "updated", entry: updated}, agentId);
+      return {accepted: false};
+    }
     if (!this.recordWidgetResponse(entryId, trimmedValue))
       return { accepted: false };
 
-    const widgetEntry = getTranscript().find((entry) => entry.id === entryId);
-    const replyToId =
-      widgetEntry?.kind === "send-message"
-        ? (widgetEntry.replyTo as string | undefined)
-        : undefined;
+    // The answer belongs to this exact question, not the question's parent.
+    // Stable retries reuse the same intent; a changed answer has another digest.
+    const replyToId = entryId;
+    const answerNonce = `widget-answer:${entryId}:${createHash("sha256").update(trimmedValue).digest("hex")}`;
     let modelPrompt = trimmedValue;
     let guardApplied = false;
     try {
@@ -96,7 +117,7 @@ export class WidgetResponses {
             },
           });
         if (applied == null) {
-          this.rollbackWidgetResponse(entryId);
+          this.rollbackWidgetResponse(entryId, targetSession);
           return { accepted: false };
         }
         modelPrompt = applied;
@@ -105,11 +126,12 @@ export class WidgetResponses {
         ...(targetAgentId == null ? {} : { agentId: targetAgentId }),
         ...(replyToId == null ? {} : { replyToId }),
         appendUserMessage: false,
+        clientNonce: answerNonce,
         awaitTurn: false,
       });
     } catch (error) {
       if (guardApplied) return { accepted: true };
-      this.rollbackWidgetResponse(entryId);
+      this.rollbackWidgetResponse(entryId, targetSession);
       throw error;
     }
     return { accepted: true };
@@ -463,28 +485,23 @@ export class WidgetResponses {
     };
     const updated = updateEntry(entryId, withResponse);
     if (didStamp && updated != null) {
+      const saved = this.tm.sessions.activeSession?.db.updateTranscriptEntry(entryId, withResponse);
+      if (saved === false || saved === null) { this.rollbackWidgetResponse(entryId); return false; }
       this.tm.roster.emit({ type: "updated", entry: updated });
-      this.tm.sessions.activeSession?.db.updateTranscriptEntry(
-        entryId,
-        withResponse,
-      );
     }
     return didStamp;
   }
 
-  rollbackWidgetResponse(entryId: string): TranscriptEntry | null {
+  rollbackWidgetResponse(entryId: string, session = this.tm.sessions.activeSession): TranscriptEntry | null {
     const withoutResponse = (entry: TranscriptEntry): TranscriptEntry => {
       if (entry.kind !== "send-message") return entry;
       const { respondedValue: _value, ...rest } = entry;
       return rest as TranscriptEntry;
     };
-    const updated = updateEntry(entryId, withoutResponse);
-    if (updated != null)
-      this.tm.roster.emit({ type: "updated", entry: updated });
-    this.tm.sessions.activeSession?.db.updateTranscriptEntry(
-      entryId,
-      withoutResponse,
-    );
+    const persisted = session?.db.updateTranscriptEntry(entryId, withoutResponse);
+    const updated = session?.id === this.tm.sessions.activeSession?.id ? updateEntry(entryId, withoutResponse) : null;
+    if (updated != null) this.tm.roster.emit({ type: "updated", entry: updated }, session.id);
+    else if (persisted != null) this.tm.roster.emit({type: "updated", entry: persisted}, session?.id);
     return updated;
   }
 

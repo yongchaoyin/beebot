@@ -102,10 +102,11 @@ test("changing a bot vendor does not blank its description", async () => {
 });
 
 test("each bot resolves its own saved vendor account", async () => {
-  const source = await readFile(path.join(repoRoot, "source/host/extensions/inference/provider-session.ts"), "utf8");
+  const source = await readFile(path.join(repoRoot, "source/host/extensions/inference/resolve-inference.ts"), "utf8");
   assert.match(source, /export function resolveInferenceForAgent/);
-  assert.match(source, /profile\?\.inferenceVendorId/);
-  assert.match(source, /httpVendorSession\(provider, vendor\)/);
+  assert.match(source, /inferenceVendorId/);
+  const session = await readFile(path.join(repoRoot, "source/host/extensions/inference/provider-session.ts"), "utf8");
+  assert.match(session, /httpVendorSession\(provider, vendor\)/);
   const summaries = await readFile(path.join(repoRoot, "source/host/extensions/session/session-summaries.ts"), "utf8");
   assert.match(summaries, /inferenceVendorId:orNull\(profile\?\.inferenceVendorId\)/);
 });

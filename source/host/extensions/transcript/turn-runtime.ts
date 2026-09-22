@@ -1,3 +1,7 @@
+import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE } from "./collaboration.js";
+import { appendEntry } from "./transcript-store.js";
+import { describeReplyChain } from "./message-reply-contract.js";
+import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
 import { sandDualSurfaceToolTelemetry } from "../../../shared/agents/agent-tool-names.js";
 import { SAND_REACTION_AGENT } from "../../../shared/transcript.js";
@@ -407,8 +411,8 @@ export class TurnRuntime {
       const trimmed = prompt.trim();
       if (trimmed) this.activeRequestPrompts.set(session.id, trimmed);
       else this.activeRequestPrompts.delete(session.id);
-      if (options.replyContext != null)
-        this.replyThreadTargets.set(session, options.replyContext.targetId);
+      const automaticReplyTarget = options.isFork === true ? options.replyContext?.targetId : options.messageId ?? options.replyContext?.targetId;
+      if (automaticReplyTarget != null) this.replyThreadTargets.set(session, automaticReplyTarget);
       else this.replyThreadTargets.delete(session);
       if (options.isFork === true) this.forkTurnSessions.add(session);
       else this.forkTurnSessions.delete(session);
@@ -423,7 +427,7 @@ export class TurnRuntime {
       try {
         const unansweredPrompts =
           this.tm.widgetResponses.collectUnansweredQuestionPrompts(session);
-        const result = await runner.run(prompt, {
+        const result = await runner.run(prompt + "\n\n" + COLLABORATION_GUIDANCE + collaborationContext(session.db.getTranscriptEntries(), session.id, [options.messageId, options.replyContext?.targetId].filter((id): id is string => typeof id === "string")), {
           ...options,
           ...unansweredPrompts,
           traceCtx: turnCtx,
@@ -471,6 +475,11 @@ export class TurnRuntime {
             });
           }
         }
+        if (options.messageId && this.tm.sendPipeline.deliveries.has(session.dbPath, options.messageId)) {
+          const state = settledResult.aborted || settledResult.quiescedForUpgrade ? "needs-review" : settledResult.sentMessageCount > 0 ? "replied" : "processed";
+          publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.settle(session.dbPath, options.messageId, session.id, state));
+          if (state === "needs-review" || state === "processed") appendConversationNotice(this.tm, session, state === "needs-review" ? "处理已中断，请核查已发生的操作后继续；未自动重做。 / Work was interrupted. Review prior actions before continuing." : "本次处理没有返回可见答复，消息仍然保留。 / This attempt returned no visible reply. Your message is retained.", options.messageId, state === "needs-review" ? "delivery_interrupted" : "delivery_empty");
+        }
         turn.finalize(
           result.aborted || result.quiescedForUpgrade ? "cancelled" : "success",
         );
@@ -480,6 +489,10 @@ export class TurnRuntime {
         await this.tm.roster.emitAgentUpdate(session.id);
         this.tm.automationRuntime.emitAutomations(session);
       } catch (error) {
+        if (options.messageId && this.tm.sendPipeline.deliveries.has(session.dbPath, options.messageId)) {
+          publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.settle(session.dbPath, options.messageId, session.id, "failed"));
+          appendConversationNotice(this.tm, session, "此次处理失败，消息已保留。请核查已有操作后引用这条消息重试。 / This request failed. Inspect prior actions and reply to this message to retry.", options.messageId, "delivery_failed");
+        }
         console.error(
           `[sand][turn] agent run failed for ${session.id}`,
           error,
@@ -619,7 +632,7 @@ export class TurnRuntime {
     const target = entries.find((entry) => entry.id === targetId);
     return target == null
       ? undefined
-      : { targetId, quote: describeRepliedMessageQuote(target) };
+      : { targetId, quote: describeReplyChain(entries, targetId) };
   }
 
   handleAgentUpdate(
@@ -745,6 +758,19 @@ export class TurnRuntime {
           runSession,
           entries,
         ) as SendMessage;
+        if (threaded.collaboration) {
+          if (!runSession || this.tm.sharedRooms.sharedRoomConfigOf(runSession)) throw new Error("Work contracts require a local conversation.");
+          const work = prepareCollaboration({actorRole:this.tm.botRoles?.read(runSession.id) ?? null, messageId: sendId, dbPath: runSession.dbPath, actor: runSession.id, members: [runSession.id], entries: runSession.db.getTranscriptEntries(), message: threaded});
+          if (work.replayId) return work.replayId;
+          const message = work.replyTo && !threaded.reply_to ? {...threaded, reply_to: work.replyTo} : threaded;
+          const entry: TranscriptEntry = {...createSendMessageEntry(sendId, message, update.timestampMs),
+            author: {id: runSession.id, name: this.tm.roster.resolveAgentProfile(runSession).name}, collaborationEvent: work.event, completionEvent: work.completion};
+          if (runSession.db.appendTranscriptEntry(entry) === false) throw new Error("Work update was not saved; no commitment changed.");
+          if (isForActiveAgent) { appendEntry(entry); this.tm.roster.emit({type:"appended",entry}, runSession.id); }
+          this.tm.ackObligations.fulfillAckObligation(runSession.id, update.ackToken);
+          void this.tm.roster.emitAgentUpdate(runSession.id);
+          return sendId;
+        }
         const batchId =
           threaded.type === "attachment" && runSession != null
             ? this.tm.sendPipeline.claimSendAttachmentBatchId(runSession.id)
@@ -762,7 +788,7 @@ export class TurnRuntime {
             ? { ...stamped, branched: true }
             : stamped;
         if (isForActiveAgent || runSession == null) {
-          this.tm.sendPipeline.appendSendMessageEntry(entry);
+          this.tm.sendPipeline.appendSendMessageEntry(entry, { requireDurable: true });
           const activeId = runSession?.id ?? this.tm.sessions.activeSession?.id;
           this.tm.ackObligations.fulfillAckObligation(
             activeId,
@@ -770,7 +796,7 @@ export class TurnRuntime {
           );
           if (activeId != null) void this.tm.roster.emitAgentUpdate(activeId);
         } else {
-          runSession.db.appendTranscriptEntry(entry);
+          if (runSession.db.appendTranscriptEntry(entry) === false) throw new Error("Message could not be saved. Delivery was not confirmed; check its receipt before retrying.");
           this.tm.ackObligations.fulfillAckObligation(
             runSession.id,
             update.ackToken,

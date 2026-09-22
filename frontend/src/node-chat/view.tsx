@@ -37,7 +37,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
   const working = snapshot.runningGoal?.status === "running";
   const online = snapshot.server.status === "online";
   const busy = snapshot.busy || actionBusy;
-  const blocked = busy || snapshot.loading || !online || snapshot.runningGoal != null || snapshot.uncertainGoal != null;
+  const blocked = busy || snapshot.loading || !online || snapshot.runningGoal?.status === "cancelling" || snapshot.uncertainGoal != null;
   const entries = useMemo<TranscriptMessage[]>(() => snapshot.messages.filter((message) => !(message.role === "assistant" && !message.text.trim() && ["queued", "running", "cancelling"].includes(message.status ?? ""))).map((message) => ({
     kind: "message",
     id: message.id,
@@ -81,6 +81,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
 
   const messageFooter = (entry: TranscriptMessage) => {
     const message = messages.get(entry.id);
+    if (message?.role === "user" && ["queued", "running"].includes(message.status || "")) return <div className="beebot-message-footer"><span>{message.status === "queued" ? t("Received — waiting for this Bot", "已接收，等待此 Bot 处理") : t("Being handled", "正在处理")}</span></div>;
     if (message?.role !== "assistant") return null;
     const canAccept = message.status === "review" && message.goalId != null && Number.isInteger(message.version);
     const complete = message.status === "succeeded";
@@ -98,7 +99,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
 
   return <div className="beebot-node-conversation" ref={container}>
     <ConversationAgentHeader
-      agent={{ ...snapshot.bot, isRunning: working, memberIds: [], awaitingUserResponse: null }}
+      agent={{ ...snapshot.bot, isRunning: working, memberIds: [], awaitingUserResponse: null, connectionState: online ? "online" : "offline", workPhase: snapshot.uncertainGoal ? "uncertain" : snapshot.runningGoal?.status === "queued" ? "queued" : undefined }}
       isComputerActive={false}
       isInfoOpen={false}
       onToggleInfo={noOp}
@@ -133,11 +134,16 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
       {actionError || snapshot.error ? <p className="beebot-chat-error" role="alert">{actionError || snapshot.error}</p> : null}
       <ConversationComposer
         acceptedSendGeneration={clearGeneration}
-        disabled={blocked}
+        disabled={false}
+        submitDisabled={blocked}
+        notice={blocked ? t("Draft only — not sent and never sent automatically.", "草稿尚未发送，恢复后也不会自动发送。") : snapshot.runningGoal ? t(
+          "You can keep messaging. New requests wait their turn; they do not change an action already running. Use Stop for an urgent boundary change.",
+          "可以继续发消息，新请求按顺序处理，不会改写正在发生的操作；紧急变更边界请先停止。",
+        ) : null}
         draft={{ prompt: snapshot.draft, attachments: [] }}
         enableAttachments={false}
         enableVoice={false}
-        onChange={(draft) => { if (!blocked) store.setDraft(draft.prompt); }}
+        onChange={(draft) => store.setDraft(draft.prompt)}
         onStageFiles={noOp}
         onSubmit={submit}
         placeholder={t(`Message ${snapshot.bot.name}`, `给 ${snapshot.bot.name} 发消息`)}

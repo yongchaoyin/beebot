@@ -18,7 +18,7 @@ interface ActiveRun {
   generation: number;
   settled: Promise<void>;
   markSettled(): void;
-  phase: "running" | "interrupted";
+  phase: "running" | "waiting";
 }
 interface RunQueue {
   pendingUser: RunTask[];
@@ -288,7 +288,7 @@ export class SandRunScheduler {
   }
   private armWatchdog(agentId: string, queue: RunQueue): void {
     if (
-      this.disposed ||
+      this.disposed || queue.active?.phase === "waiting" ||
       queue.watchdogTimer != null ||
       queue.graceTimer != null
     )
@@ -319,49 +319,16 @@ export class SandRunScheduler {
       this.armWatchdog(agentId, queue);
       return;
     }
-    let interrupted = false;
-    try {
-      interrupted = this.options.interruptWedgedRun(agentId);
-    } catch {}
-    active.phase = "interrupted";
+    // Waiting behind a long tool call is not permission to cancel it. Report
+    // the wait, retain the exclusive lease, and let explicit Stop interrupt.
+    // In particular never release a zombie runner into parallel file writes.
+    active.phase = "waiting";
     this.options.telemetry.onWatchdog({
-      agentId,
-      stage: "trip",
-      activeLane: active.item.lane,
+      agentId, stage: "trip", activeLane: active.item.lane,
       activeSource: active.item.source,
       activeRuntimeMs: this.clock.now() - active.startedAtMs,
       waitingUserAgeMs: this.clock.now() - head.enqueuedAtMs,
-      interrupted,
+      interrupted: false,
     });
-    queue.graceTimer = this.clock.schedule(this.options.watchdogGraceMs, () => {
-      delete queue.graceTimer;
-      this.escapeWedgedRun(agentId, queue, active);
-    });
-  }
-  private escapeWedgedRun(
-    agentId: string,
-    queue: RunQueue,
-    active: ActiveRun,
-  ): void {
-    if (this.disposed || queue.active?.generation !== active.generation) return;
-    const waitingHead = queue.pendingUser[0];
-    this.options.telemetry.onWatchdog({
-      agentId,
-      stage: "escape",
-      activeLane: active.item.lane,
-      activeSource: active.item.source,
-      activeRuntimeMs: this.clock.now() - active.startedAtMs,
-      ...(waitingHead == null
-        ? {}
-        : { waitingUserAgeMs: this.clock.now() - waitingHead.enqueuedAtMs }),
-      ...(active.item.ackToken == null
-        ? {}
-        : { ackToken: active.item.ackToken }),
-    });
-    active.item.resolve();
-    queue.zombies.add(active.settled);
-    void active.settled.then(() => queue.zombies.delete(active.settled));
-    queue.active = null;
-    this.pump(agentId);
   }
 }

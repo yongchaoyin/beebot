@@ -111,7 +111,7 @@ function activityLabel(agent: SidebarAgent): "Needs attention" | "Unread activit
 }
 
 function renderPreviewAvatar(agent: SidebarAgent, avatar: AgentPreviewAvatarProjection): ReactNode {
-  return <AgentAvatar agentId={avatar.agentId} kind={avatar.kind} memberIds={agent.memberIds} dataUrl={avatar.dataUrl} color={avatar.color} shape={avatar.shape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size={avatar.size} />;
+  return <AgentAvatar agentId={avatar.agentId} kind={avatar.kind} memberIds={agent.memberIds} dataUrl={avatar.dataUrl} color={avatar.color} shape={avatar.shape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} waitingReason={agent.waitingReason} size={avatar.size} />;
 }
 
 function renderPreviewStatus({ ariaLabel, marker, presence }: { readonly ariaLabel: string | undefined; readonly marker: string | null; readonly presence: string | null }): ReactNode {
@@ -126,6 +126,7 @@ export function AgentSidebarHeader({ onBroadcast, onNewChat, onOpenNetwork, onOp
     <>
       <header className="sand-agents-sidebar__header">
         <div className={isCollapsed ? "sand-agents-sidebar__rail-new" : "sand-agents-sidebar__new-actions"}>
+          {!isCollapsed ? <span className="bb-wordmark">BeeBot</span> : null}
           {!isCollapsed && hasCollaborationActions ? <>
             <SandIconButton aria-label="Broadcast to agents" className="sand-agents-sidebar__broadcast" icon="megaphone" label="Broadcast to agents" onClick={onBroadcast} size="sm" />
             {onOpenNetwork == null ? null : <SandIconButton aria-label={AGENT_NETWORK_TRIGGER.ariaLabel} className={AGENT_NETWORK_TRIGGER.className} icon={AGENT_NETWORK_TRIGGER.icon} label={AGENT_NETWORK_TRIGGER.ariaLabel} onClick={onOpenNetwork} size="sm" />}
@@ -266,7 +267,7 @@ export function AgentSidebarItem({ agent, active, now, isCollapsed = false, isSe
     type="button"
   >
     <span className="sand-agent-item__avatar">
-      <span aria-hidden="true"><AgentAvatar agentId={agent.id} kind={agent.isSharedRoom === true || agent.raw?.isSharedRoom === true ? "shared-room" : agent.isGroup === true ? "group" : "agent"} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size="md" /></span>
+      <span aria-hidden="true"><AgentAvatar agentId={agent.id} kind={agent.isSharedRoom === true || agent.raw?.isSharedRoom === true ? "shared-room" : agent.isGroup === true ? "group" : "agent"} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} waitingReason={agent.waitingReason} size="md" /></span>
       <SidebarAgentStatusCorner hasUnread={agent.hasUnread} isRunning={agent.isRunning} layout={rowLayout} waitingReason={agent.waitingReason} />
     </span>
     {isCollapsed ? null : <>

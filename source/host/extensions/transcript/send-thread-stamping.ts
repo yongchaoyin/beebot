@@ -1,5 +1,5 @@
+import { requireMessageReference } from "./message-reply-contract.js";
 import {
-  stripReplyTo,
   withReplyTo,
   type SendMessage,
 } from "./send-message-shaping.js";
@@ -21,8 +21,9 @@ export function resolveSendReplyThreading(
   isForkOption: boolean,
   readAddressedTranscript: () => readonly TranscriptEntry[],
 ): { replyToId?: string; replyContext: unknown; isFork: boolean } {
-  const entries = replyToIdOption ? readAddressedTranscript() : [],
-    replyToId = replyToIdOption
+  const entries = replyToIdOption ? readAddressedTranscript() : [];
+  if (replyToIdOption) requireMessageReference(entries, replyToIdOption);
+  const replyToId = replyToIdOption
       ? tm.turnRuntime.resolveReplyTarget(entries, replyToIdOption)
       : undefined,
     replyContext = tm.turnRuntime.buildReplyContext(entries, replyToId);
@@ -37,12 +38,9 @@ export function validateAiReplyTarget<T extends SendMessage>(
   inFlightId: string | undefined,
   entries: readonly TranscriptEntry[],
 ): T {
-  const target = message.reply_to;
-  return target == null || target.length === 0
-    ? message
-    : target === inFlightId || !entries.some((entry) => entry.id === target)
-      ? stripReplyTo(message)
-      : message;
+  if (message.reply_to != null) requireMessageReference(entries, message.reply_to, "reply_to", inFlightId);
+  if (message.work_on != null) requireMessageReference(entries, message.work_on, "work_on", inFlightId);
+  return message;
 }
 export function applyAutoReplyThread<T extends SendMessage>(
   tm: { turnRuntime: { replyThreadTargets: ReadonlyMap<object, string> } },

@@ -1,3 +1,4 @@
+import { localRecordedWorkStatus, publishRecordedWorkStatus } from "./recorded-work-status.js";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -30,8 +31,8 @@ import {
   validateAiReplyTarget,
 } from "./send-thread-stamping.js";
 import { nextEntryId } from "./transcript-entry-ids.js";
-import { getTranscript, removeEntry } from "./transcript-store.js";
-import { sendInputDigest } from "./prompt-acceptance-ledger.js";
+import { getTranscript, removeEntry, updateEntry } from "./transcript-store.js";
+import { sendInputDigest, PromptAcceptanceDigestMismatchError } from "./prompt-acceptance-ledger.js";
 import {
   dispatchUserTurn,
   type RecoverySend,
@@ -44,6 +45,8 @@ import {
   emitAcceptedSendEchoes,
   type SendAcceptanceTraceContext,
 } from "./send-acceptance.js";
+import { ConversationDeliveries, appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
+import { SandSendNotPersistedError } from "./send-not-persisted-error.js";
 import { dispatchMirrorOrGroupSend } from "./send-group-fanout.js";
 
 export interface SendPromptOptions {
@@ -72,11 +75,57 @@ function invariant(condition: unknown, message: string): asserts condition {
 }
 
 export class SendPipeline {
+  readonly deliveries = new ConversationDeliveries();
+  readonly controlEpochs = new Map<string, number>();
+
+  recoverConversation(session: LiveTranscriptSession): void {
+    for (const entry of this.deliveries.recover(session.dbPath)) {
+      publishDelivery(this.tm, session, entry);
+      appendConversationNotice(this.tm, session, "重新打开后发现这条消息的处理尚未确认，请核查已有结果后引用该消息继续；系统没有自动重复执行。 / This message needs review after reopening. Inspect existing results and reply to it to continue; no external work was replayed.", entry.id, "delivery_recovery");
+      this.deliveries.markRecoveryNotified(session.dbPath, entry.id);
+    }
+  }
+
+  hasReviewRequired(dbPath: string): boolean {
+    try { return this.deliveries.list(dbPath).some(entry => entry.state === "needs-review"); }
+    catch { return true; }
+  }
+
+  /** Explicit control only. Receiving a normal message never calls this. */
+  async stopConversation(agentId: string): Promise<{ accepted: true; interrupted: boolean; externalEffectsUndone: false }> {
+    if (!agentId || this.tm.sessions.isAgentGone(agentId)) throw new Error("The conversation is unavailable.");
+    const session = this.tm.sessions.liveSessions.get(agentId) ?? await this.tm.sessions.openSessionOnce(agentId);
+    if (this.tm.groupChat.isRemoteRoomSession(session)) throw new Error("Stopping a remote shared room is not supported by this connection.");
+    this.nextTurnEpoch(session);
+    let interrupted = false;
+    if (this.tm.groupChat.isGroupSession(session)) {
+      this.tm.groupChat.activeRooms.get(agentId)?.inbox.close();
+      for (const [memberId, owner] of this.tm.groupChat.activeMemberRooms) {
+        if (owner !== agentId) continue;
+        const runner = this.tm.runnerRegistry.activeGroupMemberRunners.get(memberId);
+        interrupted = (runner?.interruptAll?.("user stopped this group") ?? runner?.interrupt?.("user stopped this group") ?? false) || interrupted;
+      }
+    } else {
+      const runner = this.tm.runnerRegistry.runners.get(agentId);
+      interrupted = (runner?.interruptAll?.("user stopped this conversation") ?? runner?.interrupt?.("user stopped this conversation") ?? false) || interrupted;
+    }
+    for (const record of this.deliveries.pause(session.dbPath)) publishDelivery(this.tm, session, record);
+    for (const entry of session.db.getTranscriptEntries()) {
+      if (entry.kind !== "send-message" || (entry.message as any)?.type !== "widget" || entry.respondedValue != null) continue;
+      const stale = (current: TranscriptEntry): TranscriptEntry => ({...current, decisionStatus: "stale", widgetDismissed: true});
+      const saved = session.db.updateTranscriptEntry(entry.id, stale);
+      if (saved) { if (this.tm.sessions.activeSession?.id === session.id) updateEntry(entry.id, stale); this.tm.roster.emit({type: "updated", entry: saved}, session.id); }
+    }
+    appendConversationNotice(this.tm, session, "已请求停止本会话的当前工作并撤销待处理请求。已发生的外部操作不会自动撤销，请核查结果后继续。 / Stop requested for this conversation. Pending requests were cancelled; prior external effects are not undone. Review before continuing.", undefined, "conversation_stop_requested");
+    return { accepted: true, interrupted, externalEffectsUndone: false };
+  }
+
   readonly sendAttachmentBatchIds = new Map<string, string>();
   readonly turnEpochs = new Map<string, number>();
   readonly latestRecoverySends = new Map<string, RecoverySend>();
   readonly recoveryBreakEpochs = new Map<string, number>();
   readonly inFlightSends = new Map<string, Promise<void>>();
+  readonly inFlightDigests = new Map<string, string>();
   readonly boxRequests: BoxRequestEntries;
 
   constructor(readonly tm: TranscriptManagerLike) {
@@ -100,13 +149,6 @@ export class SendPipeline {
   async sendPrompt(prompt: string, options: SendPromptOptions): Promise<void> {
     const nonce = options.clientNonce?.length ? options.clientNonce : undefined;
     if (nonce == null) return this.sendPromptOnce(prompt, options);
-    const inFlight = this.inFlightSends.get(nonce);
-    if (inFlight != null) {
-      console.log(
-        "[sand] duplicate send (nonce still in flight) — coalescing onto the running attempt",
-      );
-      return inFlight;
-    }
     const digest = sendInputDigest({
       ...(options.agentId == null ? {} : { agentId: options.agentId }),
       prompt,
@@ -120,6 +162,11 @@ export class SendPipeline {
         ? {}
         : { attachmentNames: options.attachmentNames }),
     });
+    const inFlight = this.inFlightSends.get(nonce);
+    if (inFlight != null) {
+      if (this.inFlightDigests.get(nonce) !== digest) throw new PromptAcceptanceDigestMismatchError(nonce);
+      return inFlight;
+    }
     const admission = this.tm.acceptanceLedger.admitSend({
       accountSlot: HOST_ACCOUNT_SLOT,
       clientNonce: nonce,
@@ -133,6 +180,7 @@ export class SendPipeline {
     }
     const pending = this.sendPromptOnce(prompt, options, { digest });
     this.inFlightSends.set(nonce, pending);
+    this.inFlightDigests.set(nonce, digest);
     try {
       await pending;
     } catch (error) {
@@ -143,6 +191,7 @@ export class SendPipeline {
       throw error;
     } finally {
       this.inFlightSends.delete(nonce);
+      this.inFlightDigests.delete(nonce);
     }
   }
 
@@ -226,12 +275,9 @@ export class SendPipeline {
           wasInFlight,
         });
       session.db.setIntroductionPending(false);
-      const needsRosterRefresh = applySendRosterSideEffects(
-        this.tm,
-        session,
-        trimmedPrompt,
-        readTranscript,
-      );
+      // Keep the pre-send view for first-message naming. Apply roster/decision
+      // side effects only after a durable message and a classified read-only path.
+      const rosterTranscript = [...readTranscript()];
       const threading = resolveSendReplyThreading(
         { turnRuntime: this.tm.turnRuntime },
         options.replyToId,
@@ -318,9 +364,21 @@ export class SendPipeline {
         throw error;
       }
       if (!acceptedDurably) {
-        console.warn(
-          "[sand] send accepted NON-durably (persist dropped on a locked db); the echo still shipped so the send proceeds, but a host crash before the next successful write would lose the entry",
-        );
+        for (const { entry } of echoes) {
+          session.db.deleteTranscriptEntry(entry.id);
+          if (this.tm.sessions.inMemoryTranscriptAgentId === session.id) removeEntry(entry.id);
+        }
+        throw new SandSendNotPersistedError();
+      }
+      if (userMessageId != null && !this.tm.groupChat.isRemoteRoomSession(session)) {
+        try { this.deliveries.queue(session.dbPath, userMessageId); }
+        catch (error) {
+          for (const { entry } of echoes) {
+            session.db.deleteTranscriptEntry(entry.id);
+            if (this.tm.sessions.inMemoryTranscriptAgentId === session.id) removeEntry(entry.id);
+          }
+          throw error;
+        }
       }
       if (options.clientNonce != null && acceptance != null)
         this.tm.acceptanceLedger.recordPending({
@@ -330,8 +388,12 @@ export class SendPipeline {
           agentId: session.id,
           echoEntryId: userMessageId ?? echoes[0]?.entry.id ?? null,
         });
+      const recordedStatus = attachmentPaths.length === 0 && !threading.isFork
+        ? localRecordedWorkStatus(this.tm, session, userMessageId) : undefined;
+      const needsRosterRefresh = applySendRosterSideEffects(this.tm, session, trimmedPrompt,
+        () => rosterTranscript, recordedStatus != null);
       const acceptedAtMs = Date.now();
-      const owesAck =
+      const owesAck = recordedStatus == null &&
         !this.tm.groupChat.isRemoteRoomSession(session) &&
         !this.tm.groupChat.isGroupSession(session);
       if (owesAck)
@@ -382,6 +444,12 @@ export class SendPipeline {
           });
         }
       }
+      if (recordedStatus && userMessageId) {
+        publishRecordedWorkStatus(this.tm, session, userMessageId, recordedStatus);
+        armedAckGuard.disarm();
+        this.markSendAccepted(options.clientNonce);
+        return;
+      }
       const {
         imageAttachmentPaths,
         videoAttachmentPaths,
@@ -401,13 +469,14 @@ export class SendPipeline {
           videoAttachmentPaths,
           fileAttachmentPaths,
           clientNonce: options.clientNonce,
-          userMessageId,
+          userMessageId: userMessageId ?? echoes[0]?.entry.id,
+          replyToId: threading.replyToId,
           awaitTurn,
           acceptedAtMs,
           traceCtx: sendTrace?.context,
           readAddressedTranscript: readTranscript,
           nextTurnEpoch: (target: LiveTranscriptSession) =>
-            this.nextTurnEpoch(target),
+            this.nextExecutionEpoch(target),
           markSendAccepted: (nonce?: string) => this.markSendAccepted(nonce),
         });
         return;
@@ -442,7 +511,7 @@ export class SendPipeline {
         readAddressedTranscript: readTranscript,
         latestRecoverySends: this.latestRecoverySends,
         recoveryBreakEpochs: this.recoveryBreakEpochs,
-        nextTurnEpoch: (target) => this.nextTurnEpoch(target),
+        nextTurnEpoch: (target) => this.nextExecutionEpoch(target),
         markSendAccepted: (nonce) => this.markSendAccepted(nonce),
         ackGuard: armedAckGuard,
       });
@@ -466,7 +535,15 @@ export class SendPipeline {
       });
   }
 
+  /** Explicit controls invalidate accepted-but-not-started work. Ordinary sends do not. */
   nextTurnEpoch(session: { id: string }): number {
+    this.controlEpochs.set(session.id, this.currentControlEpoch(session) + 1);
+    return this.nextExecutionEpoch(session);
+  }
+
+  currentControlEpoch(session: { id: string }): number { return this.controlEpochs.get(session.id) ?? 0; }
+
+  nextExecutionEpoch(session: { id: string }): number {
     const next = (this.turnEpochs.get(session.id) ?? 0) + 1;
     this.turnEpochs.set(session.id, next);
     return next;
@@ -484,9 +561,9 @@ export class SendPipeline {
     return minted;
   }
 
-  appendSendMessageEntry(entry: TranscriptEntry): void {
+  appendSendMessageEntry(entry: TranscriptEntry, options?: { requireDurable?: boolean }): void {
+    this.tm.appendEntry(entry, options);
     this.boxRequests.trackBoxRequestEntry(entry);
-    this.tm.appendEntry(entry);
   }
 
   resolveBoxRequestEntry(

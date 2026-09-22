@@ -61,9 +61,9 @@ function attachmentPreview(attachment: DraftAttachment): TranscriptReplyPreview 
 }
 
 function messagePreview(entry: TranscriptMessage): TranscriptReplyPreview {
-  if (entry.text.length > 0) return { kind: entry.role === "user" ? "user-text" : "assistant-text", text: entry.text };
+  if (entry.text.length > 0) return { kind: entry.role === "user" ? "user-text" : "assistant-text", text: entry.text, author: entry.author, isUser: entry.role === "user", targetId: entry.id };
   const attachment = entry.attachments?.[0];
-  return attachment == null ? { kind: "missing" } : attachmentPreview(attachment);
+  return attachment == null ? { kind: entry.role === "user" ? "user-text" : "assistant-text", text: "", author: entry.author, isUser: entry.role === "user", targetId: entry.id } : { ...attachmentPreview(attachment), author: entry.author, isUser: entry.role === "user", targetId: entry.id };
 }
 
 function previewForEntry(entry: ConversationTranscriptEntry): TranscriptReplyPreview {
@@ -144,7 +144,6 @@ export function createReplyThreadController(options: ReplyThreadControllerOption
         : currentResolution(targetId);
       if (!disposed) {
         options.onNavigate?.(targetId, resolution.isInScope);
-        options.onRestoreFocus?.();
       }
       return resolution;
     },
@@ -158,9 +157,14 @@ export function createReplyThreadController(options: ReplyThreadControllerOption
     },
     projectSubmission(submission) {
       const { replyToId: _replyToId, ...withoutReply } = submission;
-      return selection != null && sameScope(selection.scope, scope) && submission.agentId === scope.agentId
-        ? { ...withoutReply, replyToId: selection.targetId }
-        : withoutReply;
+      if (disposed || scope.accountSlot == null || submission.agentId !== scope.agentId) return withoutReply;
+      if (selection != null && sameScope(selection.scope, scope)) return { ...withoutReply, replyToId: selection.targetId };
+      // A restored, account-scoped composer draft has no live selection yet.
+      // Preserve its explicit identity; the Host validates current-room access.
+      // Silently stripping it would send a different message from the preview.
+      if (_replyToId == null) return withoutReply;
+      if (typeof _replyToId !== "string" || _replyToId.length === 0 || _replyToId.length > 256) throw new Error("Invalid quoted message identity");
+      return { ...withoutReply, replyToId: _replyToId };
     },
     setScope(nextScope) {
       if (disposed || sameScope(scope, nextScope)) return;

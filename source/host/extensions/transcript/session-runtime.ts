@@ -35,6 +35,8 @@ export interface LiveTranscriptSession {
 }
 
 export interface AppendEntryOptions {
+  /** Actual outgoing publications must be durable before becoming visible. */
+  readonly requireDurable?: boolean;
   readonly persistBeforeEmit?: boolean;
   readonly deferEmit?: boolean;
   readonly onPersistOutcome?: (isDurable: boolean) => void;
@@ -113,8 +115,15 @@ export class SessionRuntime {
     entry: TranscriptEntry,
     options?: AppendEntryOptions,
   ): TranscriptEntry {
+    if (options?.requireDurable === true) {
+      const durable = this.activeSession?.db.appendTranscriptEntry(entry) ?? false;
+      try { options.onPersistOutcome?.(Boolean(durable)); } catch {}
+      if (!durable) throw new Error("Message could not be saved. Delivery was not confirmed; check its receipt before retrying.");
+    }
     appendTranscriptEntry(entry);
-    if (options?.persistBeforeEmit === true) {
+    if (options?.requireDurable === true) {
+      if (options.deferEmit !== true) this.tm.roster.emit({ type: "appended", entry });
+    } else if (options?.persistBeforeEmit === true) {
       const isDurable =
         this.activeSession?.db.appendTranscriptEntry(entry) ?? false;
       try {
@@ -399,9 +408,14 @@ export class SessionRuntime {
   openSessionOnce(agentId: string): Promise<LiveTranscriptSession> {
     const pending = this.pendingSessionOpens.get(agentId);
     if (pending != null) return pending;
-    const opened = this.tm.sessionStore.openSession(
-      agentId,
-    ) as Promise<LiveTranscriptSession>;
+    const opened = (this.tm.sessionStore.openSession(agentId) as Promise<LiveTranscriptSession>).then(session => {
+      try { this.tm.sendPipeline.recoverConversation(session); }
+        catch (error) {
+          this.tm.trayErrors.pushError({ agentId, title: "Conversation recovery needs attention", message: "History remains readable. New work will not run until recovery data can be saved." });
+          console.error("[sand] conversation recovery failed; no work replayed", error);
+        }
+      return session;
+    });
     this.pendingSessionOpens.set(agentId, opened);
     void opened.catch(() => {
       if (this.pendingSessionOpens.get(agentId) === opened)

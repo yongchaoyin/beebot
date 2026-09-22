@@ -73,13 +73,121 @@ function RListAgents(){
   return out;
 }
 
-window.__sandPickCreateBot=async function(preset){
-  await RLang(); const copy=RUiCopy(); const previous=document.getElementById("sand-create-bot-sheet");
-  if(previous?.__sandDismiss){if(previous.__sandDismiss()===false)return null}else previous?.remove();
+// User-initiated management uses a centered dialog. Ordinary conversation
+// interactions remain inline; opening management never cancels running work.
+let RCreateRequestSerial=0;
+function RCreateText(cn,en){return window.__sandUiLanguage==="zh"?cn:en;}
+function RCreateError(error){return String(error?.message||error||"")
+  .replace(/(Bearer\s+)\S+/gi,"$1[redacted]")
+  .replace(/((?:access_token|refresh_token|api_key|code|state)=)[^&\s]+/gi,"$1[redacted]").slice(0,400);}
+function REnsureInlineCreateStyle(){
+  if(document.getElementById("beebot-inline-create-style"))return;
+  const style=document.createElement("style");style.id="beebot-inline-create-style";
+  style.textContent=`
+    .bb-create-layer{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:rgb(0 0 0 / .24);-webkit-app-region:no-drag}
+    .bb-inline-create{position:relative;min-height:0;min-width:0;width:min(620px,100%);max-height:calc(100dvh - 48px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;margin:0;padding:24px;box-shadow:0 20px 64px rgb(0 0 0 / .18);border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;background:var(--cursor-bg-primary,Canvas);color:var(--cursor-text-primary,CanvasText);font:13px/1.5 system-ui,-apple-system,sans-serif;scrollbar-gutter:stable;-webkit-app-region:no-drag}
+    .bb-inline-create *{box-sizing:border-box}
+    .bb-inline-create [hidden]{display:none!important}
+    .bb-inline-create :is(input,textarea,select){width:100%;min-width:0;max-width:100%;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);color:inherit;padding:9px 10px;font:inherit;min-height:38px}
+    .bb-inline-create button{font:inherit;color:inherit;cursor:pointer;-webkit-app-region:no-drag}
+    .bb-inline-create :is(button,input,select,textarea,summary):focus-visible,#sand-plus-menu button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
+    .bb-inline-create button:disabled{cursor:default;opacity:.5}
+    .bb-create-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+    .bb-create-head h2{font:600 19px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
+    .bb-create-close{border:0;border-radius:6px;background:transparent;min-width:32px;min-height:32px;font-size:20px!important}
+    .bb-create-subtitle,.bb-create-help{font-size:12px;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px;overflow-wrap:anywhere}
+    .bb-create-field{display:grid;gap:6px;margin-bottom:12px}
+    .bb-create-field label{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
+    .bb-create-members{display:grid;gap:4px;min-height:104px;max-height:288px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
+    .bb-create-member{display:flex;align-items:center;gap:8px;min-height:40px;width:100%;border:1px solid transparent;border-radius:8px;background:transparent;text-align:start;padding:6px 8px;overflow-wrap:anywhere}
+    .bb-create-member[aria-pressed=true]{border-color:var(--cursor-stroke-secondary,#8884);background:var(--cursor-bg-secondary,Canvas)}
+    .bb-create-member[aria-pressed=true]::after{content:'✓';margin-inline-start:auto;flex:none}
+    .bb-create-member svg{flex:none}
+    .bb-create-member:hover,.bb-create-close:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
+    .bb-create-selected{display:flex;align-content:start;flex-wrap:wrap;gap:6px;margin:8px 0}
+    .bb-create-selected button{padding:5px 8px;min-height:30px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:6px;background:transparent;max-width:100%;overflow-wrap:anywhere}
+    .bb-create-submit{width:100%;min-height:38px;border:0;border-radius:8px;padding:9px 12px;background:var(--cursor-text-primary,CanvasText)!important;color:var(--cursor-bg-primary,Canvas)!important;font-weight:600;margin-top:8px}
+    .bb-create-status{font-size:12px;color:var(--cursor-text-red-primary,#ba3544);white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0}
+    .bb-create-status:empty{display:none}
+    .bb-create-appearance{width:100%;margin:0 0 12px}
+    .bb-create-appearance summary{display:flex;gap:8px;align-items:center;cursor:pointer;min-height:38px;font-size:12px;color:var(--cursor-text-secondary,GrayText)}
+    .bb-create-appearance summary::after{content:'⌄';margin-inline-start:auto}
+    .bb-create-appearance[open] summary::after{content:'⌃'}
+    .bb-create-appearance summary::-webkit-details-marker{display:none}
+    #sand-create-bot-sheet{width:min(480px,100%)}
+    .bb-create-colleagues{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(150px,1fr);gap:20px;margin:4px 0 12px}
+    .bb-create-colleagues>section{min-width:0}
+    .bb-create-selection{padding-left:20px;border-left:1px solid var(--cursor-stroke-secondary,#8884)}
+    .bb-create-selection h3{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px}
+    .bb-create-selection .bb-create-selected{margin:0;display:grid;gap:8px}
+    .bb-create-selection .bb-create-selected button{text-align:start;min-height:36px}
+    .bb-create-selection:has(.bb-create-selected:empty)::after{content:attr(data-empty-label);font-size:12px;line-height:1.6;color:var(--cursor-text-secondary,GrayText)}
+    @media(max-width:520px){.bb-create-layer{padding:12px}.bb-inline-create{padding:18px;max-height:calc(100dvh - 24px)}.bb-create-colleagues{grid-template-columns:1fr;gap:12px}.bb-create-selection{border-left:0;border-top:1px solid var(--cursor-stroke-secondary,#8884);padding:12px 0 0}.bb-create-selection .bb-create-selected{display:flex}.bb-create-members{max-height:200px}}
+    #sand-plus-menu{position:static;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px;padding:0;font:12px/1.5 system-ui;color:var(--cursor-text-primary,CanvasText);background:transparent}
+    #sand-plus-menu button{min-height:36px;min-width:0;padding:7px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;color:inherit;background:var(--cursor-bg-primary,Canvas);font:inherit;cursor:pointer;overflow-wrap:anywhere;-webkit-app-region:no-drag}
+    #sand-plus-menu button:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
+    @media(prefers-reduced-motion:reduce){.bb-inline-create *,#sand-plus-menu *{scroll-behavior:auto;transition:none}}
+    @media(forced-colors:active){.bb-inline-create button{border:1px solid ButtonText}.bb-create-submit{background:ButtonFace!important;color:ButtonText!important}}
+  `;document.head.append(style);
+}
+function RInsertSidebarSection(section){
+  const sidebar=document.querySelector(".sand-agents-sidebar");
+  const plus=sidebar?.querySelector(".sand-agents-sidebar__new");
+  if(sidebar){
+    let anchor=plus;
+    while(anchor?.parentElement&&anchor.parentElement!==sidebar)anchor=anchor.parentElement;
+    if(anchor?.parentElement===sidebar)anchor.insertAdjacentElement("afterend",section);else sidebar.prepend(section);
+  }else{
+    // Empty/legacy shells still get an ordinary document section, never a scrim.
+    const header=document.querySelector(".sand-chat-header");
+    if(header)header.insertAdjacentElement("afterend",section);else document.body.prepend(section);
+  }
+}
+function RMountInlineCreate(root,label){
+  for(const id of ["sand-create-bot-sheet","sand-create-group-sheet"]){
+    const previous=document.getElementById(id);
+    if(previous&&previous!==root){
+      if(previous.__sandDismiss?.()===false)return false;
+      if(previous.isConnected)RCloseInlineCreate(previous,false);
+    }
+  }
+  const trigger=document.activeElement;
+  document.getElementById("sand-plus-menu")?.__sandDismiss?.();
+  REnsureInlineCreateStyle();root.classList.add("bb-inline-create");
+  root.setAttribute("role","dialog");root.setAttribute("aria-modal","true");root.setAttribute("aria-label",label);root.tabIndex=-1;
+  const layer=document.createElement("div");layer.className="bb-create-layer";
+  layer.append(root);root.__sandCreateLayer=layer;root.__sandCreateTrigger=trigger;
+  // Deliberate close only: a background click must not lose a half-composed form.
+  layer.addEventListener("mousedown",event=>{if(event.target===layer){event.preventDefault();root.focus({preventScroll:true});}});
+  root.addEventListener("keydown",event=>{
+    if(event.isComposing||event.keyCode===229)return;
+    if(event.key==="Escape"){
+      event.preventDefault();event.stopPropagation();root.__sandDismiss?.();return;
+    }
+    if(event.key!=="Tab")return;
+    const fields=[...root.querySelectorAll('button,input,textarea,select,summary,[tabindex="0"]')].filter(el=>!el.disabled&&!el.closest("[hidden]")&&!(el.closest("details:not([open])")&&!el.matches("summary")));
+    const first=fields[0],last=fields.at(-1);
+    if(!first){event.preventDefault();root.focus();return;}
+    if(event.shiftKey&&(document.activeElement===first||document.activeElement===root)){event.preventDefault();last.focus();}
+    else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===root)){event.preventDefault();first.focus();}
+  });
+  document.body.append(layer);return true;
+}
+function RCloseInlineCreate(root,restoreFocus){
+  const hadFocus=root.contains(document.activeElement),trigger=root.__sandCreateTrigger;
+  root.__sandCreateLayer?.remove();root.remove();
+  if(restoreFocus&&hadFocus)(trigger?.isConnected?trigger:document.querySelector(".sand-agents-sidebar__new"))?.focus({preventScroll:true});
+}
+
+window.__sandPickCreateBot=async function(preset,{onCreate}={}){
+  const request=++RCreateRequestSerial;await RLang();if(request!==RCreateRequestSerial)return null;const copy=RUiCopy();
   return new Promise(resolve=>{
   const root=document.createElement("div"); root.id="sand-create-bot-sheet";
-  const left=RSidebarLeft();
-  root.style.cssText="position:fixed;top:0;right:0;bottom:0;left:"+left+"px;z-index:99990;background:#fff;display:flex;flex-direction:column;align-items:center;padding:28px 24px;font-family:system-ui,-apple-system,sans-serif;color:#111;overflow:auto";
+  root.style.cssText="display:flex;flex-direction:column;align-items:stretch";
+  let appearanceOpen=false,roleDetailsOpen=false,roleForm,composingField=false,repaintAfterComposition=false;
+  root.addEventListener("compositionstart",()=>{composingField=true;});
+  root.addEventListener("compositionend",()=>{composingField=false;if(repaintAfterComposition){repaintAfterComposition=false;paint();}});
+  let role=preset?.role||{primaryJob:"",responsibilities:[],outOfScope:[],deliverables:[],workingStyle:""};
   let color=R_COLORS.some(c=>c.id===preset?.avatarColor)?preset.avatarColor:"green";
   let shape=R_SHAPES.includes(preset?.avatarShape)?preset.avatarShape:"blob";
   let name=typeof preset?.name==="string"?preset.name:"";
@@ -88,14 +196,15 @@ window.__sandPickCreateBot=async function(preset){
   let servers=[],busy=false,alive=true,refreshSerial=0,unsubscribe;
   const operationKeys=new Map();
   let vendors=[]; let vendorId=typeof preset?.inferenceVendorId==="string"?preset.inferenceVendorId:"";
-  const finish=v=>{if(!alive)return;alive=false;refreshSerial++;unsubscribe?.();root.remove();resolve(v)};
+  const finish=(v,restoreFocus=v===null)=>{if(!alive)return;alive=false;roleForm?.dispose();refreshSerial++;unsubscribe?.();window.removeEventListener("sand-ui-language-changed",localizeBot);RCloseInlineCreate(root,restoreFocus);resolve(v)};
   root.__sandDismiss=()=>{if(busy)return false;finish(null);return true};
-  const status=document.createElement("div");status.setAttribute("role","status");status.style.cssText="width:min(420px,100%);font-size:13px;color:#b3261e;white-space:pre-wrap;margin-top:12px";
-  const setError=error=>{status.textContent=error?String(error.message||error):""};
+  const status=document.createElement("div");status.setAttribute("role","status");status.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-red-primary,#ba3544);white-space:pre-wrap;margin-top:12px";
+  const setError=error=>{status.textContent=error?RCreateError(error):""};
   let deployment,submit,input,responsibilities,close,vendorSelect;
   const online=()=>servers.some(server=>server.id===deploymentServerId&&server.status==="online");
   const updateReady=()=>{
     if(!submit)return;
+    if(busy&&root.contains(document.activeElement))root.focus({preventScroll:true});
     submit.disabled=busy||!!deploymentServerId&&!online();submit.textContent=busy?copy.creating:copy.start;submit.style.opacity=submit.disabled?".5":"1";
     for(const field of root.querySelectorAll("input,textarea,select,button"))field.disabled=busy;
     submit.disabled=busy||!!deploymentServerId&&!online();
@@ -114,36 +223,49 @@ window.__sandPickCreateBot=async function(preset){
     catch(error){if(!alive||serial!==refreshSerial)return;servers=[];renderServers();if(deploymentServerId)setError(error)}
   };
   const paint=()=>{
+    if(composingField){repaintAfterComposition=true;return;}
     const hex=R_COLORS.find(c=>c.id===color)?.hex||"#00C972";
+    const active=document.activeElement;
+    const focused=root.contains(active)?{key:active.dataset.createField,label:active.getAttribute("aria-label"),title:active.getAttribute("title"),start:active.selectionStart,end:active.selectionEnd}:null;
+    appearanceOpen=root.querySelector(".bb-create-appearance")?.open??appearanceOpen;
+    if(roleForm){role=roleForm.read();roleDetailsOpen=roleForm.details.open;roleForm.dispose();roleForm=null;}
     root.innerHTML="";
     const bar=document.createElement("div"); bar.style.cssText="width:min(420px,100%);display:flex;align-items:center;gap:12px;margin-bottom:20px";
-    close=document.createElement("button"); close.type="button"; close.textContent="×";close.setAttribute("aria-label",copy.close); close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:#f2f2f0;font-size:22px;cursor:pointer"; close.onclick=()=>{if(!busy)finish(null)};
+    close=document.createElement("button"); close.type="button";close.dataset.createField="close"; close.textContent="×";close.setAttribute("aria-label",copy.close); close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:var(--cursor-bg-secondary,Canvas);font-size:22px;cursor:pointer"; close.onclick=()=>{if(!busy)finish(null)};
     const title=document.createElement("div"); title.textContent=copy.title; title.style.cssText="font-size:18px;font-weight:600";
     bar.append(close,title);
-    const preview=document.createElement("div"); preview.style.cssText="width:120px;height:120px;margin:12px 0 24px"; preview.append(RBotSvg(shape,color,120));
+    const preview=document.createElement("div"); preview.style.cssText="width:32px;height:32px;margin:0"; preview.append(RBotSvg(shape,color,32));
     const colors=document.createElement("div"); colors.style.cssText="width:min(420px,100%);display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:12px";
-    for(const item of R_COLORS){const b=document.createElement("button"); b.type="button";b.setAttribute("aria-label",item.id); b.style.cssText="width:26px;height:26px;border-radius:13px;border:"+(item.id===color?"2px solid #111":"2px solid transparent")+";background:"+item.hex+";cursor:pointer"; b.onclick=()=>{if(!busy){color=item.id;paint()}}; colors.append(b)}
+    for(const item of R_COLORS){const b=document.createElement("button"); b.type="button";b.setAttribute("aria-label",item.id); b.style.cssText="width:26px;height:26px;border-radius:13px;border:"+(item.id===color?"2px solid var(--cursor-text-primary,CanvasText)":"2px solid transparent")+";background:"+item.hex+";cursor:pointer"; b.onclick=()=>{if(!busy){color=item.id;paint()}}; colors.append(b)}
     const shapes=document.createElement("div"); shapes.style.cssText="width:min(420px,100%);display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:20px";
-    for(const item of R_SHAPES){const b=document.createElement("button"); b.type="button"; b.title=item; b.style.cssText="width:36px;height:36px;border:0;padding:0;background:transparent;cursor:pointer;border-radius:8px;outline:"+(item===shape?"2px solid #111":"none")+";outline-offset:2px"; b.append(RBotSvg(item,item===shape?color:"gray",32)); b.onclick=()=>{if(!busy){shape=item;paint()}}; shapes.append(b)}
-    const deploymentLabel=document.createElement("label");deploymentLabel.textContent=copy.deployment;deploymentLabel.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin-bottom:6px";
-    deployment=document.createElement("select");deployment.setAttribute("aria-label",copy.deployment);deployment.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:12px";
+    for(const item of R_SHAPES){const b=document.createElement("button"); b.type="button"; b.title=item; b.style.cssText="width:36px;height:36px;border:0;padding:0;background:transparent;cursor:pointer;border-radius:8px;outline:"+(item===shape?"2px solid var(--cursor-text-primary,CanvasText)":"none")+";outline-offset:2px"; b.append(RBotSvg(item,item===shape?color:"gray",32)); b.onclick=()=>{if(!busy){shape=item;paint()}}; shapes.append(b)}
+    const deploymentLabel=document.createElement("label");deploymentLabel.textContent=copy.deployment;deploymentLabel.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-secondary,GrayText);margin-bottom:6px";
+    deployment=document.createElement("select");deployment.dataset.createField="deployment";deployment.setAttribute("aria-label",copy.deployment);deployment.style.cssText="width:min(420px,100%);height:38px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);padding:0 10px;font-size:13px;color:var(--cursor-text-primary,CanvasText);margin-bottom:12px";
     deployment.onchange=()=>{if(!busy){deploymentServerId=deployment.value;setError(null);paint();if(deploymentServerId&&!online())setError(copy.unavailable)}};
-    const label=document.createElement("label"); label.textContent=copy.nameLabel; label.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin-bottom:6px";
-    input=document.createElement("input"); input.type="text";input.maxLength=100;input.setAttribute("aria-label",copy.nameLabel); input.placeholder=copy.ph; input.value=name; input.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:12px";
+    const label=document.createElement("label"); label.textContent=copy.nameLabel; label.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-secondary,GrayText);margin-bottom:6px";
+    input=document.createElement("input");input.dataset.createField="name"; input.type="text";input.maxLength=100;input.setAttribute("aria-label",copy.nameLabel); input.placeholder=copy.ph; input.value=name; input.style.cssText="width:min(420px,100%);height:38px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);padding:0 10px;font-size:13px;color:var(--cursor-text-primary,CanvasText);margin-bottom:12px";
     input.oninput=()=>{name=input.value};
-    const vendorLabel=document.createElement("label"); vendorLabel.textContent=copy.vendor; vendorLabel.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin:8px 0 6px";
-    vendorSelect=document.createElement("select");vendorSelect.setAttribute("aria-label",copy.vendor); vendorSelect.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:12px;background:#f4f4f2;padding:0 14px;font-size:15px;margin-bottom:20px;appearance:none;-webkit-appearance:none;box-sizing:border-box";
+    const vendorLabel=document.createElement("label"); vendorLabel.textContent=copy.vendor; vendorLabel.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-secondary,GrayText);margin:8px 0 6px";
+    vendorSelect=document.createElement("select");vendorSelect.dataset.createField="vendor";vendorSelect.setAttribute("aria-label",copy.vendor); vendorSelect.style.cssText="width:min(420px,100%);height:38px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;background:var(--cursor-bg-input,Canvas);padding:0 10px;font-size:13px;color:var(--cursor-text-primary,CanvasText);margin-bottom:20px;appearance:none;-webkit-appearance:none;box-sizing:border-box";
     if(vendors.length===0){const opt=document.createElement("option"); opt.textContent=copy.vendor; opt.value=""; vendorSelect.append(opt)}
     for(const item of vendors){const opt=document.createElement("option"); opt.value=item.id; opt.textContent=item.label+(item.modelId?" · "+item.modelId:""); if(item.id===vendorId) opt.selected=true; vendorSelect.append(opt)}
     vendorSelect.onchange=()=>{vendorId=vendorSelect.value};
     const descriptionLabel=document.createElement("label");descriptionLabel.textContent=copy.responsibilities;descriptionLabel.style.cssText=vendorLabel.style.cssText;
-    responsibilities=document.createElement("textarea");responsibilities.value=description;responsibilities.maxLength=8000;responsibilities.setAttribute("aria-label",copy.responsibilities);responsibilities.style.cssText="width:min(420px,100%);min-height:80px;border:0;border-radius:12px;background:#f4f4f2;padding:12px 14px;font:15px system-ui;margin-bottom:12px;box-sizing:border-box;resize:vertical";responsibilities.oninput=()=>{description=responsibilities.value};
-    const hint=document.createElement("p");hint.textContent=copy.serverHint;hint.style.cssText="width:min(420px,100%);font-size:13px;color:#666;margin:0 0 16px";
+    responsibilities=document.createElement("textarea");responsibilities.dataset.createField="responsibilities";responsibilities.value=description;responsibilities.maxLength=8000;responsibilities.setAttribute("aria-label",copy.responsibilities);responsibilities.style.cssText="width:min(420px,100%);min-height:80px;border:0;border-radius:12px;background:var(--cursor-bg-input,Canvas);padding:12px 14px;font:15px system-ui;margin-bottom:12px;box-sizing:border-box;resize:vertical";responsibilities.oninput=()=>{description=responsibilities.value};
+    const hint=document.createElement("p");hint.textContent=copy.serverHint;hint.style.cssText="width:min(420px,100%);font-size:13px;color:var(--cursor-text-secondary,GrayText);margin:0 0 16px";
     submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.start; submit.style.cssText="width:min(420px,100%);height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+hex+";cursor:pointer";
     submit.onclick=async()=>{
       if(busy||!alive)return;
       const draft={name:name.trim()||copy.ph,avatarColor:color,avatarShape:shape,inferenceVendorId:vendorId||vendorSelect.value,isKickstartRequested:!0,deploymentServerId:""};
-      if(!deploymentServerId){finish(draft);return}
+      if(!deploymentServerId){
+        if(!roleForm){setError(RCreateText("此版本未加载岗位编辑器，请更新客户端。","The role editor is unavailable in this build. Update the client."));return;}
+        const error=roleForm.validate();if(error){status.textContent=error;return;}
+        draft.role=roleForm.read();
+        if(typeof onCreate!=="function"){finish(draft);return;}
+        busy=true;setError(null);updateReady();
+        try{await onCreate(draft);finish(null,false);}catch(error){if(alive)setError(error);}finally{busy=false;if(alive)updateReady();}
+        return;
+      }
       if(!online()){setError(copy.unavailable);return}
       const remote={deploymentServerId,name:draft.name,description,avatarColor:color,avatarShape:shape};
       const signature=JSON.stringify(remote);if(!operationKeys.has(signature))operationKeys.set(signature,crypto.randomUUID());
@@ -151,68 +273,150 @@ window.__sandPickCreateBot=async function(preset){
       try{
         if(typeof window.__sandCreateAgent!=="function")throw new Error(copy.missing);
         await window.__sandCreateAgent({...remote,key:operationKeys.get(signature)});
-        finish(null);
+        finish(null,false);
       }catch(error){if(alive)setError(error)}finally{busy=false;if(alive)updateReady()}
     };
-    input.addEventListener("keydown",ev=>{if(ev.key==="Enter")submit.click()});
-    root.append(bar,preview,colors,shapes,deploymentLabel,deployment,label,input);
-    if(deploymentServerId)root.append(descriptionLabel,responsibilities,hint);else root.append(vendorLabel,vendorSelect);
-    root.append(submit,status);renderServers();input.focus();
+    let composingName=false;input.addEventListener("compositionstart",()=>{composingName=true});input.addEventListener("compositionend",()=>{composingName=false});
+    input.addEventListener("keydown",ev=>{if(ev.key==="Enter"&&!composingName&&!ev.isComposing&&ev.keyCode!==229){ev.preventDefault();submit.click()}});
+    const appearance=document.createElement("details");appearance.className="bb-create-appearance";appearance.open=appearanceOpen;
+    const summary=document.createElement("summary");summary.dataset.createField="appearance";summary.append(preview,document.createTextNode(RCreateText("头像与颜色","Appearance")));
+    appearance.append(summary,colors,shapes);
+    submit.dataset.createField="submit";submit.className="bb-create-submit";status.className="bb-create-status";
+    root.append(bar,label,input);
+    if(!deploymentServerId&&typeof window.__beebotRoleFields==="function"){
+      roleForm=window.__beebotRoleFields({value:role,onChange:next=>{role=next;setError(null);}});
+      roleForm.root.style.width="min(420px,100%)";roleForm.details.open=roleDetailsOpen;root.append(roleForm.root);
+    }
+    root.append(appearance,deploymentLabel,deployment);
+    if(deploymentServerId){
+      hint.textContent+=RCreateText(" 当前服务器仅保存职责描述，不支持本机的版本化岗位约定。"," This server currently saves a description only, not a versioned local role contract.");
+      root.append(descriptionLabel,responsibilities,hint);
+    }else root.append(vendorLabel,vendorSelect);
+    root.append(submit,status);renderServers();
+    if(focused){
+      const target=[...root.querySelectorAll("input,textarea,select,button,summary")].find(item=>focused.key?item.dataset.createField===focused.key:focused.label?item.getAttribute("aria-label")===focused.label:focused.title&&item.getAttribute("title")===focused.title);
+      if(target){target.focus({preventScroll:true});if(typeof focused.start==="number"&&typeof target.setSelectionRange==="function")try{target.setSelectionRange(focused.start,focused.end)}catch{}}
+    }
   };
-  document.body.append(root);paint();void refreshServers();
+  function localizeBot(){Object.assign(copy,RUiCopy());paint();root.setAttribute("aria-label",copy.title);}
+  if(!RMountInlineCreate(root,copy.title)){finish(null);return;}
+  window.addEventListener("sand-ui-language-changed",localizeBot);paint();input.focus({preventScroll:true});void refreshServers();
   try{unsubscribe=window.desktop?.nodes?.onChanged?.(()=>void refreshServers())}catch{}
-  Promise.resolve().then(()=>window.desktop.agent.getInferenceVendors()).then(listed=>{if(!alive)return;vendors=Array.isArray(listed?.vendors)?listed.vendors:[];if(!vendorId)vendorId=listed?.defaultVendorId||vendors[0]?.id||"";paint()}).catch(()=>{});
+  Promise.resolve().then(()=>window.desktop.agent.getInferenceVendors()).then(listed=>{if(!alive)return;vendors=Array.isArray(listed?.vendors)?listed.vendors:[];if(!vendorId)vendorId=listed?.defaultVendorId||vendors[0]?.id||"";
+    if(vendorSelect){vendorSelect.replaceChildren();for(const item of vendors){const option=document.createElement("option");option.value=item.id;option.textContent=item.label+(item.modelId?" · "+item.modelId:"");vendorSelect.append(option)}vendorSelect.value=vendorId;}}).catch(()=>{});
   });
 };
-window.__sandPickCreateGroup=function(){return new Promise(async resolve=>{
-  await RLang(); const copy=RUiCopy(); document.getElementById("sand-create-group-sheet")?.remove();
-  const agents=RListAgents();
-  const root=document.createElement("div"); root.id="sand-create-group-sheet";
-  root.style.cssText="position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif";
-  const card=document.createElement("div"); card.style.cssText="width:min(520px,92vw);max-height:86vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;color:#111";
-  let name=""; let query=""; const selected=[];
-  const finish=v=>{root.remove();resolve(v)};
-  const paint=()=>{
-    const q=query.trim().toLowerCase();
-    const filtered=agents.filter(a=>!q||a.name.toLowerCase().includes(q));
-    card.innerHTML="";
-    const head=document.createElement("div"); head.style.cssText="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px";
-    const title=document.createElement("div"); title.textContent=copy.groupTitle; title.style.cssText="font-size:18px;font-weight:600";
-    const close=document.createElement("button"); close.type="button"; close.textContent="×"; close.style.cssText="width:32px;height:32px;border:0;border-radius:16px;background:#f2f2f0;font-size:20px;cursor:pointer"; close.onclick=()=>finish(null);
+window.__sandPickCreateGroup=async function({onCreate}={}){
+  const request=++RCreateRequestSerial;await RLang();if(request!==RCreateRequestSerial)return null;
+  const copy=RUiCopy(),agents=RListAgents();
+  return new Promise(resolve=>{
+    const root=document.createElement("section");root.id="sand-create-group-sheet";
+    let alive=true,busy=false;const selected=new Set(),rows=new Map();
+    const finish=(value,restoreFocus=value===null)=>{if(!alive)return;alive=false;window.removeEventListener("sand-ui-language-changed",localize);RCloseInlineCreate(root,restoreFocus);resolve(value);};
+    root.__sandDismiss=()=>{if(busy)return false;finish(null);return true;};
+    const head=document.createElement("header");head.className="bb-create-head";
+    const title=document.createElement("h2");
+    const close=document.createElement("button");close.type="button";close.className="bb-create-close";close.textContent="×";close.onclick=()=>root.__sandDismiss();
     head.append(title,close);
-    const nameLabel=document.createElement("label"); nameLabel.textContent=copy.groupName; nameLabel.style.cssText="display:block;font-size:13px;color:#666;margin-bottom:6px";
-    const nameInput=document.createElement("input"); nameInput.type="text"; nameInput.value=name; nameInput.placeholder=copy.groupName; nameInput.style.cssText="width:100%;height:40px;border:0;border-radius:10px;background:#f4f4f2;padding:0 12px;font-size:14px;margin-bottom:14px;box-sizing:border-box";
-    const to=document.createElement("div"); to.style.cssText="min-height:44px;border-radius:12px;background:#f7f7f5;padding:8px 10px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center";
-    const toLabel=document.createElement("span"); toLabel.textContent=copy.to; toLabel.style.cssText="color:#888;font-size:13px"; to.append(toLabel);
-    for(const id of selected){const a=agents.find(x=>x.id===id); const chip=document.createElement("button"); chip.type="button"; chip.textContent=(a?.name||id)+" ×"; chip.style.cssText="border:0;border-radius:14px;background:#ecece8;padding:4px 10px;cursor:pointer;font-size:13px"; chip.onclick=()=>{const i=selected.indexOf(id); if(i>=0)selected.splice(i,1); name=nameInput.value; paint()}; to.append(chip)}
-    const search=document.createElement("input"); search.type="text"; search.value=query; search.placeholder=copy.search; search.style.cssText="width:100%;height:36px;border:0;margin-bottom:10px;font-size:14px;box-sizing:border-box";
-    search.oninput=()=>{query=search.value; name=nameInput.value; paint(); const n=card.querySelector("input[placeholder='"+copy.search+"']"); n?.focus()};
-    const list=document.createElement("div");
-    for(const a of filtered){if(selected.includes(a.id)) continue; const row=document.createElement("button"); row.type="button"; row.textContent=a.name; row.style.cssText="display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 8px;border-radius:8px;cursor:pointer;font-size:14px"; row.onclick=()=>{selected.push(a.id); name=nameInput.value; query=""; paint()}; list.append(row)}
-    const submit=document.createElement("button"); submit.type="button"; submit.textContent=copy.create;
-    const applyReady=()=>{name=nameInput.value; const ready=name.trim().length>0&&selected.length>0; submit.disabled=!ready; submit.style.cssText="margin-top:14px;width:100%;height:44px;border:0;border-radius:22px;font-size:15px;font-weight:600;color:#fff;background:"+(ready?"#111":"#bbb")+";cursor:"+(ready?"pointer":"default"); return ready};
-    nameInput.oninput=()=>{applyReady()};
-    applyReady();
-    submit.onclick=()=>{if(applyReady())finish({name:name.trim(),memberAgentIds:[...selected]})};
-    card.append(head,nameLabel,nameInput,to,search,list,submit);
-    nameInput.focus();
-  };
-  root.append(card); root.addEventListener("click",ev=>{if(ev.target===root)finish(null)}); document.body.append(root); paint();
-})};
+    const subtitle=document.createElement("p");subtitle.className="bb-create-subtitle";
+    const field=(id)=>{
+      const wrap=document.createElement("div");wrap.className="bb-create-field";
+      const label=document.createElement("label");label.htmlFor=id;
+      const input=document.createElement("input");input.id=id;input.type="text";
+      wrap.append(label,input);return{wrap,label,input};
+    };
+    const name=field("bb-group-name"),search=field("bb-group-search");name.input.maxLength=100;
+    const chips=document.createElement("div");chips.className="bb-create-selected";
+    const colleagues=document.createElement("div");colleagues.className="bb-create-colleagues";
+    const candidates=document.createElement("section"),selection=document.createElement("section");selection.className="bb-create-selection";
+    const selectionTitle=document.createElement("h3");selectionTitle.id="bb-group-selection-title";selection.setAttribute("aria-labelledby",selectionTitle.id);selection.append(selectionTitle,chips);
+    const list=document.createElement("div");list.className="bb-create-members";list.setAttribute("role","group");
+    const empty=document.createElement("p");empty.className="bb-create-help";
+    const status=document.createElement("p");status.className="bb-create-status";status.setAttribute("role","status");
+    const submit=document.createElement("button");submit.type="button";submit.className="bb-create-submit";
+    const applyReady=()=>{
+      if(busy&&root.contains(document.activeElement))root.focus({preventScroll:true});
+      submit.disabled=busy||!name.input.value.trim()||selected.size===0;
+      submit.textContent=busy?RUiCopy().creating:RUiCopy().create;
+      root.setAttribute("aria-busy",String(busy));
+      for(const input of root.querySelectorAll("input"))input.disabled=busy;
+      for(const button of root.querySelectorAll("button"))if(button!==submit)button.disabled=busy;
+    };
+    const renderMembers=()=>{
+      const query=search.input.value.trim().normalize("NFC").toLowerCase();let visible=0;
+      for(const agent of agents){
+        const row=rows.get(agent.id);row.hidden=!!query&&!agent.name.normalize("NFC").toLowerCase().includes(query);
+        row.setAttribute("aria-pressed",String(selected.has(agent.id)));if(!row.hidden)visible++;
+      }
+      empty.hidden=visible>0;
+      empty.textContent=agents.length?RCreateText("没有找到这个 Bot，试试其他名字。","No matching Bot. Try another name."):RCreateText("先创建一个 Bot，再邀请它加入群聊。","Create a Bot first, then invite it to a group.");
+      selectionTitle.textContent=RCreateText("已选同事","Selected colleagues")+` (${selected.size}/6)`;
+      chips.replaceChildren();
+      for(const id of selected){
+        const agent=agents.find(item=>item.id===id),chip=document.createElement("button");chip.type="button";
+        chip.textContent=agent.name+" ×";chip.setAttribute("aria-label",RCreateText("移除选择：","Remove selection: ")+agent.name);
+        chip.onclick=()=>{if(busy)return;selected.delete(id);renderMembers();rows.get(id)?.focus({preventScroll:true});};chips.append(chip);
+      }
+      applyReady();
+    };
+    for(const agent of agents){
+      const row=document.createElement("button");row.type="button";row.className="bb-create-member";row.dataset.memberId=agent.id;
+      const profile=RRosterRows().find(item=>item.id===agent.id);
+      if(typeof R_PATHS==="object")row.append(RBotSvg(profile?.avatarShape||"blob",profile?.avatarColor||"green",26));
+      row.append(document.createTextNode(agent.name));
+      row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else{
+        if(selected.size>=6){status.textContent=RCreateText("每个群最多选择 6 位 Bot。请先移除一位同事。","A group supports up to 6 Bots. Remove a colleague before adding another.");return;}
+        selected.add(agent.id);
+      }status.textContent="";renderMembers();};
+      rows.set(agent.id,row);list.append(row);
+    }
+    name.input.oninput=applyReady;search.input.oninput=renderMembers;
+    submit.onclick=async()=>{
+      applyReady();if(submit.disabled||!alive)return;
+      // Validate membership again; a deleted Bot must not be silently dropped.
+      const current=new Set(RListAgents().map(agent=>agent.id));
+      if([...selected].some(id=>!current.has(id))){status.textContent=RCreateText("有成员已不可用，请取消对应选择后再创建。","A selected Bot is no longer available. Remove it before creating the group.");return;}
+      const draft={name:name.input.value.trim(),memberAgentIds:[...selected]};
+      if(typeof onCreate!=="function"){finish(draft);return;}
+      busy=true;status.textContent="";applyReady();
+      try{await onCreate(draft);finish(null,false);}
+      catch(error){if(alive)status.textContent=RCreateError(error);}
+      finally{busy=false;if(alive)applyReady();}
+    };
+    function localize(){
+      const copy=RUiCopy();title.textContent=copy.groupTitle;root.setAttribute("aria-label",copy.groupTitle);
+      close.setAttribute("aria-label",copy.close);subtitle.textContent=RCreateText("邀请同事，一起讨论和完成工作。","Invite colleagues to discuss and work together.");
+      name.label.textContent=copy.groupName;name.input.placeholder=copy.groupName;name.input.setAttribute("aria-label",copy.groupName);
+      search.label.textContent=copy.search;search.input.placeholder=copy.search;search.input.setAttribute("aria-label",copy.search);
+      list.setAttribute("aria-label",copy.to);selection.dataset.emptyLabel=RCreateText("从左侧选择一起工作的同事。","Choose colleagues to work with.");renderMembers();
+    }
+    candidates.append(search.wrap,list,empty);colleagues.append(candidates,selection);
+    root.append(head,subtitle,name.wrap,colleagues,submit,status);
+    if(!RMountInlineCreate(root,copy.groupTitle)){finish(null);return;}
+    window.addEventListener("sand-ui-language-changed",localize);localize();name.input.focus({preventScroll:true});
+  });
+};
 if(!window.__sandPlusMenuBound){window.__sandPlusMenuBound=!0;document.addEventListener("click",ev=>{
-  const btn=ev.target&&ev.target.closest&&ev.target.closest(".sand-agents-sidebar__new");
-  if(!btn) return;
-  ev.preventDefault(); ev.stopPropagation();
-  document.getElementById("sand-plus-menu")?.remove();
-  const copy=RUiCopy();
-  const menu=document.createElement("div"); menu.id="sand-plus-menu";
-  const r=btn.getBoundingClientRect();
-  menu.style.cssText="position:fixed;top:"+(r.bottom+8)+"px;left:"+Math.max(12,r.right-180)+"px;z-index:99992;background:#fff;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.16);padding:6px;min-width:168px;font-family:system-ui,-apple-system,sans-serif";
-  const mk=(label,fn)=>{const b=document.createElement("button"); b.type="button"; b.textContent=label; b.style.cssText="display:block;width:100%;text-align:left;border:0;background:transparent;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px"; b.onmouseenter=()=>b.style.background="#f4f4f2"; b.onmouseleave=()=>b.style.background="transparent"; b.onclick=()=>{menu.remove();fn()}; return b};
-  menu.append(mk(copy.newBot,async()=>{const o=await window.__sandPickCreateBot(); if(o&&window.__sandCreateAgent) window.__sandCreateAgent(o)}), mk(copy.newGroup,async()=>{const o=await window.__sandPickCreateGroup(); if(o&&window.__sandCreateGroup) window.__sandCreateGroup(o)}));
-  document.body.append(menu);
-  const hide=e=>{if(!menu.contains(e.target)&&e.target!==btn){menu.remove();document.removeEventListener("mousedown",hide)}};
-  setTimeout(()=>document.addEventListener("mousedown",hide),0);
+  const btn=ev.target?.closest?.(".sand-agents-sidebar__new");if(!btn)return;
+  ev.preventDefault();ev.stopPropagation();
+  const existing=document.getElementById("sand-plus-menu");
+  if(existing){existing.__sandDismiss();return;}
+  REnsureInlineCreateStyle();const menu=document.createElement("div");menu.id="sand-plus-menu";
+  menu.setAttribute("role","group");menu.setAttribute("aria-label",RCreateText("新建","Create"));
+  btn.setAttribute("aria-expanded","true");btn.setAttribute("aria-controls",menu.id);
+  const hide=()=>{menu.remove();btn.setAttribute("aria-expanded","false");btn.removeAttribute("aria-controls");window.removeEventListener("sand-ui-language-changed",localize);};
+  menu.__sandDismiss=hide;
+  const mk=(kind,fn)=>{const b=document.createElement("button");b.type="button";b.dataset.kind=kind;b.onclick=()=>{hide();void fn();};return b;};
+  const bot=mk("bot",()=>window.__sandPickCreateBot(undefined,{onCreate:draft=>{
+    if(typeof window.__sandCreateAgent!=="function")throw new Error(RUiCopy().missing);return window.__sandCreateAgent(draft);
+  }}));
+  const group=mk("group",()=>window.__sandPickCreateGroup({onCreate:draft=>{
+    if(typeof window.__sandCreateGroup!=="function")throw new Error(RUiCopy().missing);return window.__sandCreateGroup(draft);
+  }}));
+  function localize(){const copy=RUiCopy();bot.textContent=copy.newBot;group.textContent=copy.newGroup;}
+  menu.addEventListener("keydown",event=>{if(event.key==="Escape"&&!event.isComposing){event.preventDefault();event.stopPropagation();hide();btn.focus({preventScroll:true});}});
+  menu.append(bot,group);localize();window.addEventListener("sand-ui-language-changed",localize);
+  RInsertSidebarSection(menu);
 },true)}
 if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(async()=>{
   const pane=document.querySelector(".sand-agent-settings");
@@ -248,7 +452,7 @@ if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(as
   };
   wrap.append(text,sel); pane.append(wrap);
 },1200)}
-function MOn(n){const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
+function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversationStatus(n);const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
   const {deploymentServerId,connectionId,key,...local}={...r,origin:"user",...i};
   if(deploymentServerId!==undefined&&deploymentServerId!==""){
     const copy=RUiCopy(),api=window.__beebotServerBots;
