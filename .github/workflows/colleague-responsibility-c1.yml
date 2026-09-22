@@ -1,0 +1,52 @@
+name: Verify colleague responsibility C1
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/colleague-responsibility-c1.yml, '.dev-submit/responsibility-c1-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Restore exact tested commit without altering product refs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess,zlib
+          def git(*args,data=None): return subprocess.check_output(['git',*args],input=data)
+          raw=b''.join(pathlib.Path(f'.dev-submit/responsibility-c1-{i}.bin').read_bytes() for i in range(5))
+          assert len(raw)==9465
+          assert hashlib.sha256(raw).hexdigest()=='9f992e63ccdb2066398d12a2012ea66c5d2d2c0dccb4c57d658ca157b236e17c'
+          dec=zlib.decompressobj(); decoded=dec.decompress(raw,1000000)
+          assert dec.eof and not dec.unused_data and not dec.unconsumed_tail
+          stage=json.loads(decoded)
+          parent='02be4fec11cd4eb01a8e9f3864eb359427784c44'
+          git('checkout','--detach',parent)
+          for file in stage['files']:
+              p=pathlib.Path(file['path'])
+              assert p.as_posix().startswith(('source/','tests/','docs/')) and '..' not in p.parts
+              text=p.read_text() if p.exists() else ''
+              assert hashlib.sha256(text.encode()).hexdigest()==file['old']
+              for start,end,value in reversed(file['ops']):
+                  assert 0<=start<=end<=len(text)
+                  text=text[:start]+value+text[end:]
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);git('add',str(p))
+          tree=git('write-tree').decode().strip()
+          assert tree=='dc9905cb6bdc2cbe1485e28cb37c70de792ab12b'
+          commit=stage['commit'].encode()
+          assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha==stage['sha']=='e8ce4372b263d45ae6ffbe0fc90dfe959a0c7fb3'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/responsibility-candidate-20260922')
+          print('Verified exact C1 source:',sha,tree)
+          PY
