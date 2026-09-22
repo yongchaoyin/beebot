@@ -97,7 +97,20 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
 export function understandWorkMessage(entries: readonly TranscriptEntry[], messageId: string) {
   const at = entries.findIndex(entry => entry.id === messageId);
   if (at < 0) return undefined;
-  return understandUserWorkMessage(entries[at]!, projectCollaboration(entries.slice(0, at)));
+  const before = entries.slice(0, at), tasks = projectCollaboration(before);
+  const result = understandUserWorkMessage(entries[at]!, tasks);
+  if (result?.relation !== "unscoped") return result;
+  const prior = [...before].reverse().find(entry => entry.kind === "message" && entry.role === "user"
+    && entry.fromAgent == null && entry.channel == null);
+  const ref = (prior?.delivery as any)?.systemResponse;
+  const status = ref?.kind === "recorded-work-status" ? before.find(entry => entry.id === ref.id
+    && entry.kind === "notice" && entry.code === "recorded_work_status" && entry.replyTo === prior?.id) : undefined;
+  const recorded = status?.recordedWorkStatus as {taskId?: string} | undefined;
+  const task = typeof recorded?.taskId === "string" ? tasks.get(recorded.taskId) : undefined;
+  if (!task) return result;
+  return {...result, relation: "status-follow-up" as const, basisMessageId: prior!.id, candidateCount: 1,
+    references: [{id: task.id, goalId: task.goalId, title: task.title, assignee: task.assignee,
+      version: task.version, scopeVersion: task.scopeVersion}]};
 }
 
 export function collaborationContext(entries: readonly TranscriptEntry[], actor: string, focusMessageIds: readonly string[] = []): string {
@@ -108,7 +121,7 @@ export function collaborationContext(entries: readonly TranscriptEntry[], actor:
   const understanding = formatWorkUnderstanding(understood);
   if (!tasks.length) return understanding;
   const focus = workFocus(entries, focusMessageIds);
-  for (const item of understood) if (item.relation === "named-work") {
+  for (const item of understood) if (item.relation === "named-work" || item.relation === "status-follow-up") {
     for (const ref of item.references) { focus.add(ref.id); focus.add(ref.goalId); }
   }
   const view = workContextView(projected, actor, focus);

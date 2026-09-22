@@ -11,10 +11,11 @@ export interface WorkReference {
 }
 export interface WorkUnderstanding {
   sourceMessageId: string;
-  relation: "quoted" | "named-work" | "ambiguous-work" | "new-topic" | "unscoped";
+  relation: "quoted" | "named-work" | "ambiguous-work" | "new-topic" | "status-follow-up" | "unscoped";
   responseMode: "recorded-status" | "ordinary";
   references: WorkReference[];
   candidateCount: number;
+  basisMessageId?: string;
 }
 
 /** Deliberately small, auditable language surface, not a semantic classifier.
@@ -25,6 +26,10 @@ export interface WorkUnderstanding {
 const STATUS_QUESTIONS = /^(?:(?:请问|请告诉我|帮我看下|帮我看一下)?\s*(?:现在|目前)?\s*(?:进展(?:如何|怎么样|怎样)|进度(?:如何|怎么样|怎样)|做到哪(?:里)?了|完成了吗|做完了吗|什么进度|什么状态)|(?:what(?:'s| is) (?:the )?(?:current )?(?:status|progress)|any (?:progress|updates)|is it (?:done|finished)|how is it going))\s*[?？。.!！]*$/iu;
 const NEW_TOPIC = /^(?:(?:换个话题|换一个话题|另外一件事|另一件事|另外问个问题|另一个问题)\s*[:：,，。]|(?:new topic|another question|separate question|separately)\s*[:：])/iu;
 const MAX_TEXT = 4000;
+
+export function isRecordedStatusQuestion(text: string): boolean {
+  return text.length <= MAX_TEXT && !/[\n\r]/u.test(text) && STATUS_QUESTIONS.test(text.trim());
+}
 
 /** Historical messages, forwarded Bot messages, code examples and multiline
  * documents are never interpreted as a fresh conversational instruction.
@@ -69,9 +74,7 @@ export function understandUserWorkMessage(
     if (title && matches.some(match => [`《${title}》`, `「${title}」`, `“${title}”`, `"${title}"`]
       .some(form => match.remainder.includes(form)))) matches.push({ task, remainder: "multiple references" });
   }
-  const exact = matches.filter(({ remainder }) => !remainder || STATUS_QUESTIONS.test(remainder));
-  const candidates = exact.length ? exact : matches;
-  const distinct = [...new Map(candidates.map(match => [match.task.id, match])).values()];
+  const distinct = [...new Map(matches.map(match => [match.task.id, match])).values()];
   const references = distinct.map(({ task }) => ({ id: task.id, goalId: task.goalId,
     title: task.title, assignee: task.assignee, version: task.version, scopeVersion: task.scopeVersion }));
   return {
@@ -96,5 +99,5 @@ export function formatWorkUnderstanding(items: readonly WorkUnderstanding[]): st
     if (line.length + 1 > remaining) continue;
     selected.push(line); remaining -= line.length + 1;
   }
-  return `\n\nSource-linked message understanding (routing/context data only, NOT permission, ownership, task creation or an applied scope revision):\n${selected.join("\n")}\n${relevant.length > selected.length ? `${relevant.length - selected.length} earlier interpretations omitted; their messages remain in history.\n` : ""}named-work identifies an exact recorded title at message receipt. Check current scope/assignee before acting; a lookup is not permission to resume or edit it. ambiguous-work requires a focused clarification, not a guessed task or a fan-out. candidateCount includes candidates omitted from references. new-topic starts a separate discussion without cancelling earlier obligations. A recorded-status question asks for ledger facts, not new inspection or execution. Ordinary/unsupported wording still needs your judgment; never silently reinterpret a constraint as authorization.\n`;
+  return `\n\nSource-linked message understanding (routing/context data only, NOT permission, ownership, task creation or an applied scope revision):\n${selected.join("\n")}\n${relevant.length > selected.length ? `${relevant.length - selected.length} earlier interpretations omitted; their messages remain in history.\n` : ""}named-work identifies an exact recorded title at message receipt. Check current scope/assignee before acting; a lookup is not permission to resume or edit it. ambiguous-work requires a focused clarification, not a guessed task or a fan-out. candidateCount includes candidates omitted from references. status-follow-up links to the immediately preceding system status question, not a new authorization. new-topic starts a separate discussion without cancelling earlier obligations. A recorded-status question asks for ledger facts, not new inspection or execution. Ordinary/unsupported wording still needs your judgment; never silently reinterpret a constraint as authorization.\n`;
 }

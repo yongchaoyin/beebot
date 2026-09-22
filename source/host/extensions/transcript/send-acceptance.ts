@@ -71,6 +71,7 @@ export function applySendRosterSideEffects(
   session: any,
   trimmedPrompt: string,
   readAddressedTranscript: () => readonly TranscriptEntry[],
+  preservePendingFeedback = false,
 ): boolean {
   let needsRosterRefresh = false;
   const profilePath = getSandProfilePath(dirname(session.dbPath));
@@ -97,8 +98,8 @@ export function applySendRosterSideEffects(
     tm.roster.lastKnownAgentNames.set(session.id, seededName);
     needsRosterRefresh = true;
   }
-  tm.trayErrors.clearForAgent(session.id);
-  if (session.db.getAwaitingUserResponse() != null) {
+  if (!preservePendingFeedback) tm.trayErrors.clearForAgent(session.id);
+  if (!preservePendingFeedback && session.db.getAwaitingUserResponse() != null) {
     session.db.setAwaitingUserResponse(null);
     needsRosterRefresh = true;
   }

@@ -37,3 +37,49 @@ context budgets, old-message interpretation and room isolation. Interpretation
 must not mutate existing tasks, interrupt another run or consume its response.
 Native UI, production-model semantic accuracy, arbitrary capability matching and
 in-flight scope enforcement are not claimed by these checks.
+
+
+## Stage 2: recorded-status questions without interrupting a colleague
+
+A standalone supported status question quoting exactly one work item (or using
+its exact title) returns a system-authored transcript notice with the current
+recorded state, scope/record version, and read time. It does not create a model
+run, fetch files, approve a result, infer completion, or cancel existing work.
+Requests with attachments, forks, explicit @, multiple candidate tasks, extra
+instructions or unsupported wording use normal Bot processing. Shared/remote
+rooms are intentionally unchanged. This is NOT arbitrary conversational intent
+classification or a privileged agent running concurrently with the worker.
+
+The notice is persisted before its independent system-response handling record.
+Retries preserve the same notice identity; an I/O failure never falls back to
+executing the original task. Journal recovery keeps legacy entries compatible
+and validates optional system-response metadata. This response cannot settle a
+Bot's separate handling obligation or be rerouted for execution. Pending user
+questions and error feedback are preserved. Existing acknowledgement bookkeeping
+is neither minted nor fulfilled by the status path, so it cannot hide the
+original worker's missing reply.
+
+The existing inline status adapter labels these as a work record, not a Bot reply
+or a fresh verification. No new popup or panel is added. Stored acceptance is not
+proof of current external state; missing historical evidence remains explicitly
+unverified. A read does not refresh evidence hashes or manufacture a review.
+
+Tests cover both real single-Bot and Group ingress while another execution waits,
+quote/name resolution, cross-room isolation, mixed requests, duplicate nonces,
+restart, persistence failures, pending decisions, acknowledgement isolation,
+legacy acceptance, multiple tasks, and inline status language/selection behavior.
+
+After a system status answer, an otherwise unquoted supplement keeps the work
+owner via the saved question/notice relationship. A recognized new topic or an
+explicit quote/@ still wins. Overlapping titles are treated as ambiguous rather
+than favoring the title whose suffix happens to resemble a status question.
+This remains a bounded continuity rule, not general semantic intent recognition.
+
+Local validation: both typechecks and 41 focused work-understanding/status/UI
+checks passed. A separate sequential run of 21 existing continuity/responsibility
+checks passed without modifying their assertions. An earlier full Linux run had
+two timeout outcomes under concurrent load and a missing Git LFS installation
+archive; it is not counted as a successful full regression. The final pinned
+macOS full-suite, publication and real Host/Shell gates remain necessary. Browser
+checks use the actual status adapter in an offline fixture (desktop Chinese/light
+and narrow English/dark), not a native macOS window or production-model service.

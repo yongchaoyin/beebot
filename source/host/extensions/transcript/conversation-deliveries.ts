@@ -13,6 +13,7 @@ export interface ConversationDelivery {
   recipients: Record<string, DeliveryState>;
   recoveryNotified?: boolean;
   responses?: Record<string, string[]>;
+  systemResponse?: { id: string; kind: "recorded-work-status" };
 }
 const states = new Set<DeliveryState>(["queued", "processing", "processed", "replied", "failed", "needs-review", "cancelled"]);
 const unfinished = (state: DeliveryState) => ["queued", "processing", "needs-review"].includes(state);
@@ -39,6 +40,9 @@ export class ConversationDeliveries {
       for (const item of (file as any).records) {
         if (!item || typeof item.id !== "string" || !item.id || typeof item.owner !== "string" || !states.has(item.state) || !Number.isFinite(item.updatedAt) || !item.recipients || typeof item.recipients !== "object" || Array.isArray(item.recipients) || Object.values(item.recipients).some(value => !states.has(value as DeliveryState))) throw new Error("Conversation recovery entry is invalid; no work was replayed.");
         if (item.responses != null && (typeof item.responses !== "object" || Array.isArray(item.responses) || Object.entries(item.responses).some(([actor, ids]) => !Object.hasOwn(item.recipients, actor) || !Array.isArray(ids) || ids.length > 64 || ids.some(id => typeof id !== "string" || !id || id.length > 256)))) throw new Error("Conversation response references are invalid.");
+        if (item.systemResponse != null && (item.systemResponse.kind !== "recorded-work-status"
+          || typeof item.systemResponse.id !== "string" || !item.systemResponse.id || item.systemResponse.id.length > 256
+          || item.state !== "replied" || Object.keys(item.recipients).length !== 0)) throw new Error("Invalid system status response record.");
         if (records.has(item.id)) throw new Error("Duplicate conversation recovery identity.");
         records.set(item.id, { ...item, recipients: { ...item.recipients } });
       }
@@ -84,6 +88,10 @@ export class ConversationDeliveries {
   route(dbPath: string, id: string, actors: readonly string[]): ConversationDelivery {
     this.queue(dbPath, id);
     return this.change(dbPath, id, entry => {
+      if (entry.systemResponse) {
+        if (actors.length) throw new Error("A system-answered status request cannot be routed for execution.");
+        return;
+      }
       for (const actor of actors) if (!Object.hasOwn(entry.recipients, actor)) Object.defineProperty(entry.recipients, actor, { value: "queued", writable: true, configurable: true, enumerable: true });
       if (Object.keys(entry.recipients).length === 0) entry.state = "processed";
     });
@@ -109,6 +117,19 @@ export class ConversationDeliveries {
     return this.change(dbPath, id, entry => {
       const ids = [...new Set([...(entry.responses?.[actor] ?? []), responseId])].slice(-64);
       entry.responses = { ...entry.responses, [actor]: ids };
+    });
+  }
+
+  /** System status is separate from a Bot reply. It may only settle an otherwise
+   * unrouted request; it must never clear another recipient's pending obligation. */
+  recordSystemResponse(dbPath: string, id: string, responseId: string): ConversationDelivery {
+    if (!responseId || responseId.length > 256) throw new Error("Invalid system response identity.");
+    return this.change(dbPath, id, entry => {
+      if (Object.keys(entry.recipients).length || entry.systemResponse && entry.systemResponse.id !== responseId)
+        throw new Error("The request already has a different response or recipient.");
+      if (!entry.systemResponse && entry.state !== "queued") throw new Error("The request can no longer receive a status response.");
+      entry.state = "replied";
+      entry.systemResponse = {id: responseId, kind: "recorded-work-status"};
     });
   }
 
@@ -162,7 +183,7 @@ export class ConversationDeliveries {
 
 /** Existing transcript mutations make status visible in both single and group chats. */
 export function publishDelivery(tm: TranscriptManagerLike, session: any, record: ConversationDelivery): void {
-  const transform = (entry: TranscriptEntry): TranscriptEntry => ({ ...entry, delivery: { state: record.state, recipients: record.recipients, ...(record.responses ? { responses: record.responses } : {}), updatedAt: record.updatedAt } });
+  const transform = (entry: TranscriptEntry): TranscriptEntry => ({ ...entry, delivery: { state: record.state, recipients: record.recipients, ...(record.responses ? { responses: record.responses } : {}), ...(record.systemResponse ? {systemResponse: record.systemResponse} : {}), updatedAt: record.updatedAt } });
   const persisted = session.db.updateTranscriptEntry(record.id, transform);
   const live = tm.sessions.inMemoryTranscriptAgentId === session.id ? updateEntry(record.id, transform) : null;
   const entry = live ?? persisted;

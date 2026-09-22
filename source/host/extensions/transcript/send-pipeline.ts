@@ -1,3 +1,4 @@
+import { localRecordedWorkStatus, publishRecordedWorkStatus } from "./recorded-work-status.js";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -274,12 +275,9 @@ export class SendPipeline {
           wasInFlight,
         });
       session.db.setIntroductionPending(false);
-      const needsRosterRefresh = applySendRosterSideEffects(
-        this.tm,
-        session,
-        trimmedPrompt,
-        readTranscript,
-      );
+      // Keep the pre-send view for first-message naming. Apply roster/decision
+      // side effects only after a durable message and a classified read-only path.
+      const rosterTranscript = [...readTranscript()];
       const threading = resolveSendReplyThreading(
         { turnRuntime: this.tm.turnRuntime },
         options.replyToId,
@@ -390,8 +388,12 @@ export class SendPipeline {
           agentId: session.id,
           echoEntryId: userMessageId ?? echoes[0]?.entry.id ?? null,
         });
+      const recordedStatus = attachmentPaths.length === 0 && !threading.isFork
+        ? localRecordedWorkStatus(this.tm, session, userMessageId) : undefined;
+      const needsRosterRefresh = applySendRosterSideEffects(this.tm, session, trimmedPrompt,
+        () => rosterTranscript, recordedStatus != null);
       const acceptedAtMs = Date.now();
-      const owesAck =
+      const owesAck = recordedStatus == null &&
         !this.tm.groupChat.isRemoteRoomSession(session) &&
         !this.tm.groupChat.isGroupSession(session);
       if (owesAck)
@@ -441,6 +443,12 @@ export class SendPipeline {
             timestampMs: Date.now(),
           });
         }
+      }
+      if (recordedStatus && userMessageId) {
+        publishRecordedWorkStatus(this.tm, session, userMessageId, recordedStatus);
+        armedAckGuard.disarm();
+        this.markSendAccepted(options.clientNonce);
+        return;
       }
       const {
         imageAttachmentPaths,

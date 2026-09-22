@@ -62,7 +62,8 @@ export function selectGroupAttention(
   }
   const understanding = message.speaker.kind === "user" && message.id && !message.replyToId
     ? context.workUnderstanding?.(message.id) : undefined;
-  if (understanding?.relation === "named-work" && understanding.references.length === 1) {
+  if ((understanding?.relation === "named-work" || understanding?.relation === "status-follow-up")
+    && understanding.references.length === 1) {
     const owner = understanding.references[0]!.assignee;
     const targets = eligible.filter(member => member.id === owner);
     return targets.length ? { reason: "named-work", members: targets }

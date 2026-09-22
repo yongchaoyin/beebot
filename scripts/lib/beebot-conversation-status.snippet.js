@@ -56,7 +56,8 @@ function RBindConversationStatus(runtime) {
       if(!badge){badge=document.createElement("span");badge.dataset.bbDelivery=entry.id;row.append(badge);}
       const recipients=Object.entries(entry.delivery.recipients||{}).filter(([,value])=>copy[value]);
       const detail=recipients.length>1?recipients.map(([bot,status])=>`${names.get(bot)||t("成员","Member")} · ${copy[status]}`).join("；"):"";
-      const value=detail||copy[entry.delivery.state];
+      const systemStatus=entry.delivery.state==="replied"&&entry.delivery.systemResponse?.kind==="recorded-work-status";
+      const value=systemStatus?t("工作记录已返回，未重新执行","Work record returned; no new execution"):detail||copy[entry.delivery.state];
       if(badge.textContent!==value)badge.textContent=value;
       badge.dataset.state=entry.delivery.state;
     }

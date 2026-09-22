@@ -78,3 +78,21 @@ test("a disposed status binding can mount again on the same live runtime",async 
  assert.equal(ui.document.querySelectorAll("#beebot-conversation-status").length,1);
  assert.ok(ui.document.querySelector("[data-bb-delivery]"));
 });
+
+
+test("system work status is distinct from a colleague reply and preserves other pending work",async t=>{
+ const ui=await setup(t);
+ ui.entries.set({entries:[
+  {id:"m1",kind:"message",clientNonce:"one",delivery:{state:"replied",recipients:{},systemResponse:{id:"notice-work-status-m1",kind:"recorded-work-status"}}},
+  {id:"handoff",kind:"send-message",delivery:{state:"processing",recipients:{b:"processing"}}}
+ ]});await tick();
+ const badge=ui.document.querySelector('[data-bb-delivery="m1"]');
+ assert.match(badge.textContent,/Work record returned; no new execution/);
+ assert.match(ui.root().textContent,/1 message/);
+ assert.equal(ui.document.querySelector('textarea').value,"Keep my draft");
+ assert.equal(ui.document.querySelectorAll('[role="dialog"]').length,0);
+ ui.window.__sandUiLanguage="zh";ui.window.dispatchEvent(new ui.window.Event("sand-ui-language-changed"));await tick();
+ assert.match(badge.textContent,/工作记录已返回，未重新执行/);
+ ui.selected.set({currentAgentId:"other"});await tick();
+ assert.equal(ui.document.querySelectorAll('[data-bb-delivery]').length,0);
+});
