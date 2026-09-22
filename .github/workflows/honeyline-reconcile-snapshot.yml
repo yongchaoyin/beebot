@@ -1,0 +1,43 @@
+name: Honeyline concurrent source snapshot
+on:
+  push:
+    branches: [fix/honeyline-send-feedback-20260922]
+    paths: [.github/workflows/honeyline-reconcile-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a11209cb1620e96470ec16363d8858b830592bcb
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export the exact concurrent source diff and changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/honeyline-concurrent/source
+          git diff --binary a8bd4703edf0e75196d308b31b5b3c4ea9e34d74 HEAD > /tmp/honeyline-concurrent/concurrent.patch
+          git diff --name-status a8bd4703edf0e75196d308b31b5b3c4ea9e34d74 HEAD > /tmp/honeyline-concurrent/changes.txt
+          git rev-parse HEAD > /tmp/honeyline-concurrent/commit.txt
+          python3 - <<'PY'
+          import pathlib, subprocess, shutil, hashlib, json
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '-z', 'a8bd4703edf0e75196d308b31b5b3c4ea9e34d74', 'HEAD']).decode().split('\0')
+          manifest = {}
+          for name in filter(None, paths):
+              p = pathlib.Path(name)
+              if not p.is_file(): continue
+              target = pathlib.Path('/tmp/honeyline-concurrent/source') / p
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(p, target)
+              manifest[name] = hashlib.sha256(p.read_bytes()).hexdigest()
+          pathlib.Path('/tmp/honeyline-concurrent/manifest.json').write_text(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: honeyline-concurrent-source
+          path: /tmp/honeyline-concurrent/
+          retention-days: 1
