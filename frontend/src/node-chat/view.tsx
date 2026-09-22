@@ -107,7 +107,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
       trailing={<span className="beebot-node-server-label" title={snapshot.server.baseUrl}>{snapshot.server.name}</span>}
     />
     <main className="sand-chat-stage">
-      <ConversationTranscript entries={entries} isAgentRunning={false} renderMessageFooter={messageFooter} />
+      <ConversationTranscript resolveMessageAvatar={() => ({ agentId: snapshot.bot.id, color: snapshot.bot.avatarColor, shape: snapshot.bot.avatarShape })} entries={entries} isAgentRunning={false} renderMessageFooter={messageFooter} />
       {snapshot.loading && entries.length === 0 ? <p className="beebot-chat-loading" role="status">{t("Loading conversation…", "正在加载对话…")}</p> : null}
     </main>
     <div className="sand-chat-input-dock">

@@ -36,6 +36,7 @@ export function workLabel(agent: WorkState): WorkLabel | null {
   if (agent.waiting?.kind === "resource" || agent.workPhase === "queued") return label("waiting", "已排队", "Queued");
   if (agent.waiting != null || (typeof agent.waitingReason === "string" && agent.waitingReason.trim())) return label("waiting", "等待中", "Waiting");
   if (!agent.isRunning && !agent.isComposingMessage && agent.workPhase !== "running") return null;
+  if (agent.isComposingMessage) return label("working", "正在回复", "Writing a reply");
   const activity = agent.currentActivity != null && typeof agent.currentActivity === "object" ? agent.currentActivity as Record<string, unknown> : {};
   const verb = typeof activity.verb === "string" ? activity.verb : "";
   const tool = typeof activity.tool === "string" ? activity.tool : "";
@@ -44,6 +45,5 @@ export function workLabel(agent: WorkState): WorkLabel | null {
   else if (["writing", "coding"].includes(verb)) labels = ["正在整理内容", "Preparing content"];
   else if (verb === "running-commands") labels = ["正在运行命令", "Running commands"];
   else if (verb === "sending" || tool === "SendToAgent") labels = ["正在交接", "Handing over"];
-  else if (agent.isComposingMessage) labels = ["正在回复", "Writing a reply"];
   return label("working", labels[0], labels[1]);
 }

@@ -1,5 +1,7 @@
 # Honeyline: BeeBot's owned visual layer
 
+
+> Visual direction superseded by [Presence](presence-theme.md). Reliability contracts remain in force.
 Author: BeeBot development · 2026-09-22
 
 ## Scope and integration

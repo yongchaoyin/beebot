@@ -3635,6 +3635,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
           {showTranscriptLoadError
             ? <TranscriptLoadErrorSurface onRetry={() => void openAgent(activeAgent.id)} />
             : <ConversationTranscript
+                resolveMessageAvatar={() => activeAgent.isGroup || activeAgent.isSharedRoom ? null : ({ agentId: activeAgent.id, dataUrl: activeAgent.avatarDataUrl, color: activeAgent.avatarColor, shape: activeAgent.avatarShape })}
                 entries={entries}
                 hasOlder={transcriptPaginationSnapshot.hasOlder}
                 isLoadingOlder={transcriptPaginationSnapshot.isLoadingOlder}

@@ -1,6 +1,7 @@
 import { getSchema, type JSONContent } from "@tiptap/core";
 import { normalizeLinkUrl } from "../cards/transcript-card/url-card";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { AgentAvatar, type AgentAvatarProps } from "./agent-avatar";
 import { SandIcon } from "../../../ui/sand-kit-primitives";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import "./transcript-utility-parity.css";
@@ -37,6 +38,9 @@ function transcriptIds(id: string, hasTimestamp: boolean) {
 }
 
 export interface ConversationTranscriptActions {
+  /** Only the owning conversation can establish a sender identity. Never hash
+   * display names or use a group ID as though it were the speaking colleague. */
+  resolveMessageAvatar?(entry: TranscriptMessage): Pick<AgentAvatarProps, "agentId" | "dataUrl" | "shape" | "color"> | null;
   /** A transport-owned action under an ordinary message, e.g. accepting a completed run. */
   renderMessageFooter?(entry: TranscriptMessage): ReactNode;
   hasOlder?: boolean;
@@ -665,7 +669,7 @@ export function TranscriptThinkingRow({ entry, expanded, onToggle }: { entry: Tr
   );
 }
 
-export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, renderMessageFooter, resolveTranscriptCardInteractions, onResendFailedSend, onCheckSendReceipt, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
+export function ConversationTranscript({ entries, hasOlder = false, isLoadingOlder = false, loadOlder, isAgentRunning = false, renderComputerHandoff, isTransportDown = false, isReadOnly = false, onCancelQueuedSend, onCopyMessage, onDeleteFailedSend, onReply, onStartThread, renderMessageReactionActions, renderMessageReactionPills, renderMessageFooter, resolveMessageAvatar, resolveTranscriptCardInteractions, onResendFailedSend, onCheckSendReceipt, resolveAttachmentMedia, readAttachmentBytes, downloadAttachment, resolveReplyPreview, isReplyTargetInScope, onOpenReply, onOpenAutomation, localToolPermissionStore, resolveLocalToolPermission, transcriptCards, urlCards, threadRootId = null, transcriptHandleRef }: { entries: readonly ConversationTranscriptEntry[]; isAgentRunning?: boolean; isReadOnly?: boolean; renderComputerHandoff?(entry: TranscriptComputerHandoff): ReactNode; resolveAttachmentMedia?: (source: string) => Promise<AttachmentMedia | null>; readAttachmentBytes?: (path: string, maxBytes: number) => Promise<AttachmentBytesResult | null>; downloadAttachment?: (path: string, suggestedName?: string) => Promise<boolean>; resolveReplyPreview?(targetId: string): TranscriptReplyPreview | null; isReplyTargetInScope?(targetId: string): boolean; localToolPermissionStore?: LocalToolPermissionStore; resolveLocalToolPermission?(input: ResolveLocalToolPermissionInput): Promise<unknown>; transcriptCards?: TranscriptCardRootMountContract; resolveTranscriptCardInteractions?: TranscriptCardInteractionContext; urlCards?: UrlCardProvider | null; threadRootId?: string | null; transcriptHandleRef?: { current: FindInChatTranscriptHandle | null } } & ConversationTranscriptActions) {
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const olderLoadInFlightRef = useRef(false);
   const viewCommitListenersRef = useRef(new Set<() => void>());
@@ -779,6 +783,9 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
         }
 
         const ids = transcriptIds(entry.id, true);
+        const portrait = entry.role === "assistant" ? resolveMessageAvatar?.(entry) : null;
+        const hasPortrait = typeof portrait?.agentId === "string" && portrait.agentId.trim().length > 0;
+        const livePortrait = hasPortrait && entry.isStreaming === true && !isTransportDown && entry.delivery !== "failed" && entry.delivery !== "uncertain";
         const pending = entry.delivery === "pending" || entry.delivery === "queued";
         const failed = entry.delivery === "failed";
         const replyPreview = entry.replyToId == null || resolveReplyPreview == null ? null : (resolveReplyPreview(entry.replyToId) ?? { kind: "missing" as const });
@@ -818,10 +825,11 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
             data-index={index}
             data-pending={pending || undefined}
             data-role={entry.role}
+            data-presence-live={livePortrait || undefined}
             key={entry.id}
             role="article"
           >
-            <span className="sand-message-author" id={ids.author}>{entry.author}</span>
+            <span className="sand-message-author" id={ids.author}>{hasPortrait && portrait ? <AgentAvatar {...portrait} surface="message" size="sm" isStatic={!livePortrait} state={livePortrait ? "speaking" : "idle"} /> : null}{entry.author}</span>
             <time dateTime={new Date(entry.timestampMs).toISOString()} hidden id={ids.timestamp}>{new Date(entry.timestampMs).toLocaleString()}</time>
             <MessageActionAnchor entry={entry} isReadOnly={isReadOnly} onCopy={onCopyMessage} onOpenThread={resolveTranscriptCardInteractions?.openThread} onReply={onReply} onStartThread={onStartThread} renderReactionActions={reactionActions} threadRootId={threadRootId} threadSummary={threadSummary}>
               <div aria-label={entry.role === "assistant" ? "Agent message" : undefined} className="sand-message" data-group-start={messageAdjacency.isGroupStart || undefined} data-role={entry.role} role="group">

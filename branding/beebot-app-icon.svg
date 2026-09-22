@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect x="24" y="24" width="976" height="976" rx="216" fill="#F7F7F4"/>
+  <rect x="24" y="24" width="976" height="976" rx="216" fill="#F6F7F8"/>
   <g transform="translate(128 104) scale(12)">
-    <path d="M19 12h26c9 0 14 8 14 18v9c0 10-8 16-18 16H23C12 55 5 49 5 39v-9c0-10 5-18 14-18Z" fill="#E6B84A"/>
-    <path d="M24 13 20 7m20 6 4-6" fill="none" stroke="#42483A" stroke-width="2.5" stroke-linecap="round"/>
-    <rect x="21" y="28" width="5" height="7" rx="2.5" fill="#242621"/>
-    <rect x="38" y="28" width="5" height="7" rx="2.5" fill="#242621"/>
+    <path d="M18 14H46C55 14 60 21 59 33C60 47 52 54 42 54H22C11 54 4 47 5 33C4 21 10 14 18 14Z" fill="#AFC5E9"/>
+    <path d="M15 25Q18 15 29 14" fill="none" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="2.4" stroke-linecap="round"/>
+    <rect x="22" y="29" width="5" height="7" rx="2.5" fill="#273245"/>
+    <rect x="37" y="29" width="5" height="7" rx="2.5" fill="#273245"/>
+    <path d="M28 41Q32 44 36 41" fill="none" stroke="#273245" stroke-width="1.8" stroke-linecap="round"/>
   </g>
 </svg>

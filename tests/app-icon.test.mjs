@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-test("BeeBot Dock icon is the original Honeyline artwork, never the upstream blob", async () => {
+test("BeeBot Dock icon is the owned neutral Presence artwork, never the upstream blob", async () => {
   const { honeylineIconSvg } = await import("../scripts/lib/honeyline-icon.mjs");
   const svg = await readFile(path.join(repoRoot, "branding", "beebot-app-icon.svg"), "utf8");
   const shapes = JSON.parse(await readFile(path.join(repoRoot, "scripts", "lib", "persona-shape-paths.json"), "utf8"));
   assert.equal(svg, honeylineIconSvg(), "tracked artwork must regenerate exactly");
-  assert.match(svg, /fill="#F7F7F4"/); assert.match(svg, /fill="#E6B84A"/);
+  assert.match(svg, /fill="#F6F7F8"/); assert.match(svg, /fill="#AFC5E9"/);
   for (const shape of Object.values(shapes)) assert.ok(!svg.includes(shape), "no upstream mascot geometry");
-  assert.doesNotMatch(svg, /#07C160|linearGradient/);
+  assert.doesNotMatch(svg, /#07C160|#E6B84A|#F7F7F4|linearGradient/);
 });
 
 test("all macOS icon representations are generated at package time from tracked SVG", async () => {
