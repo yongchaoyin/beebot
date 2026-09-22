@@ -1,32 +1,113 @@
-name: Honeyline development source snapshot
+name: Honeyline reliability validation
 on:
   push:
     branches: [work/honeyline-reliability-snapshot-20260922]
 permissions:
   contents: read
 jobs:
-  dependencies:
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: a8bd4703edf0e75196d308b31b5b3c4ea9e34d74
+          path: transport
           persist-credentials: false
           lfs: false
+      - uses: actions/checkout@v4
+        with:
+          path: project
+          ref: a8bd4703edf0e75196d308b31b5b3c4ea9e34d74
+          lfs: true
+      - name: Apply only hash-verified reviewed code and tests
+        working-directory: project
+        run: |
+          python3 - <<'PY'
+          import json, hashlib, pathlib, subprocess
+          root = pathlib.Path.cwd()
+          transport = root.parent / 'transport'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip() == 'a8bd4703edf0e75196d308b31b5b3c4ea9e34d74'
+          digest = lambda b: hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+          expected = {}
+          manifests = sorted((transport / '.honeyline-edits').glob('*.json'))
+          assert len(manifests) == 7
+          for manifest in manifests:
+              r = json.loads(manifest.read_text())
+              path = root / r['path']
+              assert path.resolve().is_relative_to(root) and not path.is_symlink()
+              data = path.read_bytes()
+              assert digest(data) == r['before'], r['path'] + ': stale baseline'
+              for start, length, text in reversed(r['edits']):
+                  assert 0 <= start <= start + length <= len(data)
+                  data = data[:start] + text.encode() + data[start+length:]
+              assert digest(data) == r['after'], r['path'] + ': changed bytes differ from tested source'
+              path.write_bytes(data)
+              expected[r['path']] = r['after']
+          new_files = {
+              'docs/implementation/honeyline-reliability.md':'601dc7ee26ff40d0b91c7df968078a2043c4a5b8',
+              'tests/helpers/honeyline-transcript-harness.mjs':'188b1345acb19d2725657cc322733545690341b1',
+              'tests/honeyline-integration-contract.test.mjs':'c46269abfa1bfea3fe070865a3514818367c933a',
+              'tests/honeyline-reliability.test.mjs':'ed29009bb54eea69eb870d2b5100e22f5a3f133f',
+              'tests/honeyline-transcript.test.mjs':'b8e198575447ac1d6d48cf854d75c24a548a3b0e'
+          }
+          for name, sha in new_files.items():
+              target = root / name
+              assert not target.exists()
+              data = (transport / '.honeyline-payload' / name).read_bytes()
+              assert digest(data) == sha, name + ': payload mismatch'
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_bytes(data)
+          expected.update(new_files)
+          subprocess.run(['git','add','--',*expected.keys()],check=True)
+          changed = subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert set(changed) == set(expected)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          for name, sha in expected.items():
+              assert subprocess.check_output(['git','rev-parse',':'+name],text=True).strip() == sha, name
+          print('Verified 12 modified blobs against locally tested sources; no workflow files in delivery.')
+          PY
+          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix(honeyline): preserve send ordering, drafts and truthful recovery'
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
-      - name: Install exact dependencies for isolated Linux frontend validation
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Export dependencies and pinned Node, never credentials or configuration
+          cache: npm
+          cache-dependency-path: project/package-lock.json
+      - name: Install locked native dependencies
+        working-directory: project
+        run: npm ci --no-audit --no-fund
+      - name: Hydrate checksum-pinned runtime
+        working-directory: project
+        run: npm run bootstrap
+      - name: Generate owned macOS icon
+        working-directory: project
+        run: npm run icon:generate
+      - name: Run full source and package regressions
+        working-directory: project
         run: |
-          cp "$(command -v node)" "$RUNNER_TEMP/node-26.5.0"
-          tar -czf "$RUNNER_TEMP/beebot-dependencies.tar.gz" node_modules
+          set -o pipefail
+          npm run check 2>&1 | tee "$RUNNER_TEMP/honeyline-check.log"
+      - name: Build editable frontend
+        working-directory: project
+        run: npm run frontend:build
+      - name: Verify clean-history export and unchanged tested tree
+        working-directory: project
+        run: |
+          npm run publication:check
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Store validated code on a feature-only delivery ref
+        working-directory: project
+        run: |
+          test "$(git ls-remote origin refs/heads/feat/honeyline-theme-20260922 | cut -f1)" = a8bd4703edf0e75196d308b31b5b3c4ea9e34d74
+          git push origin HEAD:refs/heads/work/honeyline-reliability-validated-20260922
+          git show --no-patch --format='commit %H%ntree %T%nparent %P%n%s' HEAD | tee "$RUNNER_TEMP/honeyline-validated-commit.txt"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: honeyline-linux-validation-toolchain
+          name: honeyline-reliability-validation
           path: |
-            ${{ runner.temp }}/beebot-dependencies.tar.gz
-            ${{ runner.temp }}/node-26.5.0
-          retention-days: 1
+            ${{ runner.temp }}/honeyline-check.log
+            ${{ runner.temp }}/honeyline-validated-commit.txt
+          retention-days: 7

@@ -1,0 +1,1 @@
+{"path":"frontend/src/recovered/features/conversation/workspace/model.ts","before":"4962bc20821b3eca758d9731c15c49e698bcc6ea","after":"5cecd4a0eae8510b7a32a536b3349a70c8bd3e1b","edits":[[9458,0,"  /** Unknown receipt is not proof of failure; never offer blind resend. */\n  deliveryFailure?: \"rejected\" | \"unknown\";\n"]]}
