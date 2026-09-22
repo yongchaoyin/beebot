@@ -87,6 +87,11 @@ html[data-beebot-theme="honeyline"] [data-bb-delivery]::before {
 }
 html[data-beebot-theme="honeyline"] [data-bb-delivery][data-state="processing"]::before { background: var(--bee-accent); border-color: var(--bee-warning); }
 html[data-beebot-theme="honeyline"] [data-bb-delivery]:is([data-state="failed"], [data-state="needs-review"]) { color: var(--bee-danger); }
+/* Legacy and rebuilt delivery rows use the same semantic contrast tokens. */
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions, .sand-message-send-error, .sand-unread-marker) { color: var(--bee-muted); font-size: 12px; }
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions) button { color: var(--bee-link); text-decoration: underline; text-underline-offset: 3px; }
+html[data-beebot-theme="honeyline"] :is(.sand-send-error, .sand-message-send-error, .sand-failed-send-actions__label, .sand-failed-send-actions [role="status"]) { color: var(--bee-danger); }
+html[data-beebot-theme="honeyline"] .sand-unread-divider { color: var(--bee-link); }
 html[data-beebot-theme="honeyline"] [data-bb-publication] {
   display: block; width: fit-content; max-width: 100%; box-sizing: border-box; margin-block-start: 6px;
   padding: 8px 11px; border: 1px solid var(--bee-border); border-inline-start: 3px solid var(--bee-accent);
@@ -111,6 +116,8 @@ html[data-beebot-theme="honeyline"] :is(#sand-create-bot-sheet, #sand-create-gro
 .bee-status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--bee-muted); font: 12px/1.5 var(--bee-font); }
 .bee-status::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--bee-accent); border: 1px solid var(--bee-warning); border-radius: 50%; }
 .bee-status[data-state="attention"] { color: var(--bee-warning); }
+.bee-status[data-state="error"] { color: var(--bee-danger); }
+.bee-status:is([data-state="waiting"], [data-state="unknown"])::before { background: transparent; border-color: currentColor; }
 .bee-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes bee-attend { 50% { transform: translateY(-1px); } }
 @media (max-width: 720px) {
@@ -134,3 +141,9 @@ html[data-beebot-theme="honeyline"] :is(#sand-create-bot-sheet, #sand-create-gro
   html[data-beebot-theme="honeyline"] .sand-agent-item:is([aria-current="true"], [aria-current="page"], [data-active="true"]) { outline: 2px solid Highlight; outline-offset: -2px; }
   .bee-status::before { background: CanvasText; border-color: CanvasText; }
 }
+
+html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--bee-muted); }
+html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button { color: var(--bee-link); text-decoration: underline; text-underline-offset: 3px; }
+html[data-beebot-theme="honeyline"] .sand-uncertain-send-notice button:disabled { cursor: progress; }
+
+html[data-beebot-theme="honeyline"] :is(.sand-queued-send-notice, .sand-failed-send-actions) { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }

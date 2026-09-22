@@ -99,7 +99,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
 
   return <div className="beebot-node-conversation" ref={container}>
     <ConversationAgentHeader
-      agent={{ ...snapshot.bot, isRunning: working, memberIds: [], awaitingUserResponse: null }}
+      agent={{ ...snapshot.bot, isRunning: working, memberIds: [], awaitingUserResponse: null, connectionState: online ? "online" : "offline", workPhase: snapshot.uncertainGoal ? "uncertain" : snapshot.runningGoal?.status === "queued" ? "queued" : undefined }}
       isComputerActive={false}
       isInfoOpen={false}
       onToggleInfo={noOp}
