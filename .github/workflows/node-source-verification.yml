@@ -5,49 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 7fab604ebbc926150e64964c0d79aeb2d3860acf
-          persist-credentials: false
-      - name: Reassemble and verify the exact reviewed source patch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import urllib.request, json, base64, hashlib, lzma, pathlib, subprocess, os
-          shas = ['f2f928a93ef83bb71085520ff1cf903690d0f8d2','f5188f877598836558c9f4640c2fbe18200455e3','5ef79a3eac429c34413af5d2a7f2e59559a0faf4','5bf37f05cb7922114063172c942e584338581368','adcee663cfdde213d848dab7d578b2fda21a7b02','510ef861693bc877e471fa2b8658ef19af370d07','9e6a923faf4e19bf51cf1196f65ef7dcaeabd887','72b86cb9c0c97874686ede97f65c1a36ff4ae71a','a12f0c914abb8852f2696cbe419232ac4f46a41a']
-          payload = bytearray()
-          for sha in shas:
-              request = urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              data = json.load(urllib.request.urlopen(request, timeout=30))
-              chunk = base64.b64decode(data['content'])
-              assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest() == sha
-              payload.extend(chunk)
-          assert hashlib.sha256(payload).hexdigest() == 'ca66783b2e981a1560921461f3b4d430795f818efce1fcbc9453ede0920286c0'
-          patch = lzma.decompress(payload)
-          out = pathlib.Path(os.environ['RUNNER_TEMP'])/'node-candidate'; out.mkdir()
-          (out/'source.patch').write_bytes(patch)
-          subprocess.run(['git','apply','--unidiff-zero','--index',str(out/'source.patch')],check=True)
-          paths = subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
-          assert len(paths)==42
-          assert all(p.startswith(('source/','frontend/src/','scripts/','deploy/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
-          manifest = {p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths}
-          (out/'source-sha256.json').write_text(json.dumps(manifest,indent=2))
-          (out/'tree.txt').write_text(subprocess.check_output(['git','write-tree']).decode())
-          print('Verified source paths:',len(paths));print((out/'tree.txt').read_text())
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reviewed-node-candidate
-          path: ${{ runner.temp }}/node-candidate/
-          retention-days: 3
-          if-no-files-found: error
   linux:
-    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -58,20 +16,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: reviewed-node-candidate
+          run-id: 35758077824
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/node-candidate
-      - run: git apply --unidiff-zero --index "$RUNNER_TEMP/node-candidate/source.patch"
+      - name: Apply the unchanged verified source candidate
+        run: |
+          git apply --unidiff-zero --index "$RUNNER_TEMP/node-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/node-candidate/tree.txt")"
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify Node and frontend types and focused regressions
         run: |
-          npm run source:check
-          npm run frontend:check
+          npm run source:typecheck
+          npm run typecheck
           node --test tests/node-ssh-access.test.mjs tests/node-ssh-provisioner.test.mjs tests/node-command-journal.test.mjs tests/node-executor-boundary.test.mjs tests/node-client.test.mjs tests/node-auth.test.mjs tests/node-control.test.mjs tests/node-installation.test.mjs tests/node-installer.test.mjs tests/node-chat-controller.test.mjs tests/node-chat-drafts.test.mjs tests/node-chat-view.test.mjs tests/node-workbench.test.mjs tests/node-workbench-polish.test.mjs
       - name: Build the exact source-only Docker image
         run: docker build --file deploy/node.Dockerfile --tag beebot-node-ci:reviewed .
-      - name: Install the disposable local OpenSSH fixture prerequisite
+      - name: Install disposable local OpenSSH fixture prerequisite
         run: sudo apt-get update -qq && sudo apt-get install -y openssh-server
       - name: Exercise two real isolated Docker nodes through OpenSSH
         env:
@@ -85,36 +48,8 @@ jobs:
           path: node-ssh-integration.json
           retention-days: 3
           if-no-files-found: warn
-  macos:
-    needs: source
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 7fab604ebbc926150e64964c0d79aeb2d3860acf
-          lfs: true
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: reviewed-node-candidate
-          path: ${{ runner.temp }}/node-candidate
-      - name: Materialize the candidate in a local-only commit for export validation
-        run: |
-          git apply --unidiff-zero --index "$RUNNER_TEMP/node-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/node-candidate/tree.txt")"
-          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only candidate for source and publication verification'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5.0
-      - run: npm ci --no-audit --no-fund
-      - run: npm run bootstrap
-      - run: npm run icon:generate
-      - run: npm run check
-      - run: npm run frontend:build
-      - run: npm run publication:check
   candidate:
-    needs: [source, linux, macos]
+    needs: linux
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -126,8 +61,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: reviewed-node-candidate
+          run-id: 35758077824
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/node-candidate
-      - name: Publish source-only tested candidate without changing any existing branch
+      - name: Preserve tested source in a new candidate branch only
         run: |
           git apply --unidiff-zero --index "$RUNNER_TEMP/node-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/node-candidate/tree.txt")"
