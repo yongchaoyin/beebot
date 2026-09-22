@@ -1,22 +1,25 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useId, type CSSProperties } from "react";
 import { resolvePersonaColor, resolvePersonaShape } from "../../onboarding/signed-in/character";
 import { HoneylineCharacter } from "../../../../honeyline/components";
 import type { OnboardingCharacterState } from "../../onboarding/signed-in/scene";
+import { presenceFromWork, type PresenceState } from "../../../../presence/state";
+import type { WorkState } from "../../../../honeyline/status";
+import type { AvatarSurface } from "../../../../presence/motion";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2302348 (Iee avatar dispatcher; Mac SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182a3dcd717...)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2925837 (Iee avatar dispatcher; Windows SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2921693 (Eee/Cee/QCe/hct/gct/dln persona mappings)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2755564 (sd sand-grok-bot-mark wrapper)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2933499 (sand-group-avatar and sand-shared-room-avatar branches)
-// Honeyline owns the persona drawing; dispatcher semantics remain unchanged.
+// Presence owns the persona drawing; dispatcher semantics remain unchanged.
 // The dispatcher order is artifact data URL -> shared-room -> group -> persona
 // mark. There is deliberately no initials or CSS-generated fallback branch.
 
 export type AgentAvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type AgentAvatarKind = "agent" | "group" | "shared-room";
-export type PersonaState = OnboardingCharacterState;
+export type PersonaState = OnboardingCharacterState | PresenceState;
 
-export interface AgentAvatarProps {
+export interface AgentAvatarProps extends WorkState {
   readonly agentId: string;
   readonly name?: string;
   readonly dataUrl?: string | null;
@@ -36,40 +39,14 @@ export interface AgentAvatarProps {
   readonly followTarget?: { x: number; y: number } | null;
   readonly emphasis?: boolean;
   readonly spinSignal?: number;
+  readonly surface?: AvatarSurface;
 }
 
 const SIZE_PX: Record<AgentAvatarSize, number> = { xs: 16, sm: 22, md: 28, lg: 36, xl: 72 };
 
-const ACTIVITY_TO_STATE: Record<string, PersonaState> = {
-  thinking: "thinking", searching: "searching", browsing: "searching", reading: "searching", connecting: "searching",
-  writing: "working", coding: "working", generating: "loading", "running-commands": "working", "on-its-computer": "working",
-  "on-your-computer": "working", working: "working", messaging: "orbit", waiting: "orbit", sending: "sending"
-};
-
-function activityState(activity: unknown): PersonaState | null {
-  if (typeof activity !== "object" || activity == null) return null;
-  const value = activity as Record<string, unknown>;
-  if (value.kind === "thinking") return "thinking";
-  if (value.kind === "tool" && value.tool === "SendToAgent") return "sending";
-  if (typeof value.verb === "string" && ACTIVITY_TO_STATE[value.verb] != null) return ACTIVITY_TO_STATE[value.verb];
-  if (typeof value.tool === "string") {
-    if (value.tool === "WebSearch") return "searching";
-    if (value.tool === "WebFetch" || value.tool.startsWith("browser_")) return "searching";
-    if (value.tool === "GenerateImage") return "loading";
-    if (value.tool === "SendToAgent" || value.tool === "UpdateAgent") return "sending";
-    if (value.tool === "Task" || value.tool === "Await" || value.tool === "CheckSubagent") return "orbit";
-    return "working";
-  }
-  return null;
-}
-
-/** Mirrors the shipped mct/wbe state gate using the current typed roster inputs. */
-export function personaStateFromAgent(input: Pick<AgentAvatarProps, "awaitingUserResponse" | "currentActivity" | "isRunning" | "isComposingMessage">): PersonaState {
-  if (input.awaitingUserResponse != null) return "idle";
-  const activity = activityState(input.currentActivity);
-  if (activity != null) return activity;
-  if (input.isComposingMessage === true) return "thinking";
-  return input.isRunning === true ? "working" : "idle";
+/** Read the same facts as the status text; stale activity never starts motion. */
+export function personaStateFromAgent(input: WorkState): PresenceState {
+  return presenceFromWork(input);
 }
 
 function avatarState(props: AgentAvatarProps): PersonaState {
@@ -80,8 +57,9 @@ function avatarStyle(sizePx: number): CSSProperties {
   return { height: sizePx, width: sizePx };
 }
 
-function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, paused, isFollowingPointer, followTarget, emphasis, spinSignal }: { agentId: string; color: string; shape: string; state: PersonaState; size?: AgentAvatarSize } & Pick<AgentAvatarProps, "isStatic" | "paused" | "isFollowingPointer" | "followTarget" | "emphasis" | "spinSignal"> & { sizePx: number }) {
-  return <span aria-hidden="true" className="sand-agent-avatar sand-grok-bot-mark" data-avatar-color={color} data-avatar-shape={shape} data-size={typeof size === "string" ? size : undefined} data-emphasis={emphasis || undefined} style={{ ...avatarStyle(sizePx), filter: emphasis ? "drop-shadow(0 0 3px color-mix(in srgb, currentColor 32%, transparent))" : undefined }}>
+function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, paused, isFollowingPointer, followTarget, emphasis, spinSignal, surface }: { agentId: string; color: string; shape: string; state: PersonaState; size?: AgentAvatarSize } & Pick<AgentAvatarProps, "isStatic" | "paused" | "isFollowingPointer" | "followTarget" | "emphasis" | "spinSignal" | "surface"> & { sizePx: number }) {
+  const instanceId = useId();
+  return <span aria-hidden="true" className="sand-agent-avatar sand-grok-bot-mark" data-avatar-color={color} data-avatar-shape={shape} data-size={typeof size === "string" ? size : undefined} data-emphasis={emphasis || undefined} style={avatarStyle(sizePx)}>
     <HoneylineCharacter
       color={color}
       emphasis={emphasis}
@@ -90,7 +68,9 @@ function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, pau
       paused={paused === true || isStatic === true}
       shape={shape}
       sizePx={sizePx}
-      sourceId={`sand-agent-mark-source-${agentId}`}
+      sourceId={`presence-avatar-${instanceId}`}
+      identityKey={agentId}
+      surface={surface}
       spinSignal={spinSignal}
       state={state}
     />
@@ -138,5 +118,5 @@ export function AgentAvatar(props: AgentAvatarProps) {
   if (dataUrl != null) return <img alt="" aria-hidden="true" className="sand-agent-avatar" data-avatar-kind="photo" data-size={size} draggable={false} height={sizePx} src={dataUrl} style={avatarStyle(sizePx)} width={sizePx} />;
   if (kind === "shared-room") return <SharedRoomAvatar sizePx={sizePx} />;
   if (kind === "group") return <GroupAvatar agentId={props.agentId} memberIds={props.memberIds ?? []} paused={props.paused} sizePx={sizePx} state={state} />;
-  return <PersonaMark agentId={props.agentId} color={color} emphasis={props.emphasis} followTarget={props.followTarget} isFollowingPointer={props.isFollowingPointer} isStatic={props.isStatic} paused={props.paused} shape={shape} size={size} sizePx={sizePx} spinSignal={props.spinSignal} state={state} />;
+  return <PersonaMark agentId={props.agentId} color={color} emphasis={props.emphasis} followTarget={props.followTarget} isFollowingPointer={props.isFollowingPointer} isStatic={props.isStatic} paused={props.paused} shape={shape} size={size} sizePx={sizePx} spinSignal={props.spinSignal} surface={props.surface} state={state} />;
 }

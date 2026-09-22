@@ -1,5 +1,7 @@
 # Honeyline reliability increment — 2026-09-22
 
+
+> Visual direction superseded by [Presence](presence-theme.md). Reliability contracts remain in force.
 Base: `a8bd4703edf0e75196d308b31b5b3c4ea9e34d74` (PR #2).
 
 ## Scope

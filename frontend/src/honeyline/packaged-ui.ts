@@ -1,6 +1,7 @@
 import type * as ReactAPI from "react";
 export { createHoneylineCharacter } from "./character";
 export { createCharacterSvg } from "./avatar-art";
+export { presenceFromWork } from "../presence/state";
 import { workLabel, type WorkState } from "./status";
 
 /** This adapter is injected into the native renderer alongside its existing

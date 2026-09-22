@@ -26,7 +26,7 @@ export interface ConversationAgentHeaderProps {
 export function ConversationAgentHeader({ agent, isComputerActive, isInfoOpen, onToggleInfo, onToggleSettings, sharedRoomTrigger, trailing, showComputerControl = true }: ConversationAgentHeaderProps) {
   const avatarKind = agent.isSharedRoom === true ? "shared-room" : agent.isGroup === true ? "group" : "agent";
   const identity = <>
-    <span className="sand-chat-header__avatar"><AgentAvatar agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size="md" /></span>
+    <span className="sand-chat-header__avatar"><AgentAvatar agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} waiting={agent.waiting} waitingReason={agent.waitingReason} workPhase={agent.workPhase} connectionState={agent.connectionState} surface="header" isFollowingPointer size="md" /></span>
     <span id="sand-conversation-heading">{agent.name}</span>
     <HoneylineWorkStatus agent={agent} />
   </>;

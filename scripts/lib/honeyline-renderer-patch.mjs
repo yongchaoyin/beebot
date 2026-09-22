@@ -29,9 +29,25 @@ export function patchHoneylineRenderer(source) {
   let result = source.slice(0, start) + `function sd(n){
     const style=Fe(Slt.root,n.style),size="sizeCss" in n?n.sizeCss:n.sizePx;
     return p.jsxs("span",{"aria-hidden":true,className:re("sand-grok-bot-mark","bee-persona",style.className,n.className),"data-grok-state":n.state??"idle","data-paused":n.paused||undefined,style:{...style.style,width:size,height:size},children:[
-      p.jsx(RHoneylineCharacter(),{color:n.color,shape:n.shape,state:n.state,paused:n.paused,sizePx:n.sizePx,sourceId:n.sourceId,emphasis:n.emphasis,spinSignal:n.spinSignal,ref:n.ref}),n.children
+      p.jsx(RHoneylineCharacter(),{color:n.color,shape:n.shape,state:n.state,paused:n.paused,sizePx:n.sizePx,sourceId:n.sourceId,identityKey:n.identityKey??n.sourceId,emphasis:n.emphasis,isFollowingPointer:n.isFollowingPointer,followTarget:n.followTarget,spinSignal:n.spinSignal,ref:n.ref}),n.children
     ]});
   }` + source.slice(end);
+  // Visible avatars own their motion. The upstream <use> source is hidden and
+  // cannot supply visibility/focus budgeting. Photos and persisted keys stay exact.
+  const dispatcherStart = result.indexOf("function Iee(n){");
+  const dispatcherEnd = result.indexOf("function pln(", dispatcherStart);
+  if (dispatcherStart < 0 || dispatcherEnd < 0 || createHash("sha256").update(result.slice(dispatcherStart, dispatcherEnd)).digest("hex") !== "03248da90575b211b0cfe2d08852262caac7297a4ab1df4ea900be83627c038b") {
+    throw new Error("Presence avatar dispatcher differs from the pinned 0.18 source");
+  }
+  result = result.slice(0, dispatcherStart) + `function Iee(n){
+    const {avatarKey:t,dataUrl:s,size:r,fillPx:i,state:o,shape:l,color:c,isStatic:u,style:m}=n,f=r??"md",O=i??Jj[f];
+    if(s!=null&&s.length>0)return p.jsx(au,{"aria-hidden":true,className:"sand-agent-avatar","data-size":f,sizePx:O,src:s,style:m});
+    return p.jsx(sd,{className:"sand-agent-avatar",color:c??sle(t),shape:l??u4e(t),sizePx:O,state:o??eZ,paused:u??true,identityKey:kct(t),style:m});
+  }` + result.slice(dispatcherEnd);
+  result = once(result, 'function wbe(n){return n==null||!xge(n)?eZ:KCe(n)?"thinking":nln(n.currentActivity??null)}', 'function wbe(n){return RHoneylineUI.presenceFromWork(n??{})}', "avatar work facts");
+  result = once(result, 'function mct({rosterAgent:n,surfaceFacts:e}){if(n?.awaitingUserResponse!=null)return eZ;const t=wbe(n);return t===eZ?wbe(e):t}', 'function mct({rosterAgent:n,surfaceFacts:e}){return wbe(n??e)}', "authoritative avatar facts");
+  result = once(result, 'function cln(n,e){return n.isRunning===e.isRunning&&n.isComposingMessage===e.isComposingMessage&&n.awaitingUserResponse===e.awaitingUserResponse&&n.currentActivity===e.currentActivity}', 'function cln(n,e){return n.isRunning===e.isRunning&&n.isComposingMessage===e.isComposingMessage&&n.awaitingUserResponse===e.awaitingUserResponse&&n.currentActivity===e.currentActivity&&n.waiting===e.waiting&&n.waitingReason===e.waitingReason&&n.workPhase===e.workPhase&&n.connectionState===e.connectionState}', "avatar fact cache");
+  result = once(result, 'Q=p.jsx(ml,{agent:t,fillPx:Tve,isStatic:!0,size:"xs"})', 'Q=p.jsx(ml,{agent:t,fillPx:28,isStatic:!1,size:"md"})', "active header portrait");
   result = once(result, 'viewBox:ent,children:p.jsx("use",{height:J1.height,href:k,width:J1.width,x:J1.minX,y:J1.minY})', 'viewBox:"0 0 64 64",children:p.jsx("use",{href:k})', "live avatar mirror");
   result = once(result, avatarSource.slice(svgStart, svgEnd), 'function RBotSvg(shape,colorId,size){return RHoneylineUI.createCharacterSvg(document,shape,colorId,size)}\n', "creation/group artwork");
   result = once(result, 'className:re("sand-agents-sidebar__new-actions",v.className),style:v.style,children:[m!=null', 'className:re("sand-agents-sidebar__new-actions",v.className),style:v.style,children:[p.jsx("span",{className:"bee-wordmark",children:"BeeBot"}),m!=null', "sidebar wordmark");

@@ -7,7 +7,7 @@ import { workLabel } from "../frontend/src/honeyline/status.ts";
 import { characterLayers, characterVariant, createCharacterSvg } from "../frontend/src/honeyline/avatar-art.ts";
 import { buildRuntimeThemeCss } from "../frontend/src/recovered/features/runtime-theme-token-installer.ts";
 
-const tokens = await readFile(new URL("../frontend/src/honeyline/tokens.css", import.meta.url), "utf8");
+const tokens = await readFile(new URL("../frontend/src/presence/tokens.css", import.meta.url), "utf8");
 const css = await readFile(new URL("../frontend/src/honeyline/honeyline.css", import.meta.url), "utf8");
 const palette = chunk => Object.fromEntries([...chunk.matchAll(/--bee-([\w-]+): (#[\da-f]{6});/gi)].map(match => [match[1], match[2]]));
 const luminance = hex => {
@@ -41,7 +41,7 @@ test("theme installation is idempotent and leaves preference, draft, focus, scro
   const before = buildRuntimeThemeCss("dark");
   installHoneyline(document); installHoneyline(document);
   assert.equal(document.documentElement.dataset.theme, "cursor-dark");
-  assert.equal(document.documentElement.dataset.beebotTheme, "honeyline");
+  assert.equal(document.documentElement.dataset.beebotTheme, "presence");
   assert.equal(document.querySelector("textarea"), editor); assert.equal(document.activeElement, editor);
   assert.equal(editor.value, "Keep this draft"); assert.equal(editor.selectionStart, 4); assert.equal(history.scrollTop, 20);
   assert.equal(window.localStorage.length, 0); assert.equal(document.head.children.length, 0);
@@ -70,7 +70,7 @@ test("original avatars are deterministic, distinct and safe for untrusted person
   assert.equal(first.outerHTML, second.outerHTML, "no random IDs or color drift");
   const hostile = createCharacterSvg(window.document, '"><script>alert(1)</script>', "__proto__", NaN);
   assert.equal(hostile.querySelector("script"), null); assert.equal(hostile.getAttribute("width"), "32");
-  assert.equal(hostile.querySelector("path").getAttribute("fill"), "#E6B84A");
+  assert.equal(hostile.querySelector("path").getAttribute("fill"), "#C4CBD5");
   assert.ok(characterLayers("blob", "green").length >= 4);
 });
 

@@ -1,0 +1,25 @@
+/* Geometry remains stable through all state changes. Animation is coordinated,
+   finite, and bounded; these poses still communicate when motion is disabled. */
+.presence-avatar { display: block; width: 100%; height: 100%; overflow: visible; }
+.presence-avatar [data-motion-part="head"] { transform-origin: 32px 34px; }
+.presence-avatar [data-motion-part="gaze"] { transition: transform 120ms ease-out; }
+.presence-avatar :is([data-motion-part="expression"], [data-motion-part="blink"]) { transform-origin: 32px 31px; }
+.presence-avatar [data-motion-part="mouth"] { transform-origin: 32px 42px; }
+.presence-avatar[data-presence="thinking"] [data-motion-part="expression"] { transform: translateY(-.5px) scaleY(.86); }
+.presence-avatar[data-presence="speaking"] [data-motion-part="mouth"] { stroke-width: 2px; }
+.presence-avatar[data-presence="needs_user"] [data-motion-part="expression"] { transform: scaleY(1.12); }
+.presence-avatar[data-presence="waiting"] [data-motion-part="expression"] { transform: scaleY(.9); }
+.presence-avatar:is([data-presence="paused"], [data-presence="offline"]) [data-motion-part="expression"] { transform: scaleY(.3); }
+.presence-avatar:is([data-presence="offline"], [data-presence="unknown"]) [data-motion-part="head"] { opacity: .65; }
+.presence-avatar[data-presence="error"] [data-motion-part="mouth"] { transform: scaleY(-1); }
+.presence-avatar[data-motion="off"] [data-motion-part="gaze"] { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .presence-avatar * { animation: none !important; transition: none !important; }
+  .presence-avatar [data-motion-part="gaze"] { transform: none !important; }
+}
+@media (forced-colors: active) {
+  .presence-avatar > path:first-child, .presence-avatar [data-motion-part="head"] > path:first-child { fill: Canvas; stroke: CanvasText; stroke-width: 2px; }
+  .presence-avatar > path:nth-child(2), .presence-avatar [data-motion-part="head"] > path:nth-child(2) { display: none; }
+  .presence-avatar > rect, .presence-avatar [data-motion-part="blink"] rect { fill: CanvasText; }
+  .presence-avatar [data-motion-part="mouth"] path { stroke: CanvasText; }
+}

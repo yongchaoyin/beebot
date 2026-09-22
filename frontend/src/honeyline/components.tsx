@@ -1,5 +1,8 @@
 import * as React from "react";
-import { createHoneylineCharacter } from "./character";
+import { createPresenceCharacter } from "../presence/character";
 import { createHoneylineWorkStatus } from "./packaged-ui";
-export const HoneylineCharacter = createHoneylineCharacter(React);
-export const HoneylineWorkStatus = createHoneylineWorkStatus(React);
+export const PresenceCharacter = createPresenceCharacter(React);
+export const PresenceWorkStatus = createHoneylineWorkStatus(React);
+/** Stable aliases for older compiled adapters. */
+export const HoneylineCharacter = PresenceCharacter;
+export const HoneylineWorkStatus = PresenceWorkStatus;
