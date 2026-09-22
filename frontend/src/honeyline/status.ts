@@ -5,10 +5,14 @@ export interface WorkState {
   currentActivity?: unknown;
   waitingReason?: string;
 }
-export interface WorkLabel { state: "working" | "attention"; zh: string; en: string }
+export interface WorkLabel { state: "working" | "attention" | "waiting"; zh: string; en: string }
 /** Presentation of real roster events only. No timer-driven claims or progress. */
 export function workLabel(agent: WorkState): WorkLabel | null {
-  if ((agent.awaitingUserResponse != null && agent.awaitingUserResponse !== false) || (typeof agent.waitingReason === "string" && agent.waitingReason.trim().length > 0)) return { state: "attention", zh: "需要你确认", en: "Needs your input" };
+  // A free-text reason does not establish who must act. Only an explicit user
+  // request can make an attention claim; legacy/unknown waits remain neutral.
+  const request = agent.awaitingUserResponse;
+  if (request === true || (request != null && typeof request === "object" && !Array.isArray(request))) return { state: "attention", zh: "需要你确认", en: "Needs your input" };
+  if (typeof agent.waitingReason === "string" && agent.waitingReason.trim().length > 0) return { state: "waiting", zh: "正在等待", en: "Waiting" };
   if (!agent.isRunning && !agent.isComposingMessage) return null;
   const activity = agent.currentActivity != null && typeof agent.currentActivity === "object" ? agent.currentActivity as Record<string, unknown> : {};
   const verb = typeof activity.verb === "string" ? activity.verb : "";
