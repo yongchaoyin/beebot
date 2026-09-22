@@ -13,10 +13,18 @@ jobs:
         with:
           persist-credentials: false
           lfs: false
-      - name: Archive tracked source only
-        run: git archive --format=tar.gz -o /tmp/beebot-source.tar.gz HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Install locked compiler and component dependencies without application hooks
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Archive local regression tools only
+        run: |
+          mkdir -p /tmp/honeyline-tools
+          cp "$(command -v node)" /tmp/honeyline-tools/node
+          tar -czf /tmp/honeyline-tools/node-modules.tar.gz node_modules
       - uses: actions/upload-artifact@v4
         with:
-          name: honeyline-tracked-source
-          path: /tmp/beebot-source.tar.gz
+          name: honeyline-locked-linux-tools
+          path: /tmp/honeyline-tools/
           retention-days: 1
