@@ -1,3 +1,5 @@
+import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE } from "./collaboration.js";
+import { appendEntry } from "./transcript-store.js";
 import { describeReplyChain } from "./message-reply-contract.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { isMessageAddress } from "../../../shared/message-reference.js";
@@ -425,7 +427,7 @@ export class TurnRuntime {
       try {
         const unansweredPrompts =
           this.tm.widgetResponses.collectUnansweredQuestionPrompts(session);
-        const result = await runner.run(prompt, {
+        const result = await runner.run(prompt + "\n\n" + COLLABORATION_GUIDANCE + collaborationContext(session.db.getTranscriptEntries(), session.id), {
           ...options,
           ...unansweredPrompts,
           traceCtx: turnCtx,
@@ -756,6 +758,19 @@ export class TurnRuntime {
           runSession,
           entries,
         ) as SendMessage;
+        if (threaded.collaboration) {
+          if (!runSession || this.tm.sharedRooms.sharedRoomConfigOf(runSession)) throw new Error("Work contracts require a local conversation.");
+          const work = prepareCollaboration({messageId: sendId, actor: runSession.id, members: [runSession.id], entries: runSession.db.getTranscriptEntries(), message: threaded});
+          if (work.replayId) return work.replayId;
+          const message = work.replyTo && !threaded.reply_to ? {...threaded, reply_to: work.replyTo} : threaded;
+          const entry: TranscriptEntry = {...createSendMessageEntry(sendId, message, update.timestampMs),
+            author: {id: runSession.id, name: this.tm.roster.resolveAgentProfile(runSession).name}, collaborationEvent: work.event};
+          if (runSession.db.appendTranscriptEntry(entry) === false) throw new Error("Work update was not saved; no commitment changed.");
+          if (isForActiveAgent) { appendEntry(entry); this.tm.roster.emit({type:"appended",entry}, runSession.id); }
+          this.tm.ackObligations.fulfillAckObligation(runSession.id, update.ackToken);
+          void this.tm.roster.emitAgentUpdate(runSession.id);
+          return sendId;
+        }
         const batchId =
           threaded.type === "attachment" && runSession != null
             ? this.tm.sendPipeline.claimSendAttachmentBatchId(runSession.id)

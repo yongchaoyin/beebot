@@ -1,3 +1,4 @@
+import { prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE } from "./collaboration.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -458,7 +459,7 @@ export class GroupChatGlue {
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
               {
-                systemPrompt: effective.systemPrompt,
+                systemPrompt: effective.systemPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null ? "\n\n" + COLLABORATION_GUIDANCE : ""),
                 isSharedRoomTurn:
                   this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null,
               },
@@ -492,7 +493,7 @@ export class GroupChatGlue {
               const anchor = latestHistory.findLastIndex(message => !!message.id && sourceIds.has(message.id));
               const newerUserMessages = anchor >= 0 ? latestHistory.slice(anchor + 1).filter(message => message.speaker.kind === "user") : [];
               const currentPrompt = newerUserMessages.length ? `${prompt}\n\nUser messages received while waiting for execution (constraints apply, but these are not peer authorization):\n${newerUserMessages.map(message => `[${message.id}] ${message.content}`).join("\n")}` : prompt;
-              const memberResult = await registeredRunner.run(currentPrompt, {
+              const memberResult = await registeredRunner.run(currentPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null ? collaborationContext(roomSession.db.getTranscriptEntries(), memberSession.id) : ""), {
                 traceCtx: memberTurnTrace?.context ?? traceCtx,
                 requestSource,
               });
@@ -625,17 +626,22 @@ export class GroupChatGlue {
     publication?: GroupPublication,
   ): string | undefined {
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
-    const replyTo = publication?.replyToId;
+    const config = readSandGroupConfig(dirname(session.dbPath));
+    const candidateId = nextEntryId(session.db.getTranscriptEntries(), "send-message");
+    const work = prepareCollaboration({ messageId: candidateId, actor: member.id, members: config?.memberIds ?? [],
+      entries: session.db.getTranscriptEntries(), message: publication?.message ?? {type:"text",content}, sharedRoom: !!config?.sharedRoomId });
+    if (work.replayId) return work.replayId;
+    const replyTo = publication?.replyToId ?? work.replyTo;
     const parent = replyTo ? requireMessageReference(entriesInRoom, replyTo) : undefined;
     const workOnId = publication?.workOnId ?? (typeof parent?.workOnId === "string" ? parent.workOnId : undefined);
     if (workOnId) requireMessageReference(entriesInRoom, workOnId, "work_on");
     const message = publication?.message ?? {type: "text", content};
     const latestUser = [...entriesInRoom].reverse().find((entry: TranscriptEntry) => entry.kind === "message" && entry.role === "user" && entry.fromAgent == null);
     const decisionUserId = publication?.contextUserMessageId !== undefined ? publication.contextUserMessageId : latestUser?.id ?? null;
-    const details = { ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
+    const details = { ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext: {userMessageId: decisionUserId}, ...(decisionUserId !== (latestUser?.id ?? null) ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
-    if (live != null && isActive) {
+    if (live != null && isActive && !work.event) {
       const previewId = live.sealed.shift();
       if (previewId != null) {
         const finalized = updateEntry(previewId, (entry) =>
@@ -669,7 +675,7 @@ export class GroupChatGlue {
       : session.db.getTranscriptEntries();
     const entry: TranscriptEntry = {
       kind: "send-message",
-      id: nextEntryId(entries, "send-message"),
+      id: work.event ? candidateId : nextEntryId(entries, "send-message"),
       message,
       ...details,
       timestampMs: Date.now(),
@@ -790,6 +796,8 @@ export class GroupChatGlue {
           id: entry.id,
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
+          ...((entry.message as any).purpose ? {purpose: (entry.message as any).purpose} : {}),
+          ...(entry.collaborationEvent ? {recipientIds: (entry.collaborationEvent as any).wake} : {}),
           speaker: {
             kind: "member",
             id: (entry.author as any).id,

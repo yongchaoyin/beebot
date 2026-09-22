@@ -225,15 +225,17 @@ export class GroupChatOrchestrator {
       const workOnId = publication.workOnId ?? parent?.workOnId;
       const item = { ...publication, ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}) };
       const key = JSON.stringify([member.id, item.content, item.replyToId, item.workOnId, item.message ?? null]);
-      if (published.has(key)) return;
+      if (published.has(key) && !item.message?.collaboration) return;
       if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
+      const beforeIds = item.message?.collaboration ? new Set(this.deps.readHistory().map(message => message.id)) : undefined;
       const id = this.deps.postMemberMessage(member, item.content, item);
+      if (id && beforeIds?.has(id)) return id; // Same work command, same receipt, no duplicate wake.
       published.add(key); posted++;
       if (replyToId) {
         repliedIds.add(replyToId);
         if (id) this.deps.onReplied?.(member, replyToId, id);
       }
-      onMessage({ ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
+      onMessage((id ? this.deps.readHistory().find(message => message.id === id) : undefined) ?? { ...(item.message?.purpose ? {purpose: item.message.purpose as NonNullable<GroupMessage["purpose"]>} : {}), ...(id ? { id } : {}), ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}), ...(item.awaitingUser ? { awaitingUser: true } : {}), speaker: { kind: "member", id: member.id, name: member.name }, content: item.content });
       return id || undefined;
     };
     try {

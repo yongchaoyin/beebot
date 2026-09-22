@@ -1,9 +1,12 @@
+import { collaborationActionSchema, type CollaborationAction, MESSAGE_PURPOSES, type MessagePurpose } from "../../../shared/collaboration.js";
 import { z } from "zod";
 import { sandWidgetSchema } from "../../../shared/sand-widgets.js";
 export const SEND_MESSAGE_TYPES = ["text", "attachment", "widget", "cursor-agent", "secret-request"] as const;
 export const SEND_MESSAGE_TYPE_DESCRIPTION = "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste).";
 export type SendMessageType = typeof SEND_MESSAGE_TYPES[number];
 export interface SendMessageInput {
+  readonly purpose?: MessagePurpose | undefined;
+  readonly collaboration?: CollaborationAction | undefined;
   readonly type: SendMessageType; readonly content?: string | undefined; readonly url?: string | undefined;
   readonly images?: readonly { readonly url: string; readonly alt?: string | undefined }[] | undefined; readonly alt?: string | undefined;
   readonly reply_to?: string | undefined; readonly work_on?: string | undefined; readonly channel?: string | undefined; readonly widget?: unknown; readonly bcId?: string | undefined;
@@ -18,6 +21,8 @@ const TYPE_FIELDS: readonly { field: keyof SendMessageInput; types: readonly Sen
 ];
 export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   const issues: SendMessageIssue[] = [];
+  if (value.collaboration && (value.type !== "text" || value.channel)) issues.push({path:["collaboration"],message:"Work actions are local text messages. Publish attachments separately and reference them."});
+  if (value.purpose && value.channel) issues.push({path:["purpose"],message:"Message purpose only applies inside this conversation."});
   if (value.work_on && (!value.reply_to || value.channel || value.type === "secret-request")) issues.push({ path: ["work_on"], message: "work_on requires reply_to in this conversation, cannot target external channels or credential requests, and never grants permission or completes work." });
   for (const { field, types } of TYPE_FIELDS) if (!types.includes(value.type) && isFieldProvided(value[field])) { const allowed = types.map((type) => `type:${type}`).join(" or "); issues.push({ path: [String(field)], message: `${String(field)} is only valid with ${allowed} and cannot ride a type:${value.type} message \u2014 it would be silently dropped. Nothing was sent. Re-send as separate SendMessage calls, one per type: this field on its own properly-typed message (${allowed}), and any text as its own type:text message.` }); }
   if (value.channel && value.type !== "text" && value.type !== "attachment") issues.push({ path: ["channel"], message: "channel can only be set for type:text or type:attachment, not widgets or cursor-agent cards" });
@@ -32,6 +37,8 @@ export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   return issues;
 }
 const objectSchema = z.object({
+  purpose: z.enum(MESSAGE_PURPOSES).optional().describe("update: visible information without waking peers; request: an actionable @ or quoted request; discussion: open conversation. Omit for legacy behavior."),
+  collaboration: collaborationActionSchema.optional().describe("A real work commitment accompanying this message. Stable request_id makes retries idempotent; expected_version prevents stale updates. Prose alone never changes work status."),
   type: z.enum(SEND_MESSAGE_TYPES).describe(SEND_MESSAGE_TYPE_DESCRIPTION),
   content: z.string().trim().optional().describe("Required when type is text. The message to show to the user."),
   url: z.string().trim().optional().describe("Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media."),
