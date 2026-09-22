@@ -15,6 +15,16 @@ export async function loadContinuityRuntime(t) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   await build({
     stdin: { contents: `
+      export { renderAgentDirectorySystemPrompt, describeAddress } from "./source/host/agents/agent-messaging.ts";
+export { BotRoleStore } from "./source/host/agents/bot-role-store.ts";
+      export { BotRoles } from "./source/host/extensions/transcript/bot-roles.ts";
+      export { AgentLifecycle } from "./source/host/extensions/transcript/agent-lifecycle.ts";
+      export { botRoleDraftSchema, renderBotRole } from "./source/shared/bot-role.ts";
+      export { normalizeAgentProfileIdentity, agentProfileIdentitiesEqual, renderAgentProfileUpdate, parseLatestAgentProfileUpdate } from "./source/host/runner/sand-agent-profile-prompt.ts";
+      export { ProfileWatch } from "./source/host/extensions/transcript/profile-watch.ts";
+      export { buildGroupMemberSystemPrompt } from "./source/host/groups/group-chat.ts";
+      export { createAgentParameters, updateAgentParameters } from "./source/host/runner/tools/sand-agent-management-tools.ts";
+
       export { recordedWorkStatus, publishRecordedWorkStatus, localRecordedWorkStatus } from "./source/host/extensions/transcript/recorded-work-status.ts";
       export { understandUserWorkMessage, formatWorkUnderstanding } from "./source/host/extensions/transcript/work-understanding.ts";
       export { understandWorkMessage } from "./source/host/extensions/transcript/collaboration.ts";

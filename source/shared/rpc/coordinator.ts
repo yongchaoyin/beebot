@@ -95,6 +95,8 @@ export const COORDINATOR_METHOD_TABLE = {
   getAgentTranscriptTail: { args: "object", reply: "transcript-page" },
   openAgentTail: { args: "object", reply: "transcript-page" },
   sendPrompt: { args: "object", reply: "send-result" },
+  getBotRole: {args: "object", reply: "record"},
+  updateBotRole: {args: "object", reply: "record"},
   getCollaboration: {args: "object", reply: "record"},
   reviewCollaboration: {args: "object", reply: "record"},
   stopConversation: { args: "object", reply: "record" },

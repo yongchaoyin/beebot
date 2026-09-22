@@ -1,3 +1,4 @@
+import type { BotRoleRecord } from "../../../shared/bot-role.js";
 import { understandUserWorkMessage, formatWorkUnderstanding } from "./work-understanding.js";
 import { workContextView, workFocus, NATURAL_WORK_GUIDANCE } from "./collaboration-context.js";
 import { prepareCompletion, projectCompletions, completionIsCurrent } from "./collaboration-completion.js";
@@ -36,6 +37,7 @@ export function projectCollaboration(entries: readonly TranscriptEntry[]): Map<s
 }
 
 export interface WorkPublication {
+  actorRole?: BotRoleRecord | null;
   messageId: string; actor: string; members: readonly string[]; entries: readonly TranscriptEntry[];
   message: Record<string, any>; sharedRoom?: boolean; dbPath?: string; trustedUser?: boolean;
 }
@@ -82,9 +84,18 @@ export function prepareCollaboration(input: WorkPublication): PreparedWork {
   } else {
     const prior = tasks.get(action.task_id);
     check(prior, "work_not_found", "The work is not in this conversation.");
+    if (action.action === "claim" && input.actorRole) {
+      check(action.role_check, "work_role_check_required", "Read your confirmed primary job and assess this work before claiming; decline or clarify out-of-role work. @ and assignment do not extend your job.");
+      check(action.role_check.revision === input.actorRole.revision, "work_role_stale", "Your confirmed job changed. Inspect it before claiming; never silently upgrade an old assessment.");
+    } else if (action.action === "claim" && action.role_check) {
+      check(false, "work_role_unconfirmed", "There is no confirmed role for this Bot. Do not invent a role revision.");
+    }
     const transition = advanceWork({prior, action, actor: input.actor, members: input.members, tasks,
       entries: input.entries, messageId: input.messageId, dbPath: input.dbPath});
     next = transition.task;wake = transition.wake;
+    if (action.action === "claim" && input.actorRole && action.role_check) {
+      next = {...next, roleAcceptance:{...action.role_check,primaryJob:input.actorRole.role.primaryJob}};
+    }
   }
   wake = [...new Set(wake)].filter(id => id !== input.actor && input.members.includes(id));
   const event: CollaborationEvent = { format: 1, actor: input.actor, requestId: action.request_id, digest, task: next, wake };

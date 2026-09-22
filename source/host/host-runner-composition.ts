@@ -1482,7 +1482,8 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
           .map((agent: any) => ({
             id: agent.id,
             name: agent.name,
-            description: agent.description
+            description: agent.description,
+            role: method(transcript, "getBotRole")?.({agentId:agent.id})?.role ?? null
           }));
       },
       agentGroups: () => {

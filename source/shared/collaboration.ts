@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roleCheckSchema } from "./bot-role.js";
 
 const address = z.string().trim().min(1).max(256);
 const version = z.number().int().positive();
@@ -24,7 +25,7 @@ export const collaborationActionSchema = z.discriminatedUnion("action", [
   z.object({ ...task, action: z.literal("decline"), reason: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ ...task, action: z.literal("reassign"), assignee: address, reviewer: address,
     reason: z.string().trim().min(1).max(1000) }).strict(),
-  z.object({ ...task, action: z.literal("claim") }).strict(),
+  z.object({ ...task, action: z.literal("claim"), role_check: roleCheckSchema.optional() }).strict(),
   z.object({ ...task, action: z.literal("wait"), reason: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ ...task, action: z.literal("revise"), source_message_id: address,
     title: z.string().trim().min(1).max(240), criteria: z.array(z.string().trim().min(1).max(600)).min(1).max(12),
@@ -60,6 +61,7 @@ export const collaborationTaskSchema = z.object({
     // review; current evidence must never be passed off as its historical basis.
     manifest: z.array(workEvidenceSchema).min(1).max(288).optional(),
   }).strict().optional(),
+  roleAcceptance: roleCheckSchema.extend({primaryJob:z.string().min(1).max(240)}).strict().optional(),
   claimedBy: address.optional(), reason: z.string().max(1000).optional(),
   evidenceIds: z.array(address).max(24), updatedBy: address, updatedMessageId: address,
 }).strict();

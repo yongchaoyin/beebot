@@ -97,6 +97,7 @@ export function createHostGatewayApi(
       },
       args.origin,
       {
+        ...(args.role === undefined ? {} : {initialUserRole: args.role}),
         isIntroductionSuppressed: args.isIntroductionSuppressed ?? false,
         isKickstartRequested: args.isKickstartRequested ?? false,
         ...(isSandAgentPurpose(args.purpose)
@@ -214,6 +215,8 @@ export function createHostGatewayApi(
       });
       return { accepted: true };
     },
+    getBotRole: (args: unknown) => method(manager, "getBotRole")(args),
+    updateBotRole: (args: unknown) => { markActive("user_action"); return method(manager, "updateBotRole")(args); },
     getCollaboration: (args: unknown) => method(manager, "getCollaboration")(args),
     reviewCollaboration: (args: unknown) => { markActive("user_action"); return method(manager, "reviewCollaboration")(args); },
     stopConversation: (args: any) => {

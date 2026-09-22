@@ -760,7 +760,7 @@ export class TurnRuntime {
         ) as SendMessage;
         if (threaded.collaboration) {
           if (!runSession || this.tm.sharedRooms.sharedRoomConfigOf(runSession)) throw new Error("Work contracts require a local conversation.");
-          const work = prepareCollaboration({messageId: sendId, dbPath: runSession.dbPath, actor: runSession.id, members: [runSession.id], entries: runSession.db.getTranscriptEntries(), message: threaded});
+          const work = prepareCollaboration({actorRole:this.tm.botRoles?.read(runSession.id) ?? null, messageId: sendId, dbPath: runSession.dbPath, actor: runSession.id, members: [runSession.id], entries: runSession.db.getTranscriptEntries(), message: threaded});
           if (work.replayId) return work.replayId;
           const message = work.replyTo && !threaded.reply_to ? {...threaded, reply_to: work.replyTo} : threaded;
           const entry: TranscriptEntry = {...createSendMessageEntry(sendId, message, update.timestampMs),

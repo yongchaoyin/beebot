@@ -1,3 +1,4 @@
+import { renderBotRole } from "../../../shared/bot-role.js";
 import { understandWorkMessage, prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
@@ -386,6 +387,7 @@ export class GroupChatGlue {
         id,
         name: profile?.name.trim() || SAND_DEFAULT_AGENT_NAME,
         description: profile?.description ?? "",
+        role: this.tm.botRoles?.read(id) ?? null,
       });
     }
     return members;
@@ -492,7 +494,9 @@ export class GroupChatGlue {
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
               {
-                systemPrompt: effective.systemPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null ? "\n\n" + COLLABORATION_GUIDANCE : ""),
+                systemPrompt: effective.systemPrompt + (this.tm.sharedRooms.sharedRoomConfigOf(roomSession) == null
+                  ? "\n\nCurrent primary job at execution start (supersedes earlier role snapshots, not user constraints):\n"
+                    + renderBotRole(this.tm.botRoles?.read(memberSession.id) ?? null) + "\n\n" + COLLABORATION_GUIDANCE : ""),
                 isSharedRoomTurn:
                   this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null,
               },
@@ -662,7 +666,7 @@ export class GroupChatGlue {
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
     const config = readSandGroupConfig(dirname(session.dbPath));
     const candidateId = nextEntryId(session.db.getTranscriptEntries(), "send-message");
-    const work = prepareCollaboration({ messageId: candidateId, dbPath: session.dbPath, actor: member.id, members: config?.memberIds ?? [],
+    const work = prepareCollaboration({ actorRole: this.tm.botRoles?.read(member.id) ?? null, messageId: candidateId, dbPath: session.dbPath, actor: member.id, members: config?.memberIds ?? [],
       entries: session.db.getTranscriptEntries(), message: publication?.message ?? {type:"text",content}, sharedRoom: !!config?.sharedRoomId });
     if (work.replayId) return work.replayId;
     const replyTo = publication?.replyToId ?? work.replyTo;
