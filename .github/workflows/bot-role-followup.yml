@@ -1,0 +1,117 @@
+name: Primary job final runtime verification
+on:
+  push:
+    branches: [work/bot-role-validation-20260922]
+    paths: [.github/workflows/bot-role-followup.yml]
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1165a0523e990ece8dd95effdbbe7c63dedadbeb
+          fetch-depth: 0
+          lfs: false
+      - name: Import exact reviewed cancellation follow-up
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='1165a0523e990ece8dd95effdbbe7c63dedadbeb'
+          assert git('rev-parse','HEAD').decode().strip()==parent
+          changes=[
+          {"path":"docs/implementation/bot-primary-job.md","old":"c12399a28c9b097f23abdd8bad9fd27e563e6cbb","new":"306cc6f1ef5c924d72de44a0996f19867d2b94d2","ops":[[93,93,"\n## macOS cancellation follow-up\n\nThe first exact macOS stage run passed all 592 repository tests (583 passed,\n9 conditional skips), both typechecks, frontend build and publication export.\nThe separately enabled Host/Shell run passed 12 of 13 cases; cancellation raised\n`kill EPERM` while signalling an owned runtime group. This error is preserved in\nthe evidence, not relabelled as a passing run. The old cancellation code is\nunchanged from the baseline; role delivery exposed it during the regression gate.\n\nThe follow-up observes macOS group disappearance for at most 950 ms after a\ndenied signal. It succeeds only if a read-only signal-zero probe explicitly\nreturns ESRCH. Persistent denial, a live group or unknown probe failure still\nthrows the original error and leaves the run fenced. No elevated permission,\nblind repeat signal, relaxed cancellation assertion or automatic replay was added.\nThis is a conservative recovery path, not proof of the first failure's root\ncause. Original real-process cancellation tests remain; eight fault-injection\ntests additionally verify exit confirmation, persistent denial and PID guards.\nExact final macOS tests must be run again after this follow-up.\n"]]},
+          {"path":"source/node/owned-process-signal.ts","old":None,"new":"4526ffe858e1fa996e841132c085a4a55ce17b28","ops":[[0,0,"import { setTimeout as delay } from \"node:timers/promises\";\n\ntype SignalPorts = {\n  platform: NodeJS.Platform;\n  kill: (pid: number, signal: NodeJS.Signals | number) => unknown;\n  wait: (ms: number) => Promise<unknown>;\n};\nconst defaults: SignalPorts = { platform: process.platform, kill: (pid, signal) => process.kill(pid, signal), wait: ms => delay(ms) };\nconst code = (error: unknown) => (error as NodeJS.ErrnoException | null)?.code;\n\n/** Only for a child/group already owned by the runtime; never a PID loaded from\n * an old receipt. Denial is NOT evidence of exit. Observe a short macOS teardown\n * race read-only, accepting only explicit ESRCH; a live/unknown group stays fenced.\n * No privileged fallback, repeated termination signals, or swallowed EPERM. */\nexport async function signalOwnedRuntime(pid: number, signal: NodeJS.Signals, ports: SignalPorts = defaults): Promise<void> {\n  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) throw new Error(\"Invalid owned runtime PID\");\n  const target = ports.platform === \"win32\" ? pid : -pid;\n  try { ports.kill(target, signal); }\n  catch (error) {\n    if (code(error) === \"ESRCH\") return;\n    if (ports.platform !== \"darwin\" || code(error) !== \"EPERM\") throw error;\n    // A group can be disappearing during signal delivery. Do not assume that\n    // happened: insist on OS confirmation, otherwise preserve the original error.\n    for (let attempt = 0; attempt < 20; attempt++) {\n      try { ports.kill(target, 0); }\n      catch (probeError) {\n        if (code(probeError) === \"ESRCH\") return;\n        if (code(probeError) !== \"EPERM\") throw error;\n      }\n      if (attempt < 19) await ports.wait(50);\n    }\n    throw error;\n  }\n}\n"]]},
+          {"path":"source/node/runtime.ts","old":"2ceb5c65adae0c94d9d22075fd7f8d9bed0030b6","new":"eeecd58343c320ecb524f343924508842196378a","ops":[[1,1,"import { signalOwnedRuntime } from \"./owned-process-signal.js\";\n"],[373,374,"      const send = async (signal: NodeJS.Signals) => {\n"],[375,377,"        await signalOwnedRuntime(host.child.pid, signal);\n"],[387,388,"        if (groupAlive) { await send(\"SIGTERM\"); await delay(1_500); }\n"],[390,391,"      await send(\"SIGKILL\");\n"]]},
+          {"path":"tests/node-owned-process-signal.test.mjs","old":None,"new":"306393e4aee665e31d9dc5ac9eb0288d16492c48","ops":[[0,0,"import assert from \"node:assert/strict\";\nimport test from \"node:test\";\nimport { mkdtemp, rm } from \"node:fs/promises\";\nimport os from \"node:os\";\nimport path from \"node:path\";\nimport { pathToFileURL } from \"node:url\";\nimport { build } from \"esbuild\";\n\nconst output = await mkdtemp(path.join(os.tmpdir(), \"beebot-owned-signal-\"));\nawait build({entryPoints:[path.resolve(import.meta.dirname,\"../source/node/owned-process-signal.ts\")],outfile:path.join(output,\"signal.mjs\"),bundle:true,platform:\"node\",format:\"esm\",target:\"node26\"});\nconst { signalOwnedRuntime } = await import(pathToFileURL(path.join(output,\"signal.mjs\")));\ntest.after(()=>rm(output,{recursive:true,force:true}));\nconst pid=process.pid+100001;\nconst error=code=>Object.assign(new Error(code),{code});\nfunction harness(platform,handle){\n  const calls=[],waits=[];\n  return {calls,waits,ports:{platform,kill(target,signal){calls.push([target,signal]);return handle(target,signal,calls.length);},async wait(ms){waits.push(ms);}}};\n}\n\ntest(\"owned runtime targets POSIX group and Windows child without extra probes\",async()=>{\n  for(const platform of [\"darwin\",\"linux\",\"win32\"]){\n    const h=harness(platform,()=>true);await signalOwnedRuntime(pid,\"SIGTERM\",h.ports);\n    assert.deepEqual(h.calls,[[platform===\"win32\"?pid:-pid,\"SIGTERM\"]]);assert.deepEqual(h.waits,[]);\n  }\n});\ntest(\"explicitly absent owned group is complete without retries\",async()=>{\n  const h=harness(\"darwin\",()=>{throw error(\"ESRCH\")});await signalOwnedRuntime(pid,\"SIGKILL\",h.ports);\n  assert.equal(h.calls.length,1);assert.deepEqual(h.waits,[]);\n});\ntest(\"macOS denied signal needs explicit group disappearance confirmation\",async()=>{\n  const h=harness(\"darwin\",(_target,signal)=>{throw error(signal===0?\"ESRCH\":\"EPERM\")});\n  await signalOwnedRuntime(pid,\"SIGKILL\",h.ports);\n  assert.deepEqual(h.calls,[[-pid,\"SIGKILL\"],[-pid,0]]);assert.deepEqual(h.waits,[]);\n});\ntest(\"short teardown race is only observed, never signalled again\",async()=>{\n  const h=harness(\"darwin\",(_target,signal,n)=>{if(signal!==0||n===2)throw error(\"EPERM\");if(n===4)throw error(\"ESRCH\");return true;});\n  await signalOwnedRuntime(pid,\"SIGTERM\",h.ports);\n  assert.equal(h.calls.filter(([,signal])=>signal!==0).length,1);assert.deepEqual(h.waits,[50,50]);assert.equal(h.calls.length,4);\n});\ntest(\"persistent macOS denial remains an error and cannot report cleanup success\",async()=>{\n  const denied=error(\"EPERM\"),h=harness(\"darwin\",()=>{throw denied});\n  await assert.rejects(signalOwnedRuntime(pid,\"SIGKILL\",h.ports),e=>e===denied);\n  assert.equal(h.calls.length,21);assert.equal(h.waits.length,19);assert.equal(h.waits.reduce((a,b)=>a+b,0),950);\n});\ntest(\"successful signal-zero probes mean the group is still alive, not gone\",async()=>{\n  const denied=error(\"EPERM\"),h=harness(\"darwin\",(_target,signal)=>{if(signal!==0)throw denied;return true;});\n  await assert.rejects(signalOwnedRuntime(pid,\"SIGKILL\",h.ports),e=>e===denied);\n  assert.equal(h.calls.length,21);assert.equal(h.calls.filter(([,signal])=>signal!==0).length,1);\n});\ntest(\"other platforms and unknown probe errors preserve the failure\",async()=>{\n  for(const platform of [\"linux\",\"win32\"]){\n    const denied=error(\"EPERM\"),h=harness(platform,()=>{throw denied});\n    await assert.rejects(signalOwnedRuntime(pid,\"SIGKILL\",h.ports),e=>e===denied);assert.equal(h.calls.length,1);\n  }\n  const denied=error(\"EPERM\"),h=harness(\"darwin\",(_target,signal)=>{throw signal===0?error(\"EIO\"):denied});\n  await assert.rejects(signalOwnedRuntime(pid,\"SIGKILL\",h.ports),e=>e===denied);assert.equal(h.calls.length,2);assert.deepEqual(h.waits,[]);\n});\ntest(\"invalid, broadcast and self PID targets are rejected before signalling\",async()=>{\n  const h=harness(\"darwin\",()=>assert.fail(\"must not signal\"));\n  for(const bad of [0,1,-1,-pid,NaN,Infinity,1.5,process.pid])await assert.rejects(signalOwnedRuntime(bad,\"SIGTERM\",h.ports),/Invalid owned runtime PID/);\n  assert.deepEqual(h.calls,[]);\n});\n"]]}
+          ]
+          for change in changes:
+              path=pathlib.Path(change['path'])
+              assert str(path).startswith(('source/node/','tests/','docs/')) and '..' not in path.parts
+              assert not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+              if change['old'] is None:
+                  assert not path.exists();lines=[]
+              else:
+                  assert git('hash-object',str(path)).decode().strip()==change['old']
+                  lines=path.read_text().splitlines(keepends=True)
+              for start,end,replacement in reversed(change['ops']):
+                  assert 0<=start<=end<=len(lines)
+                  lines[start:end]=replacement.splitlines(keepends=True)
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+              assert git('hash-object',str(path)).decode().strip()==change['new']
+              git('add',str(path))
+          tree=git('write-tree').decode().strip()
+          assert tree=='16a75749b83bf6cad18bf2063739c85d608b9612'
+          commit='tree '+tree+'\nparent '+parent+'\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790086199 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790086199 +0000\n\nfix(runtime): require proven group exit after macOS signal denial\n\nObserve a bounded macOS teardown race only for an owned runtime group. Accept ESRCH as explicit absence; preserve persistent permission errors and active-run fences. No repeated termination signals, elevated permissions or relaxed cancellation assertions. Eight fault-injection tests and 36 role contract/UI tests pass locally; both typechecks pass. Re-run exact macOS full and real Host/Shell validation before release.\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit.encode()).decode().strip()
+          assert sha=='253a460e8f1c0c6f735237f3334ebb3c67a517f6'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/work/bot-role-candidate-20260922')
+          print('Verified exact follow-up:',sha,tree)
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 253a460e8f1c0c6f735237f3334ebb3c67a517f6
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and environment
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 253a460e8f1c0c6f735237f3334ebb3c67a517f6
+          mkdir -p /tmp/bot-role-final
+          git log -3 --format='%H %s' > /tmp/bot-role-final/commits.txt
+          git rev-parse HEAD^{tree} > /tmp/bot-role-final/tree.txt
+          node --version > /tmp/bot-role-final/node.txt
+          sw_vers > /tmp/bot-role-final/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/bot-role-final/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/bot-role-final/frontend.log
+      - name: Lossless publication
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/bot-role-final/publication.log
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/bot-role-final/runtime.log
+      - name: Repeat unchanged real cancellation regression twice
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2; do
+            BEEBOT_RUNTIME_INTEGRATION=1 node --test --test-name-pattern='^cancelling an active run kills shell descendants and fences the Bot against blind restart$' tests/node-runtime.test.mjs 2>&1 | tee "/tmp/bot-role-final/cancellation-repeat-${attempt}.log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-role-final-verification
+          path: /tmp/bot-role-final/
+          retention-days: 7
