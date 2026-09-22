@@ -91,3 +91,22 @@ Browser evidence runs the actual adapters with a simulated outer chat and gatewa
 This environment blocks file URL navigation; policy is unchanged. Our own fixture
 DOM was tested offline in Chromium on about:blank. This is component evidence,
 not a native installed app or a production-model evaluation.
+
+## macOS cancellation follow-up
+
+The first exact macOS stage run passed all 592 repository tests (583 passed,
+9 conditional skips), both typechecks, frontend build and publication export.
+The separately enabled Host/Shell run passed 12 of 13 cases; cancellation raised
+`kill EPERM` while signalling an owned runtime group. This error is preserved in
+the evidence, not relabelled as a passing run. The old cancellation code is
+unchanged from the baseline; role delivery exposed it during the regression gate.
+
+The follow-up observes macOS group disappearance for at most 950 ms after a
+denied signal. It succeeds only if a read-only signal-zero probe explicitly
+returns ESRCH. Persistent denial, a live group or unknown probe failure still
+throws the original error and leaves the run fenced. No elevated permission,
+blind repeat signal, relaxed cancellation assertion or automatic replay was added.
+This is a conservative recovery path, not proof of the first failure's root
+cause. Original real-process cancellation tests remain; eight fault-injection
+tests additionally verify exit confirmation, persistent denial and PID guards.
+Exact final macOS tests must be run again after this follow-up.
