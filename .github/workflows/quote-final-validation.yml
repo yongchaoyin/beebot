@@ -1,0 +1,72 @@
+name: Final quoted collaboration verification
+on:
+  push:
+    branches: [chore/continuity-dev-snapshot-20260922]
+    paths: [.github/workflows/quote-final-validation.yml]
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 34e363a9d32ec9742c09fdf521ebe69191bd68b7
+          fetch-depth: 0
+          lfs: false
+      - name: Verify exact focused follow-up, preserving every prior test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          def git(*args,data=None): return subprocess.check_output(['git',*args],input=data)
+          parent='34e363a9d32ec9742c09fdf521ebe69191bd68b7'
+          assert git('rev-parse','HEAD').decode().strip()==parent
+          changes = [
+            {'path':'docs/implementation/quoted-collaboration.md','old_blob':'552aa74b2ed2c4419b69ec264e0ef219b55300ed','ops':[[5442,5442,'\n\n## Final integration follow-up\n\nThe first macOS run for `34e363a` passed repository checks. The additional\n13-case Host/Shell suite passed 12 cases, but the orphan-controller case failed\nwhile removing its temporary profile (`ENOTEMPTY`). It already waited for the\nShell, which stops *before* the Host flushes its stores/discovery. The fixture now\ncaptures the owned Host identity before disconnect and asserts its natural exit\nbefore deleting the directory. It retains the original no-replay and Shell-exit\nassertions; no deletion retries or swallowed failures are added. Exact final\nmacOS integration remains a separate verification gate.\n\nThe legacy SendMessage description also now agrees with its parameter schema:\nboth quotes and reference links stay in the current conversation; a quote is a\ndirect answer, a reference link points to supporting context. A runtime-loaded\nregression checks these Agent-facing instructions instead of relying only on UI.\n']]},
+            {'path':'source/host/runner/tools/send-message-tool.ts','old_blob':'739e5552be8b0d43dd1247d09e48f29f313053a2','ops':[[2658,2664,''],[2677,2677,','],[2682,2682,' stays in the current chat and'],[2689,2689,'creates a '],[2695,2695,'. U'],[2696,2696,'e reply_to for a direct'],[2699,2700,'swer and a reference link for suppor'],[2701,2702,''],[2705,2705,' context']]},
+            {'path':'tests/helpers/load-continuity-runtime.mjs','old_blob':'dbbf519b75e2809ff4654ce446a9f583553fc965','ops':[[1104,1104,', createSendMessageTool']]},
+            {'path':'tests/node-runtime.test.mjs','old_blob':'79d2040e548a519450f23bff16bdbb9bef254ff8','ops':[[21307,21307,', hostPid;\n  const waitForHostExit = async () => {\n    for (let attempt = 0; attempt < 100; attempt++) {\n      try { process.kill(hostPid, 0); }\n      catch (error) { if (error.code === "ESRCH") return true; throw error; }\n      await delay(100);\n    }\n    return false;\n  }'],[21600,21600,' controller");\n    const discovery = JSON.parse(await readFile(path.join(dataDir, "runtime-bots", hash(bot.id), "host/gateway.json"), "utf8"));\n    hostPid = discovery.pid;\n    assert.ok(Number.isInteger(hostPid) && hostPid > 0 && hostPid !== process.pid && hostPid !== controller.pid, "capture the owned Host before disconnecting its'],[22152,22152,'");\n    // Shell shutdown happens before the Host flushes stores/discovery. Removing\n    // its profile at that point races those final writes (ENOTEMPTY on macOS).\n    // Assert natural Host exit rather than adding blind deletion retries.\n    assert.equal(await waitForHostExit(), true, "orphan Host must finish shutdown before its profile is removed'],[22791,22791,'Number.isInteger(hostPid) && hostPid > 0 && hostPid !== process.pid && hostPid !== controller.pid) {\n      try { process.kill(hostPid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }\n      assert.equal(await waitForHostExit(), true, "owned Host did not exit during fixture cleanup");\n    }\n    if (']]},
+            {'path':'tests/quoted-collaboration.test.mjs','old_blob':'8b49470f505677fd46ac3e2aea0661817bb3f763','ops':[[10441,10441,'\n\ntest("Agent tool instructions agree with the same-chat quote contract", async t => {\n  const h = await continuityHarness(t);\n  const tool = h.runtime.createSendMessageTool({getIngestAttachment: () => undefined, onSendMessage: () => undefined});\n  const description = tool.descriptionGenerator();\n  assert.match(description, /like reply_to, this stays in the current chat and never creates a thread/);\n  assert.doesNotMatch(description, /unlike reply_to this never threads/);\n  assert.match(description, /Use reply_to for a direct answer and a reference link for supporting context/);\n});\n']]},
+          ]
+          for change in changes:
+              path=pathlib.Path(change['path'])
+              assert git('hash-object',str(path)).decode().strip()==change['old_blob']
+              text=path.read_text()
+              for start,end,replacement in reversed(change['ops']):
+                  assert 0 <= start <= end <= len(text)
+                  text=text[:start]+replacement+text[end:]
+              path.write_text(text)
+              git('add',str(path))
+          tree=git('write-tree').decode().strip()
+          assert tree=='e93911ef429a4cf6e87ecedea4058cec0512751b'
+          commit='tree '+tree+'\nparent '+parent+'\nauthor BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790046614 +0000\ncommitter BeeBot development <151381126+yongchaoyin@users.noreply.github.com> 1790046614 +0000\n\nfix(replies): align Agent guidance and await owned Host fixture shutdown\n\nKeep SendMessage instructions consistent with same-chat quoted replies. Strengthen the orphan-controller integration fixture: wait for the owned Host to finish after Shell exit before removing its profile, without weakening no-replay or process-exit assertions.\n\nBoth typechecks and 23 quoted UI/runtime tests pass locally. The Linux environment cannot start the standalone Host integration shell; exact macOS full and Host integration checks are required before release. This follow-up does not modify quotation UI code.\n'
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit.encode()).decode().strip()
+          assert sha=='02be4fec11cd4eb01a8e9f3864eb359427784c44'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/chore/quoted-stage-candidate-20260922')
+          print('Verified focused source follow-up:',sha,'tree:',tree)
+          PY
+  runtime:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 02be4fec11cd4eb01a8e9f3864eb359427784c44
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Assert exact source revision
+        run: test "$(git rev-parse HEAD)" = 02be4fec11cd4eb01a8e9f3864eb359427784c44
+      - name: Exercise actual Host and Shell with deterministic model
+        run: npm run node:test:integration
