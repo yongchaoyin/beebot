@@ -21,9 +21,13 @@ export class NodeHttpError extends Error {
 }
 
 export async function fetchNodeJson(baseUrl: string, route: string, init: RequestInit = {}, maxBytes = 8 * 1024 * 1024): Promise<any> {
+  // Cancellation and the request deadline are independent; keep both through
+  // response-body consumption, including token exchange during browser login.
+  const deadline = AbortSignal.timeout(20_000);
+  const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
   // Do not follow a redirect with credentials to a different origin.
   const response = await fetch(new URL(route, baseUrl), {
-    ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(20_000),
+    ...init, redirect: "error", signal,
   });
   const reader = response.body?.getReader(); const chunks: Uint8Array[] = []; let size = 0;
   if (reader) for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length;
@@ -120,7 +124,9 @@ export async function authorizeNode(baseUrl: string, openExternal: (url: string)
     if (signal?.aborted) throw new Error("Sign-in cancelled.");
     const url = new URL("/oauth/authorize", baseUrl);
     url.search = new URLSearchParams({ response_type: "code", client_id: "beebot-desktop", redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: "S256", dpop_jkt: device.key.thumbprint, device_name: deviceName.trim() }).toString();
-    await openExternal(url.href);
+    // A slow OS browser launch must not hold the callback listener open after
+    // cancellation or the authorization deadline. A real callback can also win.
+    await Promise.race([openExternal(url.href), receivedCode]);
     const code = await receivedCode;
     if (signal?.aborted) throw new Error("Sign-in cancelled.");
     return await exchangeToken(baseUrl, { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri }, device, signal);

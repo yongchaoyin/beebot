@@ -10,8 +10,8 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const temp = await mkdtemp(path.join(tmpdir(), "beebot-connect-"));
-await build({stdin:{contents:`export * from './source/client-connections/discovery.ts'; export * from './source/client-connections/manager.ts';`,resolveDir:root}, outfile:path.join(temp,"test.mjs"),bundle:true,platform:"node",format:"esm",banner:{js:'import{createRequire}from"node:module";const require=createRequire(import.meta.url);'},logLevel:"silent"});
-const { validateNodeDiscovery, NodeConnectionManager } = await import(pathToFileURL(path.join(temp,"test.mjs")));
+await build({stdin:{contents:`export * from './source/client-connections/discovery.ts'; export * from './source/client-connections/manager.ts'; export * from './source/client-connections/transport.ts';`,resolveDir:root}, outfile:path.join(temp,"test.mjs"),bundle:true,platform:"node",format:"esm",banner:{js:'import{createRequire}from"node:module";const require=createRequire(import.meta.url);'},logLevel:"silent"});
+const { validateNodeDiscovery, discoverNode, fetchNodeJson, NodeConnectionManager } = await import(pathToFileURL(path.join(temp,"test.mjs")));
 test.after(()=>rm(temp,{recursive:true,force:true}));
 const base="https://node.example";
 const node=()=>({id:"test-node",nodeId:"test-node",name:"My Node",protocolVersion:1,security:{dpopRequired:true,trustedDevicesRequired:true}});
@@ -85,4 +85,25 @@ test("concurrent confirms await the same durable save rather than acknowledging 
   const a=f.manager.confirmConnection(p.previewId);while(!f.persist.saves)await new Promise(r=>setTimeout(r,5));
   let secondDone=false;const b=f.manager.confirmConnection(p.previewId).then(v=>{secondDone=true;return v;});
   await new Promise(r=>setTimeout(r,20));assert.equal(secondDone,false);f.persist.gate.resolve();assert.equal((await a).id,(await b).id);
+});
+
+
+for (const [name, run] of [
+  ["discovery", signal => discoverNode(base, signal)],
+  ["token transport", signal => fetchNodeJson(base, "/oauth/token", { signal, method: "POST" })],
+]) test(`${name} retains its deadline when the caller supplies cancellation`, async t => {
+  const caller = new AbortController(), expired = new Error("Test request deadline");
+  t.mock.method(AbortSignal, "timeout", () => AbortSignal.abort(expired));
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    init.signal.throwIfAborted();
+    return new Response(JSON.stringify(String(url).endsWith("/v1/node") ? node() : metadata(base)));
+  });
+  await assert.rejects(run(caller.signal), error => error === expired);
+  assert.equal(caller.signal.aborted, false, "the request must not mutate caller cancellation");
+});
+
+test("bounded discovery also honours explicit cancellation without starting a request", async t => {
+  const cancelled = new Error("Test caller cancellation");
+  t.mock.method(globalThis, "fetch", async (_url, init) => { init.signal.throwIfAborted(); assert.fail("must abort before network"); });
+  await assert.rejects(discoverNode(base, AbortSignal.abort(cancelled)), error => error === cancelled);
 });

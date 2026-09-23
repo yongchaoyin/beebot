@@ -101,3 +101,31 @@ an outer-shell/chat fixture. These checks are not native Electron or WAN tests.
 The local full suite's preserved DMG check failed because this source snapshot
 contains a Git LFS pointer. Its assertion remains unchanged. Exact locked macOS
 checks with hydrated LFS and real Host/Shell tests are required before handoff.
+
+## Connection lifecycle regression hardening
+
+Fault-injection and real loopback HTTP/WebSocket regressions reproduced boundary
+failures that were not covered by the initial happy-path suite. This follow-up:
+
+- Keeps discovery and HTTP deadlines active even when a caller supplies its own
+  cancellation signal; the deadline also bounds response-body consumption.
+- Requires encrypted storage acknowledgement before opening browser authorization
+  with a new device key, including a retry after an earlier storage failure.
+- Fences protected requests until newly issued credentials are saved. A failed
+  write retains the received credentials only for a storage retry in this process,
+  rather than replaying an exchange with the predecessor refresh token. Concurrent
+  callers await one write. A process exit during failed storage still requires
+  normal session recovery; this does not promise crash-proof token rotation.
+- Drains obsolete connection attempts before reconnecting in a new generation.
+  Stale completions cannot acknowledge a new attempt or schedule its recovery.
+- Rejects malformed event tickets/challenges before creating a WebSocket and
+  contains signing/send errors within the connection error path.
+- Lets cancellation/authorization timeout close the callback listener even if OS
+  browser launch has not settled. Cancelling a pending login releases only that
+  local attempt; a subsequent login still needs server authorization.
+
+No server approval policy, DPoP verification, resource permissions, task freeze,
+chat scheduling, client installation flow or renderer UI is replaced. The new
+regressions supplement, rather than weaken, the original enrollment and runtime
+checks. Exact-source macOS/LFS, real Host/Shell, security-freeze and native UI
+acceptance remain distinct from controlled HTTP/browser fixtures.

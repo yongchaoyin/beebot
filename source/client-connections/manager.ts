@@ -22,6 +22,9 @@ interface Connection {
   generation: number;
   syncing?: Promise<NodeSnapshot>;
   connecting?: Promise<void>;
+  connectingGeneration?: number;
+  credentialsDirty?: boolean;
+  savingCredentials?: Promise<void>;
 }
 
 export class NodeConnectionManager {
@@ -69,6 +72,26 @@ export class NodeConnectionManager {
 
   private save(): Promise<void> {
     return this.persistence.save([...this.connections.values()].map((c): StoredConnection => ({ profile: c.profile, ...(c.refreshToken ? { refreshToken: c.refreshToken } : {}), ...(c.deviceKeyPem ? { deviceKeyPem: c.deviceKeyPem } : {}) })));
+  }
+
+  /** Do not use newly issued credentials until encrypted storage acknowledges
+   * them. Preserve a received rotated token in memory for a storage-only retry;
+   * never repeat the network exchange with its already-consumed predecessor. */
+  private async persistCredentials(c: Connection): Promise<void> {
+    while (c.credentialsDirty) {
+      if (c.savingCredentials) { await c.savingCredentials; continue; }
+      const key = c.deviceKeyPem, refresh = c.refreshToken;
+      const operation = this.save();
+      c.savingCredentials = operation;
+      try {
+        await operation;
+        if (c.deviceKeyPem === key && c.refreshToken === refresh) c.credentialsDirty = false;
+      } finally { if (c.savingCredentials === operation) delete c.savingCredentials; }
+    }
+  }
+
+  private isCurrent(c: Connection, generation: number): boolean {
+    return !this.closed && c.generation === generation && this.connections.get(c.profile.id) === c;
   }
 
   subscribe(listener: (id: string) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -140,8 +163,11 @@ export class NodeConnectionManager {
       if (abort.signal.aborted || c.generation !== generation) throw new Error("Sign-in cancelled.");
       if (!c.device) {
         const key = generateDpopKey(); c.deviceKeyPem = exportDpopKey(key); c.device = new DpopClient(c.profile.baseUrl, key);
-        await this.save(); // Persist the key before the browser can grant a session.
+        c.credentialsDirty = true;
       }
+      if (abort.signal.aborted || c.generation !== generation) throw new Error("Sign-in cancelled.");
+      // Retry a failed key write even when the generated key is already in memory.
+      await this.persistCredentials(c);
       if (abort.signal.aborted || c.generation !== generation) throw new Error("Sign-in cancelled.");
       c.profile.loginStage = "browser-authorization"; this.changed(c);
       const tokens = await authorizeNode(c.profile.baseUrl, this.openExternal, c.device, abort.signal, deviceName);
@@ -160,17 +186,20 @@ export class NodeConnectionManager {
     c.refreshToken = tokens.refresh_token;
     c.accessToken = tokens.access_token;
     c.expiresAt = Date.now() + tokens.expires_in * 1000;
-    await this.save();
+    c.credentialsDirty = true;
+    await this.persistCredentials(c);
   }
 
   private async ensureAccess(c: Connection): Promise<void> {
+    const generation = c.generation;
+    const assertCurrent = () => { if (!this.isCurrent(c, generation)) throw new Error("The server session changed during sign-in."); };
+    await this.persistCredentials(c); assertCurrent();
     if (c.accessToken && (c.expiresAt ?? 0) > Date.now() + 30_000) return;
     if (c.refreshing) return c.refreshing;
     if (!c.refreshToken) throw new NodeHttpError(401, "Sign in to this server.");
     const refreshToken = c.refreshToken;
-    const generation = c.generation;
     const operation = (async () => {
-      await this.verifyIdentity(c);
+      await this.verifyIdentity(c); assertCurrent();
       const tokens = await exchangeToken(c.profile.baseUrl, { grant_type: "refresh_token", refresh_token: refreshToken }, c.device!);
       if (c.generation !== generation) throw new Error("The server connection changed during sign-in.");
       await this.storeTokens(c, tokens);
@@ -207,7 +236,8 @@ export class NodeConnectionManager {
 
   async snapshot(id: string): Promise<NodeSnapshot> {
     const c = await this.get(id);
-    if (!c.socket && !c.timer && c.refreshToken) void this.connect(c).catch(error => this.scheduleReconnect(c, error));
+    const generation = c.generation;
+    if (!c.socket && !c.timer && c.refreshToken) void this.connect(c).catch(error => { if (this.isCurrent(c, generation)) this.scheduleReconnect(c, error); });
     return this.sync(c);
   }
 
@@ -226,14 +256,25 @@ export class NodeConnectionManager {
   async resume(id: string): Promise<void> {
     const c = await this.get(id);
     this.stopConnection(c);
-    try { await this.connect(c); } catch (error) { this.scheduleReconnect(c, error); throw error; }
+    const generation = c.generation;
+    try { await this.connect(c); } catch (error) { if (this.isCurrent(c, generation)) this.scheduleReconnect(c, error); throw error; }
   }
 
   private async connect(c: Connection): Promise<void> {
-    if (c.connecting) return c.connecting;
+    const generation = c.generation;
+    if (c.connecting) {
+      const previous = c.connecting;
+      if (c.connectingGeneration === generation) return previous;
+      // Drain obsolete work before a fresh connection. Do not create competing
+      // refresh exchanges, and do not mistake an old completion for this attempt.
+      await previous.catch(() => {});
+      if (!this.isCurrent(c, generation)) return;
+      return this.connect(c);
+    }
     const operation = this.openEventConnection(c);
-    c.connecting = operation;
-    try { await operation; } finally { if (c.connecting === operation) delete c.connecting; }
+    c.connecting = operation; c.connectingGeneration = generation;
+    try { await operation; }
+    finally { if (c.connecting === operation) { delete c.connecting; delete c.connectingGeneration; } }
   }
 
   private async openEventConnection(c: Connection): Promise<void> {
@@ -241,9 +282,11 @@ export class NodeConnectionManager {
     const generation = c.generation;
     c.profile.status = "connecting"; this.changed(c);
     await this.verifyIdentity(c);
+    if (!this.isCurrent(c, generation)) return;
     await this.sync(c);
+    if (!this.isCurrent(c, generation)) return;
     const { ticket, nonce } = await this.request(c, "/v1/events/ticket", "POST", {});
-    if (typeof ticket !== "string" || !ticket) throw new Error("Invalid event session.");
+    if (typeof ticket !== "string" || !ticket || ticket.length > 4096 || typeof nonce !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new Error("Invalid event session challenge.");
     if (this.closed || generation !== c.generation || c.socket) return;
     const endpoint = new URL("/v1/events", c.profile.baseUrl);
     endpoint.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
@@ -252,7 +295,8 @@ export class NodeConnectionManager {
     const active = () => !this.closed && generation === c.generation && c.socket === socket;
     socket.on("open", () => {
       if (!active()) { socket.close(); return; }
-      socket.send(JSON.stringify({ ticket, proof: c.device!.eventProof(ticket, nonce), after: c.snapshot?.cursor ?? 0 }));
+      try { socket.send(JSON.stringify({ ticket, proof: c.device!.eventProof(ticket, nonce), after: c.snapshot?.cursor ?? 0 })); }
+      catch (error) { c.profile.error = this.message(error); socket.terminate(); }
       // The transport opening is not proof that the ticket/device was accepted.
     });
     const readyTimer = setTimeout(() => {
@@ -291,7 +335,7 @@ export class NodeConnectionManager {
     c.timer = setTimeout(() => {
       delete c.timer;
       if (generation !== c.generation || this.closed) return;
-      void this.connect(c).catch(next => this.scheduleReconnect(c, next));
+      void this.connect(c).catch(next => { if (this.isCurrent(c, generation)) this.scheduleReconnect(c, next); });
     }, delay);
     c.timer.unref?.();
   }
@@ -361,7 +405,7 @@ export class NodeConnectionManager {
     // Do not silently claim logout if device revocation failed on the server.
     if (c.refreshToken) await this.revoke(c);
     delete c.refreshToken; delete c.accessToken; delete c.snapshot; delete c.profile.error;
-    c.profile.status = "signed-out"; await this.save(); this.changed(c);
+    c.profile.status = "signed-out"; c.credentialsDirty = true; await this.persistCredentials(c); this.changed(c);
   }
   private async revoke(c: Connection): Promise<void> {
     await this.verifyIdentity(c);
@@ -377,7 +421,9 @@ export class NodeConnectionManager {
     return { remoteRevoked };
   }
   private stopConnection(c: Connection): void {
-    c.generation++; c.login?.abort(); delete c.profile.loginStage;
+    c.generation++;
+    const login = c.login; delete c.login; login?.abort();
+    delete c.profile.loginStage;
     if (c.timer) clearTimeout(c.timer); delete c.timer;
     const socket = c.socket; delete c.socket; socket?.close();
   }

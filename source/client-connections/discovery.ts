@@ -38,7 +38,10 @@ export function validateNodeDiscovery(baseUrl: string, node: any, metadata: any)
   return { baseUrl, nodeId: node.id, name: node.name, protocolVersion: 1 };
 }
 
-export async function discoverNode(address: string, signal = AbortSignal.timeout(15_000)): Promise<DiscoveredNode> {
+export async function discoverNode(address: string, cancellation?: AbortSignal): Promise<DiscoveredNode> {
+  // Caller cancellation must not remove the shared deadline for both documents.
+  const deadline = AbortSignal.timeout(15_000);
+  const signal = cancellation ? AbortSignal.any([cancellation, deadline]) : deadline;
   const baseUrl = normalizeNodeUrl(address);
   // Small independent public documents; no cookies, device proof or credentials.
   const node = await fetchNodeJson(baseUrl, "/v1/node", { signal, credentials: "omit" }, 64 * 1024);
