@@ -1,0 +1,136 @@
+name: Server installation preview and security compatibility
+on:
+  push:
+    branches: [work/server-plan-verification-20260923]
+    paths: [.github/workflows/server-plan-verify.yml, '.dev-submit/install-plan-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify exact staged source objects; no product ref changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/install-plan-{i:02}.bin').read_bytes() for i in range(4))
+          assert len(raw)==16532
+          assert hashlib.sha256(raw).hexdigest()=='f282c24818cb26d825b7ae4c2f214bc6cd1dbf1462fd2c102e895963e1fd80b4'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='5815b8abc993a328440dfb4a6b324b906fb2a6a9'
+          git('checkout','--detach',parent)
+          expected=[('9475be7c4243941708ccbc23d38d1bd633f75ad0','41ab9f348d35500bd6298b76af5dba02700d9436'),('8bfd26405e259152bccd59353ef5a16005450062','d4540dd1d80c374d2c405601635c329205db3dd9')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree and stage['parent']==parent
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert str(path).startswith(('source/client-provisioning/','source/electron-main/beebot-provisioning/','scripts/lib/beebot-server-preflight.','tests/server-','docs/implementation/server-install-plan.'))
+                  assert '..' not in path.parts and not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new']
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent)
+              assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified stage:',sha,tree)
+          assert not any(p.startswith('.dev-submit/') for p in git('ls-tree','-r','--name-only',parent).decode().splitlines())
+          git('push','origin','HEAD:refs/heads/work/server-plan-candidate-20260923')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [exact, security-compatibility]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8bfd26405e259152bccd59353ef5a16005450062
+          fetch-depth: 0
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Record exact source and optional unpublished compatibility merge
+        env:
+          VARIANT: ${{ matrix.variant }}
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 8bfd26405e259152bccd59353ef5a16005450062
+          test "$(git rev-parse HEAD^{tree})" = d4540dd1d80c374d2c405601635c329205db3dd9
+          mkdir -p /tmp/server-plan-verification
+          git log -2 --format='%H %s' > /tmp/server-plan-verification/commits.txt
+          if [ "$VARIANT" = security-compatibility ]; then
+            git config user.name 'BeeBot validation'
+            git config user.email '151381126+yongchaoyin@users.noreply.github.com'
+            python3 - <<'PY'
+          import subprocess
+          def changed(head):return set(subprocess.check_output(['git','diff','--name-only','183fd0bb11a78562177d8ee1197c72e5ba17a161',head]).decode().splitlines())
+          ours=changed('8bfd26405e259152bccd59353ef5a16005450062');security=changed('84880c2ae6514b0fecc41a6a57fedc612beda92e')
+          overlap=sorted(ours & security)
+          print('Our full PR paths:',len(ours),'Security chain paths:',len(security),'Overlaps:',overlap)
+          assert not overlap
+          PY
+            git merge --no-commit --no-ff 84880c2ae6514b0fecc41a6a57fedc612beda92e
+            git write-tree > /tmp/server-plan-verification/compatibility-tree.txt
+            printf '%s\n' 84880c2ae6514b0fecc41a6a57fedc612beda92e > /tmp/server-plan-verification/security-source.txt
+          fi
+          git write-tree > /tmp/server-plan-verification/tested-tree.txt
+          node --version > /tmp/server-plan-verification/node.txt
+          sw_vers > /tmp/server-plan-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regression checks
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/server-plan-verification/check.log
+      - name: Actual frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/server-plan-verification/frontend.log
+      - name: Lossless publication export of exact committed tree
+        if: matrix.variant == 'exact'
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/server-plan-verification/publication.log
+      - name: Actual Host and Shell, deterministic model responses
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/server-plan-verification/runtime.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-plan-${{ matrix.variant }}-verification
+          path: /tmp/server-plan-verification/
+          retention-days: 7
