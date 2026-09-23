@@ -32,13 +32,13 @@ test("server addresses reject remote cleartext, embedded credentials, paths, and
 
 async function fakeNode() {
   const tokens = { access_token: "access-private", refresh_token: "refresh-private", expires_in: 600, token_type: "DPoP" };
-  let expectedChallenge, nodeId = "test-node", refreshCount = 0, socketCount = 0;
+  let expectedChallenge, nodeId = "test-node", refreshCount = 0, socketCount = 0, trustedDevicesRequired = true;
   const goals = [], accepted = new Map(), requests = [];
   const server = createServer(async (req, res) => {
     let body = "";for await (const chunk of req) body += chunk;
     requests.push({ path: req.url, headers: req.headers, body });
     const json = value => { res.setHeader("Content-Type", "application/json");res.end(JSON.stringify(value)); };
-    if (req.url === "/v1/node") return json({ id: nodeId, name: "Test Node", protocolVersion: 1, security: { dpopRequired: true } });
+    if (req.url === "/v1/node") return json({ id: nodeId, name: "Test Node", protocolVersion: 1, security: { dpopRequired: true, trustedDevicesRequired } });
     if (req.url === "/oauth/token") {
       const form = new URLSearchParams(body);
       if (form.get("grant_type") === "authorization_code") assert.equal(createHash("sha256").update(form.get("code_verifier")).digest("base64url"), expectedChallenge);
@@ -75,6 +75,7 @@ async function fakeNode() {
       callback.searchParams.set("state", auth.searchParams.get("state"));
       assert.equal((await fetch(callback)).status, 200);
     },
+    downgradeSecurity() { trustedDevicesRequired = false; },
     changeIdentity() { nodeId = "replacement-node"; },
     disconnect() { for (const socket of wss.clients) socket.close(); },
     async close() { for (const socket of wss.clients) socket.terminate();await new Promise(resolve => wss.close(resolve));server.closeAllConnections();await new Promise(resolve => server.close(resolve)); },
@@ -152,4 +153,19 @@ test("server IPC rejects subframes, unrelated windows, and navigated pages", () 
   assert.throws(() => assertTrustedNodeSender({ sender: {}, senderFrame: mainFrame }, windows, "/app/dist/renderer/index.html"));
   contents.getURL = () => "https://untrusted.example/";
   assert.throws(() => assertTrustedNodeSender({ sender: contents, senderFrame: mainFrame }, windows, "/app/dist/renderer/index.html"));
+});
+
+test("missing trusted-device enforcement blocks enrollment and credential renewal without downgrade", async () => {
+  const node = await fakeNode(); let saved = [];
+  const persistence = { async load() { return structuredClone(saved); }, async save(value) { saved = structuredClone(value); } };
+  let manager = new NodeConnectionManager(persistence, url => node.open(url));
+  try {
+    const profile = await manager.add(node.baseUrl); await manager.login(profile.id); manager.close();
+    node.downgradeSecurity(); const before = node.refreshCount;
+    manager = new NodeConnectionManager(persistence, url => node.open(url));
+    await assert.rejects(manager.resume(profile.id), /security|identity|approved|device/i);
+    assert.equal(node.refreshCount, before, "No saved credential is sent to an insecure endpoint");
+    const fresh = new NodeConnectionManager({async load(){return [];},async save(){throw new Error("Must not save an insecure connection");}},()=>assert.fail("Must not open authorization"));
+    try { await assert.rejects(fresh.add(node.baseUrl), /security|device|protocol/i); } finally { fresh.close(); }
+  } finally { manager.close(); await node.close(); }
 });

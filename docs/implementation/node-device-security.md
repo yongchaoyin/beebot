@@ -1,5 +1,10 @@
 # Node device-bound security, first implementation
 
+> Follow-up: `node-trusted-devices.md` adds approval, persistent device grants,
+> device blocking and recovery. The "remaining work" below describes this
+> original increment; the follow-up supersedes its password-only enrollment
+> and per-session-only grant limitations.
+
 Baseline: develop `183fd0bb11a78562177d8ee1197c72e5ba17a161`.
 This increment protects the independent Node HTTP/event API and the desktop
 connection manager. It does not import the unmerged SSH candidate, change the

@@ -56,7 +56,8 @@ function harness(initial = [profile("a"), profile("b")]) {
     { id: "self", device_name: "Current laptop", dpop_jkt: "public-key-thumbprint-only", created_at: Date.now(), revoked_at: null, idle_expires: Date.now()+100000, absolute_expires: Date.now()+100000, grant: { role: "admin", botIds: "*" } },
     { id: "other", device_name: "Office computer", dpop_jkt: "another-public-key-thumbprint", created_at: Date.now(), revoked_at: null, idle_expires: Date.now()+100000, absolute_expires: Date.now()+100000, grant: { role: "operator", botIds: ["bot-a"] } },
   ];
-  state.hooks.securitySessions = () => ({ currentSessionId: "self", sessions: structuredClone(state.sessions) });
+  state.requests = []; state.devices = []; state.recoveryCodesRemaining = 8;
+  state.hooks.securitySessions = () => ({ currentSessionId: "self", sessions: structuredClone(state.sessions), requests: structuredClone(state.requests), devices: structuredClone(state.devices), recoveryCodesRemaining: state.recoveryCodesRemaining });
   state.hooks.securityEvents = () => ({ events: [{ kind: "session.authorized", time: Date.now() }] });
   state.hooks.setSessionGrant = async input => { state.sessions.find(s => s.id === input.sessionId).grant = { role: input.role, botIds: input.botIds }; };
   state.hooks.revokeSession = async input => { state.sessions.find(s => s.id === input.sessionId).revoked_at = Date.now(); };
@@ -136,4 +137,51 @@ test("server-supplied session names are text, and language switching preserves e
   const h=harness();
   try {h.state.sessions[1].device_name='<img src=x onerror="window.xss=1">';const row=await openSecurity(h);assert.equal(h.panel.querySelector("img"),null);assert.equal(h.window.xss,undefined);const role=row.querySelector("select");role.value="viewer";role.focus();h.window.__sandUiLanguage="zh";h.window.dispatchEvent(new h.window.Event("sand-ui-language-changed"));assert.equal(role.value,"viewer");assert.equal(h.window.document.activeElement,role);assert.ok(h.find("安全与设备"));}
   finally{await h.close();}
+});
+
+const pendingKey = "A".repeat(43);
+function pending(h) {
+  h.state.requests = [{id:"10000000-0000-4000-8000-000000000001",jkt:pendingKey,device_name:"New device",version:1,status:"pending",created_at:Date.now(),expires:Date.now()+300000}];
+  h.state.hooks.approveDevice = input => {h.state.requests=[];return {ok:true};};
+  h.state.hooks.denyDevice = input => {h.state.requests=[];return {ok:true};};
+}
+const enrollmentWrites = h => h.state.calls.filter(call=>["approveDevice","denyDevice","blockDevice","rotateRecoveryCodes"].includes(call.action));
+test("new device defaults to no Bot scope, shows exact key, and approval binds selected permissions",async()=>{
+  const h=harness();pending(h);
+  try{
+    await openSecurity(h);const row=h.panel.querySelector('[data-request-id]');assert.ok(row);assert.match(row.textContent,new RegExp(pendingKey));
+    const role=row.querySelector('select'),scope=row.querySelector('select[multiple]');assert.equal(role.value,"viewer");assert.equal(scope.selectedOptions.length,0);
+    role.value="operator";role.dispatchEvent(new h.window.Event("change"));[...scope.options].forEach(o=>o.selected=o.value==="bot-a");scope.dispatchEvent(new h.window.Event("change"));
+    rowClick(row,"Approve device");assert.equal(enrollmentWrites(h).length,0);assert.match(h.panel.querySelector('.bb-security .bb-confirm').textContent,/Bot a/);
+    h.click("Confirm operation");h.find("Confirm operation").click();await until(()=>enrollmentWrites(h).length===1);
+    assert.deepEqual(enrollmentWrites(h)[0],{action:"approveDevice",id:"a",requestId:"10000000-0000-4000-8000-000000000001",expectedVersion:1,thumbprint:pendingKey,role:"operator",botIds:["bot-a"]});
+  }finally{await h.close();}
+});
+test("edited scope and changed server cancel a pending device approval without hidden writes",async()=>{
+  const h=harness();pending(h);
+  try{
+    await openSecurity(h);const row=h.panel.querySelector('[data-request-id]');rowClick(row,"Approve device");
+    const role=row.querySelector('select');role.value="admin";role.dispatchEvent(new h.window.Event("change"));h.find("Confirm operation").click();assert.equal(enrollmentWrites(h).length,0);
+    rowClick(row,"Approve device");h.select("b");await until(()=>h.find("Bot b"));h.find("Confirm operation").click();assert.equal(enrollmentWrites(h).length,0);
+  }finally{await h.close();}
+});
+test("a denied or stale device decision is not displayed as successful approval",async()=>{
+  const h=harness();pending(h);h.state.hooks.approveDevice=()=>{throw Error("Device request changed. Refresh before deciding.");};
+  try{await openSecurity(h);rowClick(h.panel.querySelector('[data-request-id]'),"Approve device");h.click("Confirm operation");await until(()=>h.panel.textContent.includes("Change not confirmed"));assert.equal(h.state.requests.length,1);assert.equal(enrollmentWrites(h).length,1);}
+  finally{await h.close();}
+});
+test("blocking a device targets its version and key, not a same-named session",async()=>{
+  const h=harness();h.state.devices=[{jkt:pendingKey,device_name:"Office computer",status:"approved",version:7}];h.state.hooks.blockDevice=()=>{h.state.devices[0].status="blocked";};
+  try{await openSecurity(h);rowClick(h.panel.querySelector('[data-device-key]'),"Block device sessions");assert.match(h.panel.querySelector('.bb-security .bb-confirm').textContent,/Accepted work is not cancelled/);h.click("Confirm operation");await until(()=>h.state.devices[0].status==="blocked");assert.deepEqual(enrollmentWrites(h),[{action:"blockDevice",id:"a",thumbprint:pendingKey,expectedVersion:7}]);}
+  finally{await h.close();}
+});
+test("recovery codes appear only after explicit regeneration and disappear on leaving the server",async()=>{
+  const h=harness();const codes=Array.from({length:8},(_,i)=>String(i).repeat(43));h.state.hooks.rotateRecoveryCodes=()=>({codes});
+  try{await openSecurity(h);const area=h.panel.querySelector('textarea');assert.equal(area.value,"");h.click("Regenerate recovery codes");assert.equal(enrollmentWrites(h).length,0);h.click("Confirm operation");await until(()=>area.value.includes(codes[0]));assert.equal(enrollmentWrites(h).length,1);h.click("Saved; hide recovery codes");assert.equal(area.value,"");h.click("Regenerate recovery codes");h.click("Confirm operation");await until(()=>area.value.includes(codes[0]));h.select("b");await until(()=>h.find("Bot b"));assert.equal(area.value,"");assert.equal(h.window.localStorage.length,0);}
+  finally{await h.close();}
+});
+test("late recovery output cannot be exposed after switching accounts or closing the panel",async()=>{
+  const h=harness(),p=deferred();h.state.hooks.rotateRecoveryCodes=()=>p.promise;
+  try{await openSecurity(h);h.click("Regenerate recovery codes");h.click("Confirm operation");await until(()=>enrollmentWrites(h).length===1);h.state.profiles[0].status="signed-out";h.changed("a");p.resolve({codes:Array(8).fill("Z".repeat(43))});await until(()=>h.find("Sign in")&&!h.find("Sign in").hidden);assert.equal(h.panel.querySelector('textarea').value,"");}
+  finally{p.resolve({codes:[]});await h.close();}
 });

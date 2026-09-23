@@ -66,19 +66,29 @@ async function fixture(t) {
   const password="test-only-correct-owner-passphrase";
   const form=async url=>{const res=await fetch(url);const page=await res.text();assert.equal(res.status,200,page);return {flow_id:/name="flow_id" value="([^"]+)"/.exec(page)[1],csrf:/name="csrf" value="([^"]+)"/.exec(page)[1],cookie:res.headers.get("set-cookie").split(';')[0]};};
   const post=async(route,input,browser)=>fetch(origin+route,{method:"POST",redirect:"manual",headers:{"Content-Type":"application/x-www-form-urlencoded",Origin:origin,Cookie:browser.cookie},body:new URLSearchParams(input)});
-  const b=await form(origin+"/setup?code="+server.auth.getSetupInfo().code);assert.equal((await post("/setup",{...b,username:"owner",password},b)).status,200);
-  async function open(url) {const b=await form(url);const res=await post("/oauth/authorize",{...b,username:"owner",password,decision:"allow"},b);assert.equal(res.status,303,await res.text());assert.equal((await fetch(res.headers.get("location"))).status,200);}
+  const b=await form(origin+"/setup?code="+server.auth.getSetupInfo().code);const setup=await post("/setup",{...b,username:"owner",password},b);assert.equal(setup.status,200);
+  const recovery=/<code data-recovery-code>([^<]+)/.exec(await setup.text())[1];let administrator;
+  async function consent(url,browser) {
+    let res=await post("/oauth/authorize",{...browser,username:"owner",password,decision:"allow",...(!administrator?{recovery_code:recovery,confirm_recovery:"yes"}:{})},browser);
+    if(res.status===200) {
+      const page=await res.text(),requestId=/name="request_id" value="([^"]+)"/.exec(page)?.[1];assert.ok(requestId,page);
+      const approved=await administrator.request(`/v1/security/requests/${requestId}/approve`,{expectedVersion:1,thumbprint:new URL(url).searchParams.get("dpop_jkt"),grant:{role:"admin",botIds:"*"}});assert.equal(approved.status,200,await approved.clone().text());
+      res=await post("/oauth/device-approval",{request_id:requestId,csrf:browser.csrf,decision:"check"},browser);
+    }
+    return res;
+  }
+  async function open(url) {if(!administrator)await login();const b=await form(url);const res=await consent(url,b);assert.equal(res.status,303,await res.text());assert.equal((await fetch(res.headers.get("location"))).status,200);}
   async function login(device=testDevice()) {
     const verifier=randomUUID()+randomUUID(); const redirect="http://127.0.0.1:54321/oauth/callback";
     const q=new URLSearchParams({client_id:"beebot-desktop",response_type:"code",scope:"owner:node",state:randomUUID(),redirect_uri:redirect,code_challenge:createHash("sha256").update(verifier).digest("base64url"),code_challenge_method:"S256",dpop_jkt:device.jkt,device_name:"Test laptop"});
     const browser=await form(origin+"/oauth/authorize?"+q);
-    const res=await post("/oauth/authorize",{...browser,username:"owner",password,decision:"allow"},browser);assert.equal(res.status,303);
+    const res=await consent(origin+"/oauth/authorize?"+q,browser);assert.equal(res.status,303,await res.clone().text());
     const code=new URL(res.headers.get("location")).searchParams.get("code");
     const params={client_id:"beebot-desktop",grant_type:"authorization_code",code,code_verifier:verifier,redirect_uri:redirect};
     const response=await device.request(origin+"/oauth/token",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams(params)});
     assert.equal(response.status,200,await response.clone().text());const tokens=await response.json();
     const request=(route,body)=>device.request(origin+route,{method:body===undefined?"GET":"POST",headers:{Authorization:`DPoP ${tokens.access_token}`,"Content-Type":"application/json","Idempotency-Key":randomUUID()},...(body===undefined?{}:{body:JSON.stringify(body)})});
-    return {device,tokens,request,params};
+    const session = {device,tokens,request,params};administrator ??= session;return session;
   }
   const alter=run=>{const db=new DatabaseSync(path.join(dataDir,"auth.sqlite"));try{return run(db);}finally{db.close();}};
   return {origin,dataDir,login,open,alter,get server(){return server;}, async restart(){await server.close();server=new api.BeeBotServer({config,dataDir,runtime:{execute:async()=>({text:"fixture",transcript:[]}),close:async()=>{}}});await server.listen();}};

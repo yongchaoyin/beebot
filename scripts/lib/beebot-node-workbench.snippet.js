@@ -200,6 +200,7 @@
       clearInterval(poll);
       unsubscribe?.();
       window.removeEventListener("sand-ui-language-changed", localize);
+      const secretOutput = root.querySelector("[data-bb-recovery-codes]"); if (secretOutput) secretOutput.value = "";
       root.remove();
       if (window.__beebotCloseNodeWorkbench === close) delete window.__beebotCloseNodeWorkbench;
     };
@@ -350,25 +351,39 @@
     bots.append(botsHeading, botsHelp, botList, empty, sync);
     const securityPanel = element("section", "bb-security"); securityPanel.id = "bb-node-security"; securityPanel.hidden = true;
     securityPanel.append(text("h3", "安全与设备", "Security & devices"));
-    securityPanel.append(text("p", "会话绑定设备密钥。撤销会话会断开其连接，但不会自动取消已接收的工作。", "Sessions are bound to device keys. Revocation disconnects a session; it does not cancel already accepted work.", "bb-muted"));
+    securityPanel.append(text("p", "新设备必须获准。权限按设备密钥保留，重新登录不会提权。撤销会话仅退出该会话；封禁设备会断开同一密钥的所有会话。已接收工作不会自动取消。", "New devices require approval. Permissions persist by device key across sign-in. Session revocation signs out one session; blocking a device disconnects all sessions for that key. Accepted work is not automatically cancelled.", "bb-muted"));
     const securityStatus = element("p", "bb-muted"); securityStatus.setAttribute("role", "status");
     const securityTools = element("div", "bb-actions");
     const securityRefresh = button("刷新安全记录", "Refresh security", () => void loadSecurity());
     const securityAuth = button("重新验证身份", "Verify identity again", () => void run("login"));
     securityTools.append(securityRefresh, securityAuth);
-    const sessionList = element("div"), eventList = element("div", "bb-muted");
+    const sessionList = element("div"), eventList = element("div", "bb-muted"), requestList = element("div"), deviceList = element("div");
+    const recoveryBox = element("section"); recoveryBox.hidden = true;
+    const recoveryHelp = text("p", "请离线保存：恢复码只显示这一次。每码仅能使用一次，仍需所有者密码；恢复会撤销其他设备，但保留 Bot 和工作记录。", "Save offline: recovery codes are shown only once. Each code is single-use and still requires the owner password. Recovery revokes other devices but keeps Bots and work history.", "bb-muted");
+    const recoveryValues = element("textarea"); recoveryValues.readOnly = true; recoveryValues.rows = 8; recoveryValues.dataset.bbRecoveryCodes = "";
+    const recoveryLabel = () => recoveryValues.setAttribute("aria-label", t("一次性恢复码", "One-time recovery codes")); recoveryLabel(); translations.push(recoveryLabel);
+    recoveryValues.style.cssText = "width:100%;box-sizing:border-box;font:12px/1.6 monospace";
+    const hideRecovery = () => { recoveryValues.value = ""; recoveryBox.hidden = true; };
+    recoveryBox.append(recoveryHelp, recoveryValues, button("已保存，隐藏恢复码", "Saved; hide recovery codes", hideRecovery));
+    const recoveryRotate = button("重新生成恢复码", "Regenerate recovery codes", () => {
+      if (!securityOpen || securityWorking || !profilesTrusted || current()?.status !== "online") return;
+      securityIntent = { action: "rotateRecoveryCodes", id: selected, key: currentKey(), at: generation, epoch: securityEpoch, input: {} };
+      securityPrompt.textContent = t("重新生成后，所有旧恢复码立即失效。新码仅显示一次，请离线保存；该操作需要近期管理员验证。", "All old recovery codes will stop working. New codes are displayed once; save them offline. A recent administrator verification is required.");
+      securityConfirm.hidden = false; securityCancel.focus();
+    });
+    securityTools.append(recoveryRotate);
     const securityConfirm = element("div", "bb-confirm"); securityConfirm.hidden = true; securityConfirm.setAttribute("role", "group");
     const securityPrompt = element("p");
     const securityCancel = button("取消", "Cancel", () => { securityIntent = null; securityConfirm.hidden = true; });
     const securityProceed = button("确认操作", "Confirm operation", () => void mutateSecurity(), "bb-danger");
     securityConfirm.append(securityPrompt, securityCancel, securityProceed);
-    securityPanel.append(securityTools, securityStatus, sessionList, securityConfirm, eventList);
+    securityPanel.append(securityTools, securityStatus, requestList, deviceList, sessionList, securityConfirm, recoveryBox, eventList);
     root.append(intro, pickerBox, card, securityPanel, addToggle, form, noticeBox, bots, live);
     host.append(root);
 
     function clearSecurity() {
       securityEpoch++; securityOpen = false; securityWorking = false; securityIntent = null;
-      securityPanel.hidden = true; securityConfirm.hidden = true; sessionList.replaceChildren(); eventList.replaceChildren(); securityTranslations = [];
+      securityPanel.hidden = true; securityConfirm.hidden = true; sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityTranslations = [];
       securityToggle.setAttribute("aria-expanded", "false");
     }
     function secText(tag, cn, en, cls) {
@@ -378,13 +393,62 @@
     async function loadSecurity() {
       if (!alive || !securityOpen || !profilesTrusted || current()?.status !== "online" || securityWorking) return;
       const key = currentKey(), at = generation, epoch = ++securityEpoch, id = selected;
-      securityWorking = true; securityRefresh.disabled = true; securityIntent = null; securityConfirm.hidden = true;
+      hideRecovery(); securityWorking = true; securityRefresh.disabled = true; securityIntent = null; securityConfirm.hidden = true;
       securityStatus.textContent = t("正在读取安全记录…", "Loading security records…");
       try {
         const [result, log] = await Promise.all([request("securitySessions", { id }), request("securityEvents", { id })]);
         if (!alive || !securityOpen || epoch !== securityEpoch || at !== generation || key !== currentKey() || !profilesTrusted) return;
         if (!result || !Array.isArray(result.sessions) || !Array.isArray(log?.events) || result.sessions.length > 200 || log.events.length > 200) throw new Error("Invalid security response.");
-        sessionList.replaceChildren(); eventList.replaceChildren(); securityTranslations = [];
+        sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityTranslations = [];
+        if (result.requests !== undefined && (!Array.isArray(result.requests) || result.requests.length > 20) || result.devices !== undefined && (!Array.isArray(result.devices) || result.devices.length > 200)) throw new Error("Invalid device trust response.");
+        if (result.requests?.length) requestList.append(secText("h3", "待批准的新设备", "Pending device requests"));
+        for (const item of result.requests || []) {
+          if (typeof item.id !== "string" || typeof item.device_name !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(item.jkt) || !Number.isSafeInteger(item.version) || !Number.isFinite(item.expires)) throw new Error("Invalid device request.");
+          const row = element("details"); row.dataset.requestId = item.id; row.open = true;
+          row.append(secText("summary", item.device_name, item.device_name), secText("p", `申请编号：${item.id}`, `Request ID: ${item.id}`));
+          const fingerprint = element("code"); fingerprint.textContent = item.jkt; row.append(fingerprint);
+          row.append(secText("p", "请与申请设备上的完整公钥摘要核对；设备名称并不证明身份。默认无 Bot 权限，请明确选择。", "Compare the full key fingerprint on the requesting device. Its name is not proof of identity. Select permissions explicitly; no Bots are selected by default.", "bb-muted"));
+          const role = element("select"), scope = element("select"); scope.multiple = true;
+          const labels = () => { role.setAttribute("aria-label", t("新设备权限", "New device permission")); scope.setAttribute("aria-label", t("允许访问的 Bot", "Allowed Bots")); }; labels(); securityTranslations.push(labels);
+          for (const [value,cn,en] of [["viewer","仅查看","View only"],["operator","使用 Bot","Use Bots"],["admin","管理节点","Manage Node"]]) { const option = secText("option",cn,en); option.value = value; role.append(option); }
+          const all = secText("option", "全部 Bot（含未来创建的）", "All Bots (including future Bots)"); all.value = "*"; scope.append(all);
+          for (const bot of snapshot?.bots || []) { const option = element("option"); option.value=bot.id; option.textContent=bot.name; scope.append(option); }
+          const cancel = () => { securityIntent = null; securityConfirm.hidden = true; };
+          role.onchange = () => { scope.disabled = role.value === "admin"; cancel(); }; scope.onchange = cancel;
+          const propose = action => {
+            if (!alive || securityWorking || epoch !== securityEpoch || key !== currentKey() || at !== generation || !profilesTrusted || item.expires <= Date.now()) return;
+            const chosen = [...scope.options].filter(option => option.selected).map(option => option.value), botIds = role.value === "admin" || chosen.includes("*") ? "*" : chosen;
+            const input = { requestId:item.id, expectedVersion:item.version, thumbprint:item.jkt, ...(action === "approveDevice" ? { role:role.value, botIds } : {}) };
+            securityIntent = { action, input, id, key, at, epoch, expires:item.expires };
+            const scopeText = botIds === "*" ? t("全部 Bot（含未来创建的）", "all Bots (including future Bots)") : botIds.map(botId => snapshot?.bots.find(bot => bot.id === botId)?.name || botId).join(", ") || t("无 Bot", "no Bots");
+            securityPrompt.textContent = action === "approveDevice"
+              ? t(`批准「${item.device_name}」？公钥：${item.jkt}；权限：${role.value}；范围：${scopeText}。请核对申请设备后确认。`, `Approve ${item.device_name}? Key: ${item.jkt}; role: ${role.value}; scope: ${scopeText}. Confirm only after comparing the requesting device.`)
+              : t(`拒绝「${item.device_name}」的接入申请？公钥：${item.jkt}`, `Deny access for ${item.device_name}? Key: ${item.jkt}`);
+            securityConfirm.hidden=false; securityCancel.focus();
+          };
+          const fields=element("div","bb-security-fields"); fields.append(secText("label","权限","Permission"),role,secText("label","Bot 范围","Bot scope"),scope);
+          const actions=element("div","bb-actions"); actions.append(secButton("批准设备","Approve device",()=>propose("approveDevice")),secButton("拒绝申请","Deny request",()=>propose("denyDevice")));
+          row.append(fields,actions);requestList.append(row);
+        }
+        if (result.devices?.length) deviceList.append(secText("h3", "可信设备密钥", "Trusted device keys"));
+        for (const item of result.devices || []) {
+          if (!/^[A-Za-z0-9_-]{43}$/.test(item.jkt) || typeof item.device_name !== "string" || !["approved","blocked"].includes(item.status) || !Number.isSafeInteger(item.version)) throw new Error("Invalid trusted device.");
+          const row=element("details");row.dataset.deviceKey=item.jkt;row.append(secText("summary",`${item.device_name}${item.status === "blocked" ? " · 已封禁" : ""}`,`${item.device_name}${item.status === "blocked" ? " · blocked" : ""}`));
+          const fingerprint=element("code");fingerprint.textContent=item.jkt;row.append(fingerprint);
+          if (item.grant && ["admin","operator","viewer"].includes(item.grant.role)) {
+            const scope = item.grant.botIds === "*" ? t("全部 Bot（含未来创建的）", "all Bots (including future Bots)") : (Array.isArray(item.grant.botIds) ? item.grant.botIds.map(id => snapshot?.bots.find(bot => bot.id === id)?.name || id).join(", ") : "") || t("无 Bot", "no Bots");
+            row.append(secText("p", `权限：${item.grant.role}；范围：${scope}`, `Permission: ${item.grant.role}; scope: ${scope}`, "bb-muted"));
+          }
+          if (item.status === "approved") row.append(secButton("封禁设备全部会话", "Block device sessions", () => {
+            if (!alive || securityWorking || epoch !== securityEpoch || key !== currentKey() || at !== generation || !profilesTrusted) return;
+            securityIntent={action:"blockDevice",input:{thumbprint:item.jkt,expectedVersion:item.version},id,key,at,epoch};
+            securityPrompt.textContent=t(`封禁「${item.device_name}」的设备密钥 ${item.jkt}？全部关联会话将断开，之后不能仅凭密码重新接入。此操作不取消已接收工作。`, `Block ${item.device_name}, key ${item.jkt}? All associated sessions will disconnect; password-only sign-in cannot restore access. Accepted work is not cancelled.`);
+            securityConfirm.hidden=false;securityCancel.focus();
+          }));
+          else row.append(secText("p","已封禁；普通登录不能重新授权此密钥。","Blocked; ordinary sign-in cannot reauthorize this key.","bb-muted"));
+          deviceList.append(row);
+        }
+        if (Number.isSafeInteger(result.recoveryCodesRemaining)) deviceList.append(secText("p",`可用恢复码：${result.recoveryCodesRemaining}。恢复码不会在普通查询中返回。`,`Recovery codes remaining: ${result.recoveryCodesRemaining}. Routine reads never return the codes.`,"bb-muted"));
         for (const item of result.sessions) {
           if (typeof item.id !== "string" || typeof item.device_name !== "string" || !["admin", "operator", "viewer"].includes(item.grant?.role)) throw new Error("Invalid device session.");
           const row = element("details"); row.dataset.sessionId = item.id;
@@ -415,29 +479,36 @@
             const proposedScope = !grant ? "" : grant.botIds === "*" ? t("全部 Bot（含未来创建的）", "all Bots (including future Bots)") : grant.botIds.map(botId => snapshot?.bots.find(bot => bot.id === botId)?.name || botId).join(", ") || t("无 Bot", "no Bots");
             securityPrompt.textContent = action === "revokeSession"
               ? t(`撤销「${item.device_name}」${own ? "的当前会话" : "的会话"}？此操作不能撤回已完成的外部动作。`, `Revoke ${item.device_name}${own ? " (current session)" : ""}? Completed external actions cannot be undone.`)
-              : t(`将「${item.device_name}」设为${proposedRole}，范围：${proposedScope}？新权限会在服务器立即生效。`, `Set ${item.device_name} to ${proposedRole}, scope: ${proposedScope}? The server enforces this immediately.`);
+              : t(`将「${item.device_name}」设为${proposedRole}，范围：${proposedScope}？新权限会立即应用于同一设备密钥的所有会话，重新登录也会保留。`, `Set ${item.device_name} to ${proposedRole}, scope: ${proposedScope}? Applies immediately to all sessions using this device key and survives sign-in.`);
             securityConfirm.hidden = false; securityCancel.focus();
           };
-          controls.append(secButton("保存权限", "Save permissions", () => { const chosen = [...scope.selectedOptions].map(o => o.value); propose("setSessionGrant", { role: role.value, botIds: role.value === "admin" || chosen.includes("*") ? "*" : chosen }); }),
+          controls.append(secButton("保存权限", "Save permissions", () => { const chosen = [...scope.options].filter(option => option.selected).map(o => o.value); propose("setSessionGrant", { role: role.value, botIds: role.value === "admin" || chosen.includes("*") ? "*" : chosen }); }),
             secButton("撤销会话", "Revoke session", () => propose("revokeSession")));
           row.append(fields, controls); sessionList.append(row);
         }
         eventList.append(secText("h3", "最近安全事件", "Recent security events"));
-        const names = { "session.authorized": ["设备已授权","Device authorized"], "session.revoked": ["会话已撤销","Session revoked"], "session.permissions_changed": ["权限已更改","Permissions changed"], "session.proof_rejected": ["设备证明被拒绝","Device proof rejected"] };
+        const names = { "device.requested": ["新设备申请接入","Device access requested"], "device.approved": ["新设备已批准","Device approved"], "device.denied": ["设备申请已拒绝","Device request denied"], "device.blocked": ["设备已封禁","Device blocked"], "recovery.device_replaced": ["恢复已替换可信设备","Trusted devices replaced by recovery"], "recovery.codes_rotated": ["恢复码已更新","Recovery codes regenerated"], "session.authorized": ["设备已授权","Device authorized"], "session.revoked": ["会话已撤销","Session revoked"], "session.permissions_changed": ["权限已更改","Permissions changed"], "session.proof_rejected": ["设备证明被拒绝","Device proof rejected"] };
         for (const event of log.events.slice(0,20)) { const name = names[event.kind] || ["安全事件","Security event"]; const date = Number.isFinite(event.time) ? new Date(event.time).toISOString() : ""; eventList.append(secText("p", `${date} · ${name[0]}`, `${date} · ${name[1]}`)); }
         securityStatus.textContent = t("记录来自当前服务器；不会显示密钥或令牌。", "Records come from this Node. Keys and tokens are never displayed.");
       } catch (error) {
-        if (alive && securityOpen && epoch === securityEpoch && at === generation && key === currentKey()) { sessionList.replaceChildren(); eventList.replaceChildren(); securityStatus.textContent = t("无法读取安全记录。此操作需要管理权限：", "Cannot read security records. Management permission is required: ") + errorDetail(error); }
+        if (alive && securityOpen && epoch === securityEpoch && at === generation && key === currentKey()) { sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityStatus.textContent = t("无法读取安全记录。此操作需要管理权限：", "Cannot read security records. Management permission is required: ") + errorDetail(error); }
       } finally { if (epoch === securityEpoch) { securityWorking = false; securityRefresh.disabled = false; } }
     }
     async function mutateSecurity() {
       const intent = securityIntent;
       if (!intent || securityWorking || !alive || !profilesTrusted || intent.epoch !== securityEpoch || intent.at !== generation || intent.key !== currentKey()) return;
-      securityIntent = null; securityWorking = true; securityProceed.disabled = true; securityRefresh.disabled = true;
+      if (intent.expires && intent.expires <= Date.now()) { securityIntent = null; securityConfirm.hidden = true; securityStatus.textContent = t("申请已过期，请刷新安全记录。", "Request expired. Refresh security records."); return; }
+      hideRecovery(); securityIntent = null; securityWorking = true; securityProceed.disabled = true; securityRefresh.disabled = true;
       try {
-        await request(intent.action, { id: intent.id, sessionId: intent.sessionId, ...(intent.grant || {}) });
+        const result = await request(intent.action, { id: intent.id, ...(intent.input || {sessionId: intent.sessionId, ...(intent.grant || {})}) });
         if (!alive || intent.epoch !== securityEpoch || intent.at !== generation || intent.key !== currentKey()) return;
-        securityConfirm.hidden = true; securityWorking = false; await loadSecurity();
+        securityConfirm.hidden = true; securityWorking = false;
+        if (intent.action === "rotateRecoveryCodes") {
+          if (!Array.isArray(result?.codes) || result.codes.length !== 8 || !result.codes.every(code => typeof code === "string" && /^[A-Za-z0-9_-]{43}$/.test(code))) throw new Error("Invalid recovery-code response; generate a new set explicitly.");
+          recoveryValues.value = result.codes.join("\n"); recoveryBox.hidden = false;
+          securityStatus.textContent = t("旧恢复码已失效。请保存下方新码，离开或刷新页面后将隐藏。", "Old recovery codes are invalid. Save the new codes below; leaving or refreshing hides them.");
+          recoveryValues.focus();
+        } else await loadSecurity();
       } catch (error) {
         if (alive && intent.epoch === securityEpoch && intent.key === currentKey()) { securityConfirm.hidden = true; securityStatus.textContent = t("更改未确认。请重新验证身份后重试：", "Change not confirmed. Verify your identity again and retry: ") + errorDetail(error); }
       } finally { if (alive) { if (intent.epoch === securityEpoch) securityWorking = false; securityProceed.disabled = false; securityRefresh.disabled = false; } }

@@ -66,8 +66,8 @@ export class BeeBotServer {
       this.ws.handleUpgrade(req, socket, head, ws => this.eventSession(ws));
     });
   }
-  get node(): { id: string; nodeId: string; name: string; protocolVersion: 1; security: { dpopRequired: true } } {
-    const { nodeId, name } = this.options.config; return { id: nodeId, nodeId, name, protocolVersion: 1, security: { dpopRequired: true } };
+  get node(): { id: string; nodeId: string; name: string; protocolVersion: 1; security: { dpopRequired: true; trustedDevicesRequired: true } } {
+    const { nodeId, name } = this.options.config; return { id: nodeId, nodeId, name, protocolVersion: 1, security: { dpopRequired: true, trustedDevicesRequired: true } };
   }
   private failure(res: ServerResponse, error: unknown): void {
     if (res.headersSent) { res.destroy(); return; }
@@ -100,6 +100,29 @@ export class BeeBotServer {
     if (req.method === "POST" && url.pathname === "/v1/goals") { const input = goalSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", input.botId); json(res, 202, this.store.submitGoal(principalId, key, input)); return; }
     if (req.method === "GET" && url.pathname === "/v1/security/sessions") { json(res, 200, this.auth.listSessions(identity)); return; }
     if (req.method === "GET" && url.pathname === "/v1/security/events") { json(res, 200, this.auth.securityEvents(identity)); return; }
+    if (req.method === "POST" && url.pathname === "/v1/security/recovery-codes") {
+      z.object({}).strict().parse(await body(req));
+      json(res, 200, this.auth.rotateRecoveryCodes(identity)); return;
+    }
+    const deviceRequest = /^\/v1\/security\/requests\/([a-f0-9-]{36})\/(approve|deny)$/.exec(url.pathname);
+    if (req.method === "POST" && deviceRequest?.[1]) {
+      this.auth.requirePermission(identity, "admin");
+      const raw = await body(req);
+      const input = z.object({ expectedVersion: z.number().int().positive(), thumbprint: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+        ...(deviceRequest[2] === "approve" ? { grant: z.unknown() } : {}) }).strict().parse(raw);
+      const grant = deviceRequest[2] === "approve" ? this.auth.validateGrant((input as { grant: unknown }).grant) : undefined;
+      if (grant && grant.botIds !== "*") for (const id of grant.botIds) {
+        if (this.store.bot(id).ownerId !== principalId) throw new ControlError(404, "not_found", "Unknown Bot.");
+      }
+      this.auth.decideDevice(identity, deviceRequest[1], input.expectedVersion, input.thumbprint, grant);
+      json(res, 200, { ok: true }); return;
+    }
+    const device = /^\/v1\/security\/devices\/([A-Za-z0-9_-]{43})\/block$/.exec(url.pathname);
+    if (req.method === "POST" && device?.[1]) {
+      const input = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(await body(req));
+      this.auth.blockDevice(identity, device[1], input.expectedVersion);
+      json(res, 200, { ok: true }); return;
+    }
     const security = /^\/v1\/security\/sessions\/([a-f0-9-]{36})\/(revoke|grant)$/.exec(url.pathname);
     if (req.method === "POST" && security?.[1]) {
       this.auth.requirePermission(identity, "admin");

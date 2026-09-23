@@ -42,6 +42,7 @@ async function fixture(t, initialize = true) {
   auth = new NodeAuth({ dataDir, issuer: origin });
   t.after(async () => { await new Promise(resolve => server.close(resolve)); auth.close(); });
   const device = testDevice();
+  let firstRecoveryCode;
   const request = (endpoint, options = {}) => device.request(`${origin}${endpoint}`, { redirect: "manual", ...options });
   const post = (endpoint, body, headers = {}) => request(endpoint, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams(body),
@@ -57,7 +58,8 @@ async function fixture(t, initialize = true) {
     const setupCode = auth.getSetupInfo().code;
     const browser = await form(`/setup?code=${setupCode}`);
     const response = await post("/setup", { flow_id: browser.flow_id, csrf: browser.csrf, username: "owner", password }, { Origin: origin, Cookie: browser.cookie });
-    assert.equal(response.status, 200, await response.text());
+    const setupPage = await response.text(); assert.equal(response.status, 200, setupPage);
+    firstRecoveryCode = /<code data-recovery-code>([^<]+)/.exec(setupPage)?.[1]; assert.ok(firstRecoveryCode);
     return setupCode;
   };
   const startAuthorization = async (overrides = {}) => {
@@ -68,7 +70,8 @@ async function fixture(t, initialize = true) {
     return { ...browser, verifier, state, query };
   };
   const login = async (flow, overrides = {}, headers = {}) => {
-    return post("/oauth/authorize", { flow_id: flow.flow_id, csrf: flow.csrf, username: "owner", password, decision: "allow", ...overrides }, { Origin: origin, Cookie: flow.cookie, ...headers });
+    const trusted = alterDb(db => db.prepare("SELECT jkt FROM auth_trusted_devices WHERE jkt=? AND status='approved'").get(device.jkt));
+    return post("/oauth/authorize", { flow_id: flow.flow_id, csrf: flow.csrf, username: "owner", password, decision: "allow", ...(!trusted && firstRecoveryCode ? {recovery_code:firstRecoveryCode,confirm_recovery:"yes"} : {}), ...overrides }, { Origin: origin, Cookie: flow.cookie, ...headers });
   };
   const exchange = (code, verifier, overrides = {}) => post("/oauth/token", { client_id: "beebot-desktop", grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: "http://127.0.0.1:54321/oauth/callback", ...overrides });
   const createSession = async () => {
@@ -127,7 +130,7 @@ test("only registered loopback redirects and PKCE S256 are accepted; no unsafe r
 test("authorization verifies browser CSRF, explicit consent, state, verifier, and single-use code", async t => {
   const f = await fixture(t);
   const flow = await f.startAuthorization();
-  assert.match(flow.page, /登录并授权此设备/); assert.match(flow.page, /My Mac/);
+  assert.match(flow.page, /登录并请求接入/); assert.match(flow.page, /My Mac/);
   assert.equal((await f.login(flow, { csrf: "wrong" })).status, 403);
   assert.equal((await f.login(flow, {}, { Origin: "https://attacker.example" })).status, 403);
   assert.equal((await f.login(flow, {}, { Origin: "null" })).status, 403);

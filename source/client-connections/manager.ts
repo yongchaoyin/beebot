@@ -69,7 +69,7 @@ export class NodeConnectionManager {
     if (previous) return { ...previous.profile };
     const node = await fetchNodeJson(baseUrl, "/v1/node");
     if (node.protocolVersion !== 1 || typeof node.id !== "string" || !node.id || typeof node.name !== "string") throw new Error("This server does not support BeeBot protocol version 1.");
-    if (node.security?.dpopRequired !== true) throw new Error("Update this BeeBot Node before connecting: device-bound authentication is required.");
+    if (node.security?.dpopRequired !== true || node.security?.trustedDevicesRequired !== true) throw new Error("Update this BeeBot Node before connecting: device-bound authentication and trusted-device approval are required.");
     const profile: NodeProfile = { id: randomUUID(), nodeId: node.id, name: node.name, baseUrl, status: "signed-out" };
     const c: Connection = { profile, reconnectAttempt: 0, generation: 0 };
     this.connections.set(profile.id, c);
@@ -80,7 +80,7 @@ export class NodeConnectionManager {
 
   private async verifyIdentity(c: Connection): Promise<void> {
     const node = await fetchNodeJson(c.profile.baseUrl, "/v1/node");
-    if (node.id !== c.profile.nodeId || node.protocolVersion !== 1 || node.security?.dpopRequired !== true) throw new Error("The server identity changed. Remove this connection and add the server again.");
+    if (node.id !== c.profile.nodeId || node.protocolVersion !== 1 || node.security?.dpopRequired !== true || node.security?.trustedDevicesRequired !== true) throw new Error("The server identity changed. Remove this connection and add the server again.");
   }
 
   async login(id: string): Promise<void> {
@@ -254,6 +254,16 @@ export class NodeConnectionManager {
     const c = await this.get(id); const result = await this.request(c, `/v1/goals/${encodeURIComponent(goalId)}/reconcile`, "POST", { expectedVersion, note }, key); this.changed(c); return result;
   }
 
+  async decideDevice(id: string, requestId: string, expectedVersion: number, thumbprint: string, grant?: DeviceGrant): Promise<void> {
+    await this.request(await this.get(id), `/v1/security/requests/${encodeURIComponent(requestId)}/${grant ? "approve" : "deny"}`, "POST",
+      { expectedVersion, thumbprint, ...(grant ? { grant } : {}) });
+  }
+  async blockDevice(id: string, thumbprint: string, expectedVersion: number): Promise<void> {
+    await this.request(await this.get(id), `/v1/security/devices/${encodeURIComponent(thumbprint)}/block`, "POST", { expectedVersion });
+  }
+  async rotateRecoveryCodes(id: string): Promise<unknown> {
+    return this.request(await this.get(id), "/v1/security/recovery-codes", "POST", {});
+  }
   async securitySessions(id: string): Promise<unknown> { return this.request(await this.get(id), "/v1/security/sessions"); }
   async securityEvents(id: string): Promise<unknown> { return this.request(await this.get(id), "/v1/security/events"); }
   async revokeSession(id: string, sessionId: string): Promise<void> {

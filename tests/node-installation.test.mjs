@@ -107,3 +107,7 @@ test('failed endpoint responses release their bodies without consuming server da
   await assert.rejects(api.verifyNodeEndpoint(node, async () => response));
   assert.equal(cancelled, true);
 });
+test('offline recovery flags require explicit options and reject credential arguments', () => {
+  assert.deepEqual(api.parseNodeArguments('recovery-codes', ['--data-dir','/private/node','--output','/private/recovery.json','--confirm-recovery']), {'data-dir':'/private/node',output:'/private/recovery.json','confirm-recovery':true});
+  for (const args of [['--output'],['--password','private'],['--confirm-recovery','yes'],['--confirm-recovery','--confirm-recovery']]) assert.throws(()=>api.parseNodeArguments('recovery-codes',args));
+});

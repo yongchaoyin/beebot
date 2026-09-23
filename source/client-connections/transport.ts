@@ -110,7 +110,7 @@ export async function authorizeNode(baseUrl: string, openExternal: (url: string)
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => { server.removeListener("error", reject); resolve(); }); });
   redirectUri = `http://127.0.0.1:${(server.address() as AddressInfo).port}/oauth/callback`;
-  const timer = setTimeout(() => rejectCode(new Error("Sign-in timed out. Try again.")), 5 * 60_000);
+  const timer = setTimeout(() => rejectCode(new Error("Sign-in or device approval timed out. Start a new request.")), 10 * 60_000);
   const abort = () => rejectCode(new Error("Sign-in cancelled."));
   signal?.addEventListener("abort", abort, { once: true });
   try {

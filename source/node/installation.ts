@@ -9,9 +9,10 @@ const FLAGS: Record<string, readonly string[]> = {
   doctor: ["data-dir"],
   verify: ["data-dir"],
   "setup-link": ["data-dir"],
+  "recovery-codes": ["data-dir", "output", "confirm-recovery"],
   "configure-model": ["data-dir", "base-url", "model-id", "api-key-stdin"],
 };
-const SWITCHES = new Set(["trusted-proxy", "if-absent", "api-key-stdin"]);
+const SWITCHES = new Set(["trusted-proxy", "if-absent", "api-key-stdin", "confirm-recovery"]);
 export function parseNodeArguments(command: string, args: readonly string[]): Record<string, string | true> {
   const allowed = FLAGS[command];
   if (!allowed) throw new Error("Unknown server command.");

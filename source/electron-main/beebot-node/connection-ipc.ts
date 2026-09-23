@@ -62,6 +62,19 @@ export function installNodeConnectionIpc(electron: NodeConnectionElectron, rende
       if (!(botIds === "*" || Array.isArray(botIds) && botIds.length <= 500 && botIds.every(id => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id)))) throw new Error("Invalid Bot permission scope.");
       return manager.setSessionGrant(id, text(input.sessionId, "device session", 100), { role, botIds });
     }
+    if (action === "rotateRecoveryCodes") return manager.rotateRecoveryCodes(id);
+    if (["approveDevice", "denyDevice", "blockDevice"].includes(action)) {
+      if (!Number.isSafeInteger(input.expectedVersion) || Number(input.expectedVersion) < 1) throw new Error("Invalid device version.");
+      const thumbprint = text(input.thumbprint, "device fingerprint", 43);
+      if (!/^[A-Za-z0-9_-]{43}$/.test(thumbprint)) throw new Error("Invalid device fingerprint.");
+      if (action === "blockDevice") return manager.blockDevice(id, thumbprint, input.expectedVersion as number);
+      const requestId = text(input.requestId, "device request", 36);
+      if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(requestId)) throw new Error("Invalid device request.");
+      if (action === "denyDevice") return manager.decideDevice(id, requestId, input.expectedVersion as number, thumbprint);
+      const role = choice(input.role, ["admin", "operator", "viewer"] as const, "device permission"), botIds = input.botIds;
+      if (!(botIds === "*" || Array.isArray(botIds) && botIds.length <= 500 && botIds.every(id => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id)))) throw new Error("Invalid Bot permission scope.");
+      return manager.decideDevice(id, requestId, input.expectedVersion as number, thumbprint, { role, botIds });
+    }
     if (action === "snapshot") return manager.snapshot(id);
     if (action === "goal") return manager.goal(id, text(input.goalId, "goal", 100));
     const key = text(input.key, "request identifier", 128);
