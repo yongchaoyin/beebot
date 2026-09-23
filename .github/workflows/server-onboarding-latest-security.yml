@@ -1,0 +1,66 @@
+name: Preflight with latest trusted enrollment
+on:
+  push:
+    branches: [work/server-onboarding-verification-20260923]
+    paths: [.github/workflows/server-onboarding-latest-security.yml]
+permissions:
+  contents: read
+jobs:
+  compatible:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Verify disjoint files and build an unpublished merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/preflight-enrollment
+          test "$(git rev-parse HEAD)" = 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+          git merge-base --is-ancestor 183fd0bb11a78562177d8ee1197c72e5ba17a161 5fffdd773141970778f5fcf7df8f24fe59a8113f
+          git diff --name-only 183fd0bb11a78562177d8ee1197c72e5ba17a161 HEAD | sort > /tmp/preflight-enrollment/preflight-paths.txt
+          git diff --name-only 183fd0bb11a78562177d8ee1197c72e5ba17a161 5fffdd773141970778f5fcf7df8f24fe59a8113f | sort > /tmp/preflight-enrollment/security-paths.txt
+          comm -12 /tmp/preflight-enrollment/preflight-paths.txt /tmp/preflight-enrollment/security-paths.txt > /tmp/preflight-enrollment/overlap.txt
+          test ! -s /tmp/preflight-enrollment/overlap.txt
+          git config user.name 'BeeBot verification'
+          git config user.email '151381126+yongchaoyin@users.noreply.github.com'
+          git merge --no-commit --no-ff 5fffdd773141970778f5fcf7df8f24fe59a8113f
+          git write-tree > /tmp/preflight-enrollment/merged-tree.txt
+          printf '%s\n' '5815b8abc993a328440dfb4a6b324b906fb2a6a9' '5fffdd773141970778f5fcf7df8f24fe59a8113f' > /tmp/preflight-enrollment/parents.txt
+          node --version > /tmp/preflight-enrollment/node.txt
+          sw_vers > /tmp/preflight-enrollment/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Complete regressions on the unpublished combined code
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/preflight-enrollment/check.log
+      - name: Shipped renderer build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/preflight-enrollment/frontend.log
+      - name: Real Host and Shell, deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/preflight-enrollment/runtime.log
+      - name: Confirm verification never moved the product head
+        run: test "$(git rev-parse HEAD)" = 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preflight-latest-enrollment-verification
+          path: /tmp/preflight-enrollment/
+          retention-days: 7
