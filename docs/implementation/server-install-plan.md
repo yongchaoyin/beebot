@@ -74,3 +74,22 @@ Node/proxy artifacts, implement durable single-use installation operations and
 read-only uncertain-result reconciliation, then device enrollment/model setup
 using the existing security APIs. Do not expose writes before those gates, claim
 SSH/domain/firewall readiness from a preview, or replace uncertain work by retry.
+
+## Shipped Settings integration
+
+The existing preflight channel now accepts only an additional `previewInstall`
+read action; its options contain domain and name only. The manager, not renderer
+input, supplies the successful observation. Existing trusted-window/main-frame
+checks and window-local session IDs also protect plan reads. `install`, `apply`,
+`sudo`, arbitrary commands and legacy pairing remain unsupported.
+
+In Settings -> Servers, complete the existing identity check, then optionally
+expand "Next: preview installation". No new chat dialog, automatic request,
+credential form or second Servers dashboard. Plans show the verified host,
+proposed origin/resources, unavailable release and execution blockers honestly.
+Missing release is an explicit absent value, never a fabricated package. Changing
+the SSH target clears the observation; changing installation options clears only
+the plan. Closing Settings, changing target/options, a newer preview or expiration
+fences late results. Language changes preserve exact input nodes, IME state and
+keyboard focus. Errors leave input intact; no automatic retry, service readiness
+claim or executable "confirm" control is displayed.

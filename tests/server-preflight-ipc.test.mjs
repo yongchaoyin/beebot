@@ -19,6 +19,7 @@ function harness(picker = async () => ({ canceled: true, filePaths: [] })) {
     cancel() { this.calls.push(['cancel']); }
     async setIdentity(value) { this.calls.push(['identity', value]); }
     async scan(target) { this.calls.push(['scan', target]); return { target }; }
+    previewInstall(options) { this.calls.push(["previewInstall", options]); return { status: "review_only", canInstall: false }; }
     async inspect(id, fingerprint) { this.calls.push(['inspect', id, fingerprint]); return { installed: false }; }
   }
   installServerPreflightIpc({ app, ipcMain: { handle(channel, listener) { assert.equal(channel, 'beebot:server-preflight'); handle = listener; } }, BrowserWindow: { getAllWindows: () => windows }, dialog: { showOpenDialog: picker } }, '/app/index.html', () => { const m = new Manager(); managers.push(m); return m; });
@@ -97,4 +98,17 @@ test('unexpected native diagnostics cannot leak paths, credentials or remote out
   const h = harness(async () => { throw new Error('/private/key Bearer SECRET password=PASSWORD'); }), a = h.window(), s = ok(await a.send({ action: 'open' }));
   const result = await a.send({ action: 'chooseKey', ...s }); code(result, 'CONNECTION_FAILED');
   assert.doesNotMatch(JSON.stringify(result), /SECRET|PASSWORD|private\/key/);
+});
+
+
+test('native preview remains window-bound and forwards options only, never a forged report or release policy', async () => {
+  const h = harness(), a = h.window(), b = h.window();
+  const s = ok(await a.send({ action: 'open' }));
+  const options = { domain: 'bot.example.test', name: 'My BeeBot' };
+  code(await b.send({ action: 'previewInstall', ...s, options }), 'CANCELLED');
+  const reply = ok(await a.send({ action: 'previewInstall', ...s, options, report: { engine: 'local_linux' }, image: 'attacker', keys: {} }));
+  assert.deepEqual(reply, { status: 'review_only', canInstall: false });
+  assert.deepEqual(h.managers[0].calls, [['previewInstall', options]]);
+  ok(await a.send({ action: 'close', ...s }));
+  code(await a.send({ action: 'previewInstall', ...s, options }), 'CANCELLED');
 });

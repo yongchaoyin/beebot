@@ -111,3 +111,74 @@ test('packaged renderer contains additive preflight and leaves Servers/security 
   const entry = await readFile(new URL('../scripts/electron-main-production-activation.mjs', import.meta.url), 'utf8');
   assert.match(entry, /installServerPreflightIpc\(\{ app, ipcMain, BrowserWindow, dialog \}/);
 });
+
+
+const planFor = request => ({ schemaVersion: 1, id: 'plan-fixture', target, fingerprint, checkedAt: goodReport.checkedAt,
+  options: request.options, origin: 'https://' + request.options.domain, directory: '$HOME/.local/share/beebot/server',
+  release: null, blockers: ['release_unavailable', 'execution_not_enabled'], expiresAt: Date.now() + 200000,
+  specificationDigest: 'a'.repeat(64), status: 'review_only', canInstall: false, installed: false, executionProbe: 'not_run' });
+async function planHarness(t, override) {
+  const h = await boot(t, request => request.action === 'previewInstall' ? override?.(request) ?? { ok: true, value: planFor(request) } : undefined);
+  await h.scan(); h.check(); await until(() => !h.host.querySelector('[data-install-plan]').hidden);
+  const section = h.host.querySelector('[data-install-plan]'); section.open = true;
+  const domain = h.host.querySelector('[data-install-field=domain]'), name = h.host.querySelector('[data-install-field=name]');
+  domain.value = 'bot.example.test'; domain.dispatchEvent(new h.w.Event('input'));
+  return { ...h, section, domain, name, submit: () => h.host.querySelector('[data-install-plan-form]').dispatchEvent(new h.w.Event('submit',{cancelable:true})) };
+}
+test('installation planning remains hidden until a verified inspection and never auto-requests a plan', async t => {
+  const h = await boot(t); assert.equal(h.host.querySelector('[data-install-plan]').hidden, true);
+  await h.scan(); assert.equal(h.host.querySelector('[data-install-plan]').hidden, true);
+  h.check(); await until(() => !h.host.querySelector('[data-install-plan]').hidden);
+  assert.equal(h.host.querySelector('[data-install-plan]').open, false);
+  assert.equal(h.calls.some(c => c.action === 'previewInstall'), false);
+});
+test('preview displays verified target, intended resources and missing release without an apply action', async t => {
+  const h = await planHarness(t); h.submit(); await until(() => h.section.textContent.includes('安装计划 · 尚未执行'));
+  assert.deepEqual(h.calls.find(c => c.action === 'previewInstall'), { action: 'previewInstall', sessionId: 's1', options: { domain: 'bot.example.test', name: 'My BeeBot' } });
+  assert.match(h.section.textContent, /operator@node.example.test:22/); assert.match(h.section.textContent, /正式发行包：尚不可用/);
+  assert.match(h.section.textContent, /80\/443/); assert.match(h.section.textContent, /实际安装、设备绑定与模型配置尚未开放/);
+  assert.equal(h.host.querySelectorAll('[data-preflight-action=apply],[data-preflight-action=install],[role=dialog]').length,0);
+  assert.equal(h.w.document.querySelector('textarea').value,'草稿与引用不变');
+});
+test('editing install options discards a late plan but retains the confirmed host observation', async t => {
+  const gate = deferred(); let req;
+  const h = await planHarness(t, request => { req=request; return gate.promise; });
+  h.submit(); await until(() => !!req);
+  h.domain.value='new.example.test'; h.domain.dispatchEvent(new h.w.Event('input'));
+  gate.resolve({ok:true,value:planFor(req)});await tick();
+  assert.equal(h.section.querySelector('.bb-preflight-result').textContent,'');
+  assert.equal(h.section.hidden,false); assert.equal(h.domain.value,'new.example.test');
+});
+test('editing SSH target discards pending plan and requires a new confirmed inspection', async t => {
+  const gate=deferred();let req; const h=await planHarness(t,r=>{req=r;return gate.promise;});
+  h.submit();await until(()=>!!req);h.input('host','other.test');gate.resolve({ok:true,value:planFor(req)});await tick();
+  assert.equal(h.section.hidden,true);assert.equal(h.section.querySelector('.bb-preflight-result').textContent,'');
+});
+test('closing Settings discards pending preview and does not cancel Bot/server work', async t => {
+  const gate=deferred();let req;const h=await planHarness(t,r=>{req=r;return gate.promise;});
+  h.submit();await until(()=>!!req);h.close();gate.resolve({ok:true,value:planFor(req)});await tick();
+  assert.equal(h.host.childElementCount,0);assert.equal(h.calls.some(c=>['apply','submitGoal','cancelGoal'].includes(c.action)),false);
+});
+test('language change preserves installation draft, composition, exact nodes and keyboard focus', async t => {
+  const h=await planHarness(t);h.name.value='我的服务器';h.name.focus();
+  h.name.dispatchEvent(new h.w.Event('compositionstart',{bubbles:true}));h.submit();await tick();assert.equal(h.calls.some(c=>c.action==='previewInstall'),false);
+  h.w.__sandUiLanguage='en';h.w.dispatchEvent(new h.w.Event('sand-ui-language-changed'));
+  assert.equal(h.host.querySelector('[data-install-field=name]'),h.name);assert.equal(h.name.value,'我的服务器');assert.equal(h.w.document.activeElement,h.name);
+  h.name.dispatchEvent(new h.w.Event('compositionend',{bubbles:true}));h.submit();await until(()=>h.section.textContent.includes('Installation plan · not executed'));
+});
+test('duplicate preview clicks coalesce and errors retain the draft', async t => {
+  const gate=deferred();const h=await planHarness(t,()=>gate.promise);h.submit();h.submit();await tick();
+  assert.equal(h.calls.filter(c=>c.action==='previewInstall').length,1);
+  gate.resolve({ok:false,error:{code:'EXPIRED_PREFLIGHT'}});await until(()=>h.section.textContent.includes('环境检查已过期'));
+  assert.equal(h.domain.value,'bot.example.test');assert.equal(h.name.value,'My BeeBot');
+});
+test('forged target or ready/install claims cannot render as an accepted plan', async t => {
+  for(const patch of [{target:{...target,host:'attacker.test'}},{canInstall:true},{installed:true},{status:'ready'},{expiresAt:1},{blockers:[]}]) {
+    const h=await planHarness(t,r=>({ok:true,value:{...planFor(r),...patch}}));h.submit();await until(()=>h.section.textContent.includes('检查结果格式无法确认'));
+    assert.equal(h.section.querySelector('.bb-preflight-result').textContent,'');h.close();
+  }
+});
+test('untrusted release and native errors have stable messages without leaking diagnostics',async t=>{
+  const h=await planHarness(t,()=>({ok:false,error:{code:'UNTRUSTED_RELEASE',message:'private-key=SECRET'}}));h.submit();
+  await until(()=>h.section.textContent.includes('发行来源或签名无法确认'));assert.doesNotMatch(h.host.textContent,/SECRET|private-key/);
+});

@@ -1,5 +1,5 @@
 /* Additive Settings extension: keep PR #8's Servers/security component unchanged.
- * Read-only preflight only. This is not installation, pairing or model readiness. */
+ * Read-only preflight and installation preview. No apply, pairing or model readiness. */
 (function () {
   if (window.__beebotPreflightBound) return;
   window.__beebotPreflightBound = true;
@@ -7,6 +7,14 @@
   if (typeof original !== "function") return;
   const t = (cn, en) => window.__sandUiLanguage === "zh" ? cn : en;
   const errors = {
+    INVALID_INSTALL_OPTIONS: ["请输入不含协议或路径的小写域名，以及 1–100 字的服务器名称。", "Enter a lowercase DNS hostname without scheme/path and a 1–100 character server name."],
+    PREFLIGHT_REQUIRED: ["请先重新核对服务器身份并检查环境。", "Verify the server identity and check prerequisites first."],
+    EXPIRED_PREFLIGHT: ["环境检查已过期，请重新核对后生成计划。", "The prerequisite observation expired. Verify again before preparing a plan."],
+    INVALID_CATALOG: ["发行记录无法确认，没有选择安装版本。", "The release catalog could not be verified. No version was selected."],
+    INVALID_RELEASE: ["发行清单格式不受支持，未使用该版本。", "The release manifest is unsupported and was not used."],
+    UNTRUSTED_RELEASE: ["发行来源或签名无法确认，未使用该版本。", "The release origin or signature could not be verified."],
+    EXPIRED_RELEASE: ["发行清单已过期，需要新的可信发行版本。", "The release manifest expired. An approved current release is required."],
+    RELEASE_ROLLBACK: ["发行版本低于客户端允许的最低版本，未使用该版本。", "The release is below the client's approved sequence and was not used."],
     INVALID_TARGET: ["请填写直接可达的主机名或 IP、SSH 用户和有效端口，不支持跳板或 SSH 别名。", "Enter a direct hostname/IP, SSH user and valid port. Jump hosts and SSH aliases are not supported."],
     SSH_UNAVAILABLE: ["没有找到系统 SSH 工具；尚未连接或安装。", "System SSH tools are unavailable. Nothing was connected or installed."],
     NO_HOST_KEY: ["未读到 ED25519 主机密钥，请检查地址、端口和网络。", "No ED25519 host key was found. Check the address, port and network."],
@@ -24,6 +32,10 @@
     INVALID_KEY_FILE: ["请选择属于当前用户、仅本人可读的普通密钥文件，不支持符号链接。加密密钥请先加入 SSH agent。", "Choose a private regular key file owned by you, not a symlink. Load encrypted keys into your SSH agent first."],
   };
   const blockers = {
+    release_unavailable: ["尚无客户端认可的正式发行包；不会改用未知镜像或 latest 标签。", "No client-approved release is available. Unknown images and latest tags are not substituted."],
+    release_platform_unavailable: ["暂无适用于这台服务器架构的可信版本。", "No approved release supports this server architecture."],
+    release_disk_low: ["可用空间低于该发行版本的最低要求。", "Available storage is below this release's minimum requirement."],
+    execution_not_enabled: ["当前只提供安装计划；实际安装、设备绑定与模型配置尚未开放。", "This version previews installation only. Installation, device enrollment and model setup are not enabled."],
     unsupported_platform: ["当前安装器需要 Linux x86_64 或 ARM64。", "The current installer requires Linux x86_64 or ARM64."],
     bash_missing: ["未找到 Bash。", "Bash was not found."],
     docker_missing: ["未安装 Docker；本次不会自动安装系统依赖。", "Docker is missing. This check does not install system dependencies."],
@@ -48,6 +60,7 @@
     if (!bridge || !workbench) return disposeOriginal;
     const priorClose = window.__beebotCloseNodeWorkbench;
     let alive = true, sequence = 0, sessionId = null, challenge = null, result = null, busy = false, errorCode = null, keyLabel = null, composing = false;
+    let plan = null, planBusy = false, planError = null, planSequence = 0;
     const translations = [];
     const el = (tag, cn, en, cls) => {
       const node = document.createElement(tag);
@@ -57,9 +70,9 @@
     };
     const button = (action, cn, en, click) => { const node = el("button", cn, en); node.type = "button"; node.dataset.preflightAction = action; node.onclick = click; return node; };
     const root = el("details", undefined, undefined, "bb-preflight"); root.dataset.serverPreflight = "true";
-    const summary = el("summary", "准备自己的服务器：先检查环境", "Prepare your server: check prerequisites first"); root.append(summary);
+    const summary = el("summary", "准备自己的服务器：检查环境与安装计划", "Prepare your server: prerequisites & install plan"); root.append(summary);
     const body = el("div", undefined, undefined, "bb-preflight-body"); root.append(body);
-    body.append(el("p", "本阶段仅执行只读检查，不安装软件、不配置模型，也不更改已有服务。", "This stage only checks prerequisites. It does not install software, configure a model or change an existing service.", "bb-muted"));
+    body.append(el("p", "本阶段提供只读检查与安装方案预览，不安装软件、不配置模型，也不更改已有服务。", "This stage only checks prerequisites. It does not install software, configure a model or change an existing service.", "bb-muted"));
     const form = el("form"); form.noValidate = true;
     const fields = el("div", undefined, undefined, "bb-preflight-fields");
     function field(name, cn, en, value, placeholder) {
@@ -92,8 +105,62 @@
     const inspect = button("inspect", "确认身份并检查环境", "Confirm identity & check", null); inspect.className = "bb-primary"; confirm.append(inspect); body.append(confirm);
     const notice = el("p", undefined, undefined, "bb-preflight-notice"); notice.setAttribute("role", "status"); notice.setAttribute("aria-live", "polite"); body.append(notice);
     const output = el("section", undefined, undefined, "bb-preflight-result"); body.append(output);
+    const planning = el("details", undefined, undefined, "bb-install-plan"); planning.hidden = true; planning.dataset.installPlan = "true";
+    planning.append(el("summary", "下一步：查看安装计划", "Next: preview installation"));
+    const planBody = el("div", undefined, undefined, "bb-preflight-body"); planning.append(planBody);
+    planBody.append(el("p", "先看清将创建什么、哪些条件还缺少。生成计划不会登录服务器或执行安装。当前路径需要域名；SSH 隧道接入尚未开放。", "Review proposed changes and missing prerequisites. Preparing a plan does not connect or install. This path requires a domain; SSH API tunneling is not enabled.", "bb-muted"));
+    const planForm = el("form"); planForm.dataset.installPlanForm = "true";
+    const domainLabel = el("label"), nameLabel = el("label");
+    domainLabel.append(el("span", "服务器域名", "Server domain"));
+    const domain = el("input"); domain.type = "text"; domain.autocomplete = "off"; domain.spellcheck = false; domain.maxLength = 253; domain.placeholder = "bot.example.com"; domain.dataset.installField = "domain"; domain.required = true; domainLabel.append(domain);
+    nameLabel.append(el("span", "服务器名称", "Server name"));
+    const serverName = el("input"); serverName.type = "text"; serverName.autocomplete = "off"; serverName.maxLength = 100; serverName.value = "My BeeBot"; serverName.dataset.installField = "name"; serverName.required = true; nameLabel.append(serverName);
+    const preview = button("preview-install", "生成只读计划", "Preview only", null); preview.type = "submit";
+    planForm.append(domainLabel, nameLabel, preview); planBody.append(planForm);
+    const planNotice = el("p", undefined, undefined, "bb-preflight-notice"); planNotice.setAttribute("role", "status"); planNotice.setAttribute("aria-live", "polite"); planBody.append(planNotice);
+    const planResult = el("section", undefined, undefined, "bb-preflight-result"); planBody.append(planResult); body.append(planning);
+    function clearPlan() { planSequence++; plan = null; planError = null; planBusy = false; }
+    domain.oninput = serverName.oninput = () => { clearPlan(); updatePlan(); };
+    function updatePlan() {
+      planning.hidden = !result; preview.disabled = busy || planBusy || !result;
+      planNotice.dataset.error = String(!!planError);
+      planNotice.textContent = planError ? t(...errors[planError]) : planBusy ? t("正在核对安装方案…", "Preparing the installation preview…") : "";
+      planResult.replaceChildren();
+      if (!plan) return;
+      const add = (tag, text) => { const n = document.createElement(tag); n.textContent = text; planResult.append(n); return n; };
+      add("strong", t("安装计划 · 尚未执行", "Installation plan · not executed"));
+      add("p", `${plan.target.user}@${plan.target.host}:${plan.target.port} → ${plan.origin}`);
+      add("code", plan.fingerprint);
+      add("p", t("安装位置：", "Install location: ") + plan.directory);
+      add("p", plan.release ? t("已核对发行签名：", "Release signature verified: ") + plan.release.version : t("正式发行包：尚不可用", "Approved release: unavailable"));
+      add("p", t("计划创建：独立数据目录、存储卷和网络，以及 Node 与 HTTPS 服务；拟使用 80/443 入站端口。", "Proposed: private installation files, dedicated volumes/networks, and Node/HTTPS services on inbound ports 80/443."));
+      add("p", t("不会更改：已有服务或数据、系统账号、防火墙、Docker 配置和模型凭据。", "Unchanged: existing services/data, OS accounts, firewall, Docker configuration and model credentials."));
+      const ul = document.createElement("ul");
+      for (const code of plan.blockers) { const n = document.createElement("li"); n.textContent = t(...(blockers[code] || ["该项需要进一步核对。", "This item needs further verification."])); ul.append(n); } planResult.append(ul);
+      add("p", t("仍需验证：DNS、网络连通、镜像可用性、设备授权与模型执行。计划不表示服务已就绪。", "Still unverified: DNS, reachability, image availability, device authorization and model execution. A plan does not mean the service is ready."));
+      add("p", t("计划有效至：", "Preview expires at: ") + new Date(plan.expiresAt).toLocaleTimeString());
+    }
+    planForm.onsubmit = event => {
+      event.preventDefault(); if (composing || busy || planBusy || !result || !sessionId) return;
+      const at = ++planSequence, checked = result, id = sessionId;
+      const options = { domain: domain.value.trim().toLowerCase(), name: serverName.value.trim() };
+      planBusy = true; plan = null; planError = null; updatePlan();
+      void (async () => {
+        try {
+          const next = await call("previewInstall", { sessionId: id, options });
+          if (!alive || at !== planSequence || sessionId !== id || result !== checked) return;
+          if (next?.schemaVersion !== 1 || next.status !== "review_only" || next.canInstall !== false || next.installed !== false || next.executionProbe !== "not_run" ||
+              next.fingerprint !== checked.fingerprint || next.target?.host !== checked.target.host || next.target?.port !== checked.target.port || next.target?.user !== checked.target.user ||
+              next.options?.domain !== options.domain || next.options?.name !== options.name || next.origin !== "https://" + options.domain || next.directory !== "$HOME/.local/share/beebot/server" || next.checkedAt !== checked.checkedAt || !Array.isArray(next.blockers) || !next.blockers.includes("execution_not_enabled") ||
+              typeof next.specificationDigest !== "string" || !/^[a-f0-9]{64}$/.test(next.specificationDigest) || !Number.isFinite(next.expiresAt) || next.expiresAt <= Date.now() || next.expiresAt > checked.checkedAt + 300000) throw { code: "INVALID_REPORT" };
+          plan = next;
+        } catch (error) { if (alive && at === planSequence) planError = Object.hasOwn(errors, error?.code) ? error.code : "CONNECTION_FAILED"; }
+        finally { if (alive && at === planSequence) { planBusy = false; updatePlan(); } }
+      })();
+    };
+    planForm.addEventListener("compositionstart", () => { composing = true; }); planForm.addEventListener("compositionend", () => { composing = false; });
     const style = el("style");
-    style.textContent = `#beebot-node-workbench .bb-preflight{border:1px solid var(--bb-line);border-radius:12px;padding:14px 16px;margin:0 0 20px;background:var(--bb-surface)}#beebot-node-workbench .bb-preflight summary{cursor:pointer;font-weight:600;min-height:24px}#beebot-node-workbench .bb-preflight-body,#beebot-node-workbench .bb-preflight form{display:grid;gap:12px;margin-top:12px}#beebot-node-workbench .bb-preflight-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) 70px;gap:10px}#beebot-node-workbench .bb-preflight label{display:grid;gap:5px;min-width:0}#beebot-node-workbench .bb-preflight-confirm{display:grid;gap:10px;border-top:1px solid var(--bb-line);padding-top:14px}#beebot-node-workbench .bb-preflight code{display:block;font-size:12px;overflow-wrap:anywhere;padding:9px;border-radius:7px;background:var(--bb-surface);border:1px solid var(--bb-line)}#beebot-node-workbench .bb-preflight .bb-preflight-trust{display:flex;align-items:flex-start;font-weight:400}#beebot-node-workbench .bb-preflight input[type=checkbox]{width:16px;height:16px;min-height:16px;margin:3px 4px 0 0;flex:none}#beebot-node-workbench .bb-preflight-result{display:grid;gap:8px;overflow-wrap:anywhere}#beebot-node-workbench .bb-preflight-result ul{margin:0;padding-inline-start:20px}#beebot-node-workbench .bb-preflight-result li{margin:5px 0}#beebot-node-workbench .bb-preflight-notice{font-size:12px;overflow-wrap:anywhere}#beebot-node-workbench .bb-preflight-notice[data-error=true]{color:var(--cursor-error,#AF2D38)}@container bb-server-panel (max-width:440px){#beebot-node-workbench .bb-preflight-fields{grid-template-columns:minmax(0,1fr) 70px}#beebot-node-workbench .bb-preflight-fields>label:first-child{grid-column:1/-1}#beebot-node-workbench .bb-preflight{padding:12px}#beebot-node-workbench .bb-preflight .bb-actions{gap:6px}}`;
+    style.textContent = `#beebot-node-workbench .bb-install-plan{border-top:1px solid var(--bb-line);padding-top:12px;margin-top:8px}#beebot-node-workbench .bb-install-plan p{margin:0;line-height:1.6}#beebot-node-workbench .bb-install-plan form{grid-template-columns:minmax(0,1fr)}#beebot-node-workbench .bb-preflight{border:1px solid var(--bb-line);border-radius:12px;padding:14px 16px;margin:0 0 20px;background:var(--bb-surface)}#beebot-node-workbench .bb-preflight summary{cursor:pointer;font-weight:600;min-height:24px}#beebot-node-workbench .bb-preflight-body,#beebot-node-workbench .bb-preflight form{display:grid;gap:12px;margin-top:12px}#beebot-node-workbench .bb-preflight-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) 70px;gap:10px}#beebot-node-workbench .bb-preflight label{display:grid;gap:5px;min-width:0}#beebot-node-workbench .bb-preflight-confirm{display:grid;gap:10px;border-top:1px solid var(--bb-line);padding-top:14px}#beebot-node-workbench .bb-preflight code{display:block;font-size:12px;overflow-wrap:anywhere;padding:9px;border-radius:7px;background:var(--bb-surface);border:1px solid var(--bb-line)}#beebot-node-workbench .bb-preflight .bb-preflight-trust{display:flex;align-items:flex-start;font-weight:400}#beebot-node-workbench .bb-preflight input[type=checkbox]{width:16px;height:16px;min-height:16px;margin:3px 4px 0 0;flex:none}#beebot-node-workbench .bb-preflight-result{display:grid;gap:8px;overflow-wrap:anywhere}#beebot-node-workbench .bb-preflight-result ul{margin:0;padding-inline-start:20px}#beebot-node-workbench .bb-preflight-result li{margin:5px 0}#beebot-node-workbench .bb-preflight-notice{font-size:12px;overflow-wrap:anywhere}#beebot-node-workbench .bb-preflight-notice[data-error=true]{color:var(--cursor-error,#AF2D38)}@container bb-server-panel (max-width:440px){#beebot-node-workbench .bb-preflight-fields{grid-template-columns:minmax(0,1fr) 70px}#beebot-node-workbench .bb-preflight-fields>label:first-child{grid-column:1/-1}#beebot-node-workbench .bb-preflight{padding:12px}#beebot-node-workbench .bb-preflight .bb-actions{gap:6px}}`;
     root.prepend(style);
     workbench.querySelector(".bb-intro")?.after(root);
     if (!root.isConnected) workbench.prepend(root);
@@ -106,12 +173,14 @@
     }
     const target = () => ({ host: hostname.value.trim(), user: username.value.trim(), port: Number(port.value) });
     function invalidate() {
+      clearPlan();
       sequence++; challenge = null; result = null; errorCode = null; busy = false; trust.checked = false;
       if (sessionId) void call("cancel", { sessionId }).catch(() => {});
       update();
     }
     async function execute(operation) {
       if (!alive || busy) return;
+      clearPlan();
       const at = ++sequence; busy = true; challenge = null; trust.checked = false; result = null; errorCode = null; update();
       try {
         if (!sessionId) {
@@ -148,6 +217,7 @@
     trust.onchange = update;
     function update() {
       if (!alive) return;
+      updatePlan();
       scan.disabled = busy; chooseKey.disabled = busy; useAgent.disabled = busy || !keyLabel; cancel.hidden = !busy;
       identity.textContent = keyLabel ? t("本机密钥：", "Local key: ") + keyLabel : t("使用本机 SSH agent", "Using the local SSH agent");
       confirm.hidden = !challenge; fingerprint.textContent = challenge?.fingerprint || ""; inspect.disabled = busy || !trust.checked || !challenge;
@@ -173,10 +243,14 @@
       invalidate(); const old = sessionId; sessionId = null; keyLabel = null;
       if (old) void call("close", { sessionId: old }).catch(() => {}); update();
     });
+    const expiryTimer = setInterval(() => {
+      if (plan && Date.now() >= plan.expiresAt) { clearPlan(); planError = "EXPIRED_PREFLIGHT"; updatePlan(); }
+    }, 1000);
     const close = () => {
       if (!alive) return;
-      alive = false; sequence++;
+      alive = false; sequence++; clearPlan();
       if (sessionId) void call("close", { sessionId }).catch(() => {});
+      clearInterval(expiryTimer);
       window.removeEventListener("sand-ui-language-changed", localize); observer.disconnect(); root.remove(); priorClose?.();
       if (window.__beebotCloseNodeWorkbench === close) delete window.__beebotCloseNodeWorkbench;
     };

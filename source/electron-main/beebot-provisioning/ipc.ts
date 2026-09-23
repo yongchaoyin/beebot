@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
+import { InstallPlanError } from "../../client-provisioning/install-plan.js";
+import { ReleaseError } from "../../client-provisioning/release-manifest.js";
 import { ServerPreflight } from "../../client-provisioning/manager.js";
 import { PreflightError } from "../../client-provisioning/preflight.js";
 import { assertTrustedNodeSender } from "../beebot-node/connection-ipc.js";
@@ -58,11 +60,12 @@ export function installServerPreflightIpc(electron: ElectronPorts, rendererHtmlP
         await session.manager.setIdentity(undefined); value = null;
       } else if (input.action === "scan") value = await session.manager.scan(input.target);
       else if (input.action === "inspect") value = await session.manager.inspect(input.challengeId, input.fingerprint);
+      else if (input.action === "previewInstall") value = session.manager.previewInstall(input.options);
       else throw new PreflightError("INVALID_TARGET");
       if (sessions.get(owner) !== session || epoch !== session.epoch) throw new PreflightError("CANCELLED");
       return { ok: true, value };
     } catch (error) {
-      return { ok: false, error: { code: error instanceof PreflightError ? error.code : "CONNECTION_FAILED" } };
+      return { ok: false, error: { code: error instanceof PreflightError || error instanceof InstallPlanError || error instanceof ReleaseError ? error.code : "CONNECTION_FAILED" } };
     }
   });
   electron.app.on("before-quit", () => { for (const session of [...sessions.values()]) session.close(); });
