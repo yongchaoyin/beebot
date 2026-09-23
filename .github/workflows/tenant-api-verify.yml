@@ -1,0 +1,145 @@
+name: Verify authenticated tenant catalog
+on:
+  push:
+    branches: [work/tenant-data-validation-20260923]
+    paths: [.github/workflows/tenant-api-verify.yml, '.dev-submit/tenant-api-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Import reviewed source with exact commit and tree checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/tenant-api-{i:02}.bin').read_bytes() for i in range(3))
+          assert len(raw)==21404
+          assert hashlib.sha256(raw).hexdigest()=='8a58ea7a7c33ccab33a1038b13b5e97c538e328a5f9075af8db56ded9365409f'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stage=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='9f619a7d0704e56f890352ce286cffdb0c360d63'
+          expected=['docs/implementation/hosted-catalog-api.md','docs/implementation/multi-tenant-foundation.md','source/hosting/catalog-lock.ts','source/hosting/catalog-server.ts','source/hosting/http-body.ts','source/hosting/index.ts','source/hosting/tenant-directory.ts','source/hosting/tenant-workspaces.ts','source/node/auth.ts','tests/tenant-catalog-server.test.mjs']
+          assert stage['base']==parent and stage['paths']==expected
+          git('checkout','--detach',parent)
+          patch=stage['patch'].encode()
+          git('apply','--check','--index','-',data=patch)
+          git('apply','--index','-',data=patch)
+          assert git('diff','--cached','--name-only').decode().splitlines()==expected
+          tree=git('write-tree').decode().strip()
+          assert tree==stage['tree']=='64f1de9152f4a385c1155f2ba067316056c1ff71'
+          commit=stage['commit'].encode()
+          assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha==stage['sha']=='c53e2c81a3fa2f279ae1c29905007faad99228de'
+          git('update-ref','HEAD',sha,parent)
+          assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/work/tenant-catalog-candidate-20260923')
+          print('Verified source',sha,tree,'; product branches unchanged, tenant execution unavailable')
+          PY
+  macos:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c53e2c81a3fa2f279ae1c29905007faad99228de
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and environment
+        run: |
+          test "$(git rev-parse HEAD)" = c53e2c81a3fa2f279ae1c29905007faad99228de
+          test "$(git rev-parse HEAD^{tree})" = 64f1de9152f4a385c1155f2ba067316056c1ff71
+          mkdir -p /tmp/tenant-catalog-verification
+          git show -s --format=fuller HEAD > /tmp/tenant-catalog-verification/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/tenant-catalog-verification/tree.txt
+          node --version > /tmp/tenant-catalog-verification/node.txt
+          sw_vers > /tmp/tenant-catalog-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: All source and regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/tenant-catalog-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/tenant-catalog-verification/frontend.log
+      - name: Lossless publication export
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/tenant-catalog-verification/publication.log
+      - name: Existing real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/tenant-catalog-verification/runtime.log
+      - name: Existing device freeze and actual process exit
+        shell: bash
+        run: |
+          set -o pipefail
+          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-task-security-runtime.test.mjs 2>&1 | tee /tmp/tenant-catalog-verification/security-runtime.log
+      - name: Verify built hosting entry
+        shell: bash
+        run: |
+          set -o pipefail
+          node --input-type=module - <<'JS' | tee /tmp/tenant-catalog-verification/export.log
+          import assert from 'node:assert/strict';
+          import {HostedCatalogServer, TenantDirectory, TenantWorkspaces} from './.build/node/hosting/index.mjs';
+          for (const value of [HostedCatalogServer, TenantDirectory, TenantWorkspaces]) assert.equal(typeof value, 'function');
+          console.log('Built hosted catalog exports load; this does not enable tenant execution.');
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-catalog-macos-verification
+          path: /tmp/tenant-catalog-verification/
+          retention-days: 7
+  linux:
+    needs: import
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c53e2c81a3fa2f279ae1c29905007faad99228de
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Real account routing, encrypted storage and installer regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/tenant-catalog-linux
+          git rev-parse HEAD > /tmp/tenant-catalog-linux/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/tenant-catalog-linux/tree.txt
+          node --test --test-concurrency=1 tests/tenant-catalog-server.test.mjs tests/tenant-encrypted-store.test.mjs tests/tenant-workspaces.test.mjs tests/node-installer.test.mjs 2>&1 | tee /tmp/tenant-catalog-linux/check.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-catalog-linux-verification
+          path: /tmp/tenant-catalog-linux/
+          retention-days: 7
