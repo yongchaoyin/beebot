@@ -1,0 +1,29 @@
+name: Server onboarding source
+on:
+  push:
+    branches: [work/server-onboarding-verification-20260923]
+    paths: [.github/workflows/server-onboarding-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+      - name: Export tracked Git objects, not checkout configuration or credentials
+        shell: bash
+        run: |
+          mkdir /tmp/server-onboarding-source
+          git bundle create /tmp/server-onboarding-source/history.bundle --all
+          git for-each-ref --format='%(refname) %(objectname)' refs/remotes/origin/ > /tmp/server-onboarding-source/refs.txt
+          sha256sum /tmp/server-onboarding-source/history.bundle > /tmp/server-onboarding-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-onboarding-source
+          path: /tmp/server-onboarding-source/
+          retention-days: 1
