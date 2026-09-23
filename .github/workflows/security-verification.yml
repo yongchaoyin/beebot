@@ -4,50 +4,11 @@ on:
     branches: [work/security-verification-20260923]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
-  source:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 183fd0bb11a78562177d8ee1197c72e5ba17a161
-          persist-credentials: false
-      - name: Verify source payload and exact candidate tree
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import os,json,base64,hashlib,lzma,pathlib,subprocess,urllib.request
-          chunks=[]
-          for sha in ['5918e558a3a00ec8a15d3b1e05b2386f067eec02','fc6e30802d43ad6131b8d27316898d9326ea6575','05e7c194f31e9c1b1f5f461fbf87037a92c49b04']:
-              r=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              value=json.load(urllib.request.urlopen(r,timeout=30))
-              data=base64.b64decode(value['content'])
-              assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==sha
-              chunks.append(data)
-          payload=b''.join(chunks)
-          assert hashlib.sha256(payload).hexdigest()=='c6550ea69916c4be0c40739c9ee256a05ed23487b142c40749a5165fce9ebe19'
-          patch=lzma.decompress(payload)
-          assert hashlib.sha256(patch).hexdigest()=='c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa'
-          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'security-candidate';out.mkdir()
-          (out/'source.patch').write_bytes(patch)
-          subprocess.run(['git','apply','--unidiff-zero','--index',str(out/'source.patch')],check=True)
-          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
-          assert len(paths)==20
-          assert all(p.startswith(('source/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
-          (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
-          (out/'tree.txt').write_text(subprocess.check_output(['git','write-tree']).decode())
-          print('Verified paths:',len(paths),'tree:',(out/'tree.txt').read_text())
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reviewed-security-candidate
-          path: ${{ runner.temp }}/security-candidate/
-          retention-days: 7
-          if-no-files-found: error
   linux:
-    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -58,21 +19,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: reviewed-security-candidate
+          run-id: 35815291647
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/security-candidate
-      - run: |
+      - name: Apply exact verified source
+        run: |
+          echo 'c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa  '"$RUNNER_TEMP/security-candidate/source.patch" | sha256sum -c
           git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
+          mkdir -p "$RUNNER_TEMP/security-logs"
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Typechecks and real HTTP SQLite TLS WebSocket security regressions
+      - name: Both typechecks and security regressions
         run: |
-          mkdir -p "$RUNNER_TEMP/security-logs"
           npm run source:typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/source-typecheck.log"
           npm run typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/frontend-typecheck.log"
           node --test tests/node-security.test.mjs tests/node-security-ui.test.mjs tests/node-auth.test.mjs tests/node-client.test.mjs tests/node-control.test.mjs tests/node-workbench.test.mjs tests/node-workbench-polish.test.mjs 2>&1 | tee "$RUNNER_TEMP/security-logs/security-tests.log"
-      - name: Build standalone Node and exercise its packaged CLI
+      - name: Standalone build and packaged CLI
         run: |
           npm run node:build 2>&1 | tee "$RUNNER_TEMP/security-logs/node-build.log"
           data=$(mktemp -d)
@@ -86,7 +51,6 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
   macos:
-    needs: source
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -98,9 +62,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: reviewed-security-candidate
+          run-id: 35815291647
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/security-candidate
-      - name: Materialize a local-only source commit for export validation
+      - name: Materialize a local-only source commit
         run: |
+          echo 'c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa  '"$RUNNER_TEMP/security-candidate/source.patch" | shasum -a 256 -c
           git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
           git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only security candidate verification'
@@ -129,7 +96,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
   publish:
-    needs: [source, linux, macos]
+    needs: [linux, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -141,13 +108,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: reviewed-security-candidate
+          run-id: 35815291647
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/security-candidate
-      - name: Publish only tested product source on a new feature branch
+      - name: Publish tested source without overwriting existing work
         run: |
           git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
-          test -z "$(git ls-remote --heads origin feat/node-device-security-20260923)"
-          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'feat(security): bind Node sessions to device keys and enforce Bot-scoped grants'
-          git push origin HEAD:refs/heads/feat/node-device-security-20260923
-          git rev-parse HEAD
-          git rev-parse HEAD^{tree}
+          tree=$(git write-tree)
+          test "$tree" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
+          branch=feat/node-device-security-20260923
+          existing=$(git ls-remote --heads origin "$branch" | cut -f1)
+          if test -n "$existing"; then
+            git fetch --depth=1 origin "$existing"
+            test "$(git rev-parse "$existing^{tree}")" = "$tree"
+            echo "Existing identical source commit: $existing"
+          else
+            git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'feat(security): bind Node sessions to device keys and enforce Bot-scoped grants'
+            git push origin HEAD:"refs/heads/$branch"
+            git rev-parse HEAD
+          fi
+          echo "Verified product tree: $tree"
