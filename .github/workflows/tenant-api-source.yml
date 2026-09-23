@@ -1,0 +1,36 @@
+name: Tenant API source
+on:
+  push:
+    branches: [work/tenant-data-validation-20260923]
+    paths: [.github/workflows/tenant-api-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9f619a7d0704e56f890352ce286cffdb0c360d63
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --no-audit --no-fund
+      - name: Export exact tracked source and locked Linux test toolchain
+        shell: bash
+        run: |
+          mkdir /tmp/tenant-api-source
+          git bundle create /tmp/tenant-api-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/tenant-api-source/commit.txt
+          tar -czf /tmp/tenant-api-source/node_modules.tar.gz node_modules
+          cp "$(command -v node)" /tmp/tenant-api-source/node-linux-x64
+          cd /tmp/tenant-api-source && sha256sum source.bundle node_modules.tar.gz node-linux-x64 > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tenant-api-source
+          path: /tmp/tenant-api-source/
+          retention-days: 1
