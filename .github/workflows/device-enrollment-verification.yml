@@ -13,16 +13,138 @@ jobs:
         with:
           ref: 5a3dfa1b13ebab567668d9208c419f49d088d8fa
           persist-credentials: false
-      - name: Export reviewed sources and exact Git manifest
+      - name: Verify and materialize exact source candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/source-export"
-          git ls-tree -r HEAD > "$RUNNER_TEMP/source-export/tree.txt"
-          git archive HEAD -- . ':!research-archives' | gzip > "$RUNNER_TEMP/source-export/source.tar.gz"
-          cd "$RUNNER_TEMP/source-export"
-          sha256sum source.tar.gz tree.txt > SHA256SUMS
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, json, base64, hashlib, lzma, pathlib, subprocess, urllib.request
+          shas=['cf601d8ca9bd38856ab35bbd4ddba966f0524d60','d4709485bdb0478a4c036813e3fc50c112eaac72','eaf813a9a832912df829206a2410651a09b54387']
+          payload=bytearray()
+          for sha in shas:
+              req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              chunk=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
+              assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
+              payload.extend(chunk)
+          assert hashlib.sha256(payload).hexdigest()=='a28b9f9244832de12723391cfbcad74c7034a11237573b969c88fcf1614c69b8'
+          patch=lzma.decompress(payload)
+          assert hashlib.sha256(patch).hexdigest()=='7098b7accf7109eaf0bd1cd250114c68bb6767a5f3f05d47c95300157de4e82c'
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'enrollment-candidate';out.mkdir()
+          (out/'source.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--index','--unidiff-zero',str(out/'source.patch')],check=True)
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
+          assert len(paths)==23
+          assert all(p.startswith(('source/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
+          tree=subprocess.check_output(['git','write-tree']).decode().strip()
+          assert tree=='6908c884d72dc1d301fad01b7cffa981db1e017e'
+          (out/'tree.txt').write_text(tree+'\n')
+          (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
+          print('Verified',len(paths),'paths; tree',tree)
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: device-security-source
-          path: ${{ runner.temp }}/source-export/
-          retention-days: 3
+          name: reviewed-enrollment-candidate
+          path: ${{ runner.temp }}/enrollment-candidate/
+          retention-days: 7
           if-no-files-found: error
+  check:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5a3dfa1b13ebab567668d9208c419f49d088d8fa
+          persist-credentials: false
+          lfs: ${{ matrix.os == 'macos-15' }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: reviewed-enrollment-candidate
+          path: ${{ runner.temp }}/enrollment-candidate
+      - name: Materialize candidate in a local-only commit
+        run: |
+          set -euo pipefail
+          git apply --index --unidiff-zero "$RUNNER_TEMP/enrollment-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/enrollment-candidate/tree.txt")"
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only trusted enrollment validation'
+          mkdir -p "$RUNNER_TEMP/enrollment-evidence"
+          cp "$RUNNER_TEMP/enrollment-candidate/source-sha256.json" "$RUNNER_TEMP/enrollment-evidence/"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Install macOS locked dependencies and runtime
+        if: matrix.os == 'macos-15'
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm run bootstrap
+          npm run icon:generate
+      - name: Install Linux locked dependencies and native runtime bindings
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          node scripts/apply-third-party-patches.mjs
+          node node_modules/node-gyp/bin/node-gyp.js rebuild --directory node_modules/tree-sitter --release
+          node node_modules/node-gyp/bin/node-gyp.js rebuild --directory node_modules/tree-sitter-bash --release
+      - name: macOS complete source and packaged renderer regressions
+        if: matrix.os == 'macos-15'
+        run: |
+          set -euo pipefail
+          npm run check 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/check.log"
+          npm run frontend:build 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/frontend.log"
+          npm run publication:check 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/publication.log"
+      - name: Linux types and complete Node regressions
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          set -euo pipefail
+          npm run source:typecheck
+          npm run typecheck
+          node --test tests/node*.test.mjs 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/node-tests.log"
+      - name: Real Host, Shell and device-authorized end-to-end runtime
+        run: |
+          set -euo pipefail
+          npm run node:build
+          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-runtime.test.mjs tests/node-e2e.test.mjs 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/runtime.log"
+          node scripts/smoke-node-service.mjs 2>&1 | tee "$RUNNER_TEMP/enrollment-evidence/smoke.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enrollment-evidence-${{ matrix.os }}
+          path: ${{ runner.temp }}/enrollment-evidence/
+          retention-days: 7
+          if-no-files-found: warn
+  candidate:
+    needs: [source, check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5a3dfa1b13ebab567668d9208c419f49d088d8fa
+      - uses: actions/download-artifact@v4
+        with:
+          name: reviewed-enrollment-candidate
+          path: ${{ runner.temp }}/enrollment-candidate
+      - name: Publish tested source to new feature branch without modifying existing branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index --unidiff-zero "$RUNNER_TEMP/enrollment-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/enrollment-candidate/tree.txt")"
+          test -z "$(git ls-remote --heads origin feat/node-trusted-enrollment-20260923)"
+          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'feat(security): trusted-device approval, durable grants and offline recovery'
+          git push origin HEAD:refs/heads/feat/node-trusted-enrollment-20260923
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
