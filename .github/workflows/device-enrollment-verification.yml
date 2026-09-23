@@ -21,24 +21,28 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import os, json, base64, hashlib, lzma, pathlib, subprocess, urllib.request
-          shas=['cf601d8ca9bd38856ab35bbd4ddba966f0524d60','d4709485bdb0478a4c036813e3fc50c112eaac72','eaf813a9a832912df829206a2410651a09b54387']
-          payload=bytearray()
-          for sha in shas:
+          def blob(sha):
               req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
               chunk=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
               assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
-              payload.extend(chunk)
+              return chunk
+          payload=b''.join(blob(sha) for sha in ['cf601d8ca9bd38856ab35bbd4ddba966f0524d60','d4709485bdb0478a4c036813e3fc50c112eaac72','eaf813a9a832912df829206a2410651a09b54387'])
           assert hashlib.sha256(payload).hexdigest()=='a28b9f9244832de12723391cfbcad74c7034a11237573b969c88fcf1614c69b8'
           patch=lzma.decompress(payload)
           assert hashlib.sha256(patch).hexdigest()=='7098b7accf7109eaf0bd1cd250114c68bb6767a5f3f05d47c95300157de4e82c'
           out=pathlib.Path(os.environ['RUNNER_TEMP'])/'enrollment-candidate';out.mkdir()
-          (out/'source.patch').write_bytes(patch)
-          subprocess.run(['git','apply','--index','--unidiff-zero',str(out/'source.patch')],check=True)
+          source=out/'source.patch';source.write_bytes(patch)
+          subprocess.run(['git','apply','--index','--unidiff-zero',str(source)],check=True)
+          fix=blob('e9867451df55ea6fe969b6b2ce9fd28b97921071')
+          assert hashlib.sha256(fix).hexdigest()=='25bcd482691ce00341bbed486bc954beb1cc43c6ccaed41254db1ad22df38a44'
+          fixed=out/'canonical-fixture.patch';fixed.write_bytes(fix)
+          subprocess.run(['git','apply','--index',str(fixed)],check=True)
           paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
           assert len(paths)==23
           assert all(p.startswith(('source/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
           tree=subprocess.check_output(['git','write-tree']).decode().strip()
-          assert tree=='6908c884d72dc1d301fad01b7cffa981db1e017e'
+          assert tree=='b9e7e30d3cfe5fd6cef4360fb296afadacf3a895'
+          source.write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
           (out/'tree.txt').write_text(tree+'\n')
           (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
           print('Verified',len(paths),'paths; tree',tree)
@@ -73,7 +77,7 @@ jobs:
       - name: Materialize candidate in a local-only commit
         run: |
           set -euo pipefail
-          git apply --index --unidiff-zero "$RUNNER_TEMP/enrollment-candidate/source.patch"
+          git apply --index "$RUNNER_TEMP/enrollment-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/enrollment-candidate/tree.txt")"
           git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only trusted enrollment validation'
           mkdir -p "$RUNNER_TEMP/enrollment-evidence"
@@ -141,7 +145,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git apply --index --unidiff-zero "$RUNNER_TEMP/enrollment-candidate/source.patch"
+          git apply --index "$RUNNER_TEMP/enrollment-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/enrollment-candidate/tree.txt")"
           test -z "$(git ls-remote --heads origin feat/node-trusted-enrollment-20260923)"
           git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'feat(security): trusted-device approval, durable grants and offline recovery'
