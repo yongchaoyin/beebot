@@ -1,0 +1,29 @@
+name: Server connection source
+on:
+  push:
+    branches: [work/server-connect-validation-20260923]
+    paths: [.github/workflows/server-connect-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 84880c2ae6514b0fecc41a6a57fedc612beda92e
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked Git objects only
+        run: |
+          mkdir /tmp/server-connect-source
+          git bundle create /tmp/server-connect-source/source.bundle HEAD
+          git rev-parse HEAD > /tmp/server-connect-source/commit.txt
+          sha256sum /tmp/server-connect-source/source.bundle > /tmp/server-connect-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-connect-source
+          path: /tmp/server-connect-source/
+          retention-days: 1
