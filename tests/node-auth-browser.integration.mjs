@@ -1,3 +1,4 @@
+import { testDevice } from "./helpers/node-device.mjs";
 // Manual, hidden Chromium regression: node tests/node-auth-browser.integration.mjs
 // Uses only a temporary copy of the repository runtime and a temporary NodeAuth.
 import assert from "node:assert/strict";
@@ -18,6 +19,7 @@ const temporary = await mkdtemp(path.join(os.tmpdir(), "beebot-auth-chromium-"))
 const servers = [];
 let auth;
 let browser;
+const device = testDevice();
 
 function command(executable, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -37,7 +39,7 @@ async function listen(handler) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 async function post(origin, route, form, extra = {}) {
-  return fetch(`${origin}${route}`, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/x-www-form-urlencoded", ...extra }, body: new URLSearchParams(form), signal: AbortSignal.timeout(5000) });
+  return (route === "/oauth/token" ? device.request : fetch)(`${origin}${route}`, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/x-www-form-urlencoded", ...extra }, body: new URLSearchParams(form), signal: AbortSignal.timeout(5000) });
 }
 
 try {
@@ -52,7 +54,11 @@ try {
       requests.push(request);
       if (req.method === "POST" && url.pathname === "/oauth/authorize") console.log("BROWSER_AUTHORIZATION_POST", JSON.stringify(request));
     });
-    try { if (!await auth.handle(req, res, url)) { res.writeHead(404); res.end(); } }
+    try {
+      res.setHeader("DPoP-Nonce", auth.getDpopNonce());
+      if (url.pathname === "/protected") { res.end(JSON.stringify(auth.authenticate(req))); }
+      else if (!await auth.handle(req, res, url)) { res.writeHead(404); res.end(); }
+    }
     catch { res.writeHead(500); res.end("Authentication test failed"); }
   });
   auth = new NodeAuth({ dataDir: path.join(temporary, "node-data"), issuer: origin });
@@ -81,7 +87,7 @@ try {
   const redirect = `${callbackOrigin}/oauth/callback`;
   const authorization = new URL("/oauth/authorize", origin);
   authorization.search = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", redirect_uri: redirect, state,
-    code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", scope: "owner:node", device_name: "Hidden Chromium regression" }).toString();
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", scope: "owner:node", device_name: "Hidden Chromium regression", dpop_jkt: device.jkt }).toString();
 
   const copiedApp = path.join(temporary, "BeeBot Auth Regression.app");
   await cp(path.join(root, ".cache/runtime/Grok Bot.app"), copiedApp, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
@@ -137,7 +143,9 @@ app.whenReady().then(async () => {
   const tokenResponse = await post(origin, "/oauth/token", { client_id: "beebot-desktop", grant_type: "authorization_code", code: callback.searchParams.get("code"), redirect_uri: redirect, code_verifier: verifier });
   assert.equal(tokenResponse.status, 200);
   const tokens = await tokenResponse.json();
-  assert.ok(auth.authenticate({ headers: { authorization: `Bearer ${tokens.access_token}` } }).principalId);
+  const protectedResponse = await device.request(`${origin}/protected`, { headers: { Authorization: `DPoP ${tokens.access_token}` } });
+  assert.equal(protectedResponse.status, 200);
+  assert.ok((await protectedResponse.json()).principalId);
   assert.ok(requests.some(request => request.method === "POST" && request.path === "/oauth/authorize" && request.status === 303));
   console.log(JSON.stringify({ result: "PASS", browser: "hidden Chromium, normal security settings", authorizationPost: 303, loopbackCallback: 200, callbackRefererAbsent: true, pkceExchange: tokenResponse.status, requests }, null, 2));
 } finally {

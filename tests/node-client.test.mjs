@@ -17,7 +17,8 @@ async function load(name) {
   await build({ entryPoints: [path.join(root, "source", `${name}.ts`)], outfile: file, bundle: true, platform: "node", format: "cjs", logLevel: "silent" });
   return require(file);
 }
-const { normalizeNodeUrl, authorizeNode } = await load("client-connections/transport");
+const { normalizeNodeUrl, authorizeNode, DpopClient } = await load("client-connections/transport");
+const { generateDpopKey, exportDpopKey } = await load("shared/security/dpop");
 const { NodeConnectionManager } = await load("client-connections/manager");
 const { createConnectionPersistence } = await load("client-connections/secure-store");
 const { assertTrustedNodeSender } = await load("electron-main/beebot-node/connection-ipc");
@@ -30,14 +31,14 @@ test("server addresses reject remote cleartext, embedded credentials, paths, and
 });
 
 async function fakeNode() {
-  const tokens = { access_token: "access-private", refresh_token: "refresh-private", expires_in: 600, token_type: "Bearer" };
+  const tokens = { access_token: "access-private", refresh_token: "refresh-private", expires_in: 600, token_type: "DPoP" };
   let expectedChallenge, nodeId = "test-node", refreshCount = 0, socketCount = 0;
   const goals = [], accepted = new Map(), requests = [];
   const server = createServer(async (req, res) => {
     let body = "";for await (const chunk of req) body += chunk;
     requests.push({ path: req.url, headers: req.headers, body });
     const json = value => { res.setHeader("Content-Type", "application/json");res.end(JSON.stringify(value)); };
-    if (req.url === "/v1/node") return json({ id: nodeId, name: "Test Node", protocolVersion: 1 });
+    if (req.url === "/v1/node") return json({ id: nodeId, name: "Test Node", protocolVersion: 1, security: { dpopRequired: true } });
     if (req.url === "/oauth/token") {
       const form = new URLSearchParams(body);
       if (form.get("grant_type") === "authorization_code") assert.equal(createHash("sha256").update(form.get("code_verifier")).digest("base64url"), expectedChallenge);
@@ -45,9 +46,9 @@ async function fakeNode() {
       return json(tokens);
     }
     if (req.url === "/oauth/revoke") return json({});
-    assert.equal(req.headers.authorization, `Bearer ${tokens.access_token}`);
+    assert.equal(req.headers.authorization, `DPoP ${tokens.access_token}`);
     if (req.url === "/v1/snapshot") return json({ node: { id: nodeId, name: "Test Node" }, bots: [{ id: "bot", name: "Worker" }], goals, cursor: goals.length });
-    if (req.url === "/v1/events/ticket") return json({ ticket: "single-use-ticket" });
+    if (req.url === "/v1/events/ticket") return json({ ticket: "single-use-ticket", nonce: "test-event-nonce-123456" });
     if (req.url === "/v1/goals") {
       const key = req.headers["idempotency-key"];
       if (!accepted.has(key)) { goals.push({ id: "goal", ...JSON.parse(body), version: 1, status: "review", result: "Output", createdAt: 1, updatedAt: 1 });accepted.set(key, { commandId: "command", goalId: "goal" }); }
@@ -133,9 +134,9 @@ test("secure persistence encrypts tokens and refuses plaintext fallback", async 
   const filename = path.join(temporary, "connections.json");
   const codec = { isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value.split("").reverse().join("")), decryptString: value => value.toString().split("").reverse().join("") };
   const store = createConnectionPersistence(filename, codec);
-  const data = [{ profile: { id: "connection", nodeId: "node", name: "Node", baseUrl: "https://node.example", status: "online" }, refreshToken: "TOP_SECRET_REFRESH" }];
+  const data = [{ profile: { id: "connection", nodeId: "node", name: "Node", baseUrl: "https://node.example", status: "online" }, refreshToken: "TOP_SECRET_REFRESH", deviceKeyPem: exportDpopKey(generateDpopKey()) }];
   await store.save(data);
-  const raw = await readFile(filename, "utf8");assert.ok(!raw.includes("TOP_SECRET_REFRESH"));assert.ok(!raw.includes("accessToken"));
+  const raw = await readFile(filename, "utf8");assert.ok(!raw.includes("TOP_SECRET_REFRESH"));assert.ok(!raw.includes("accessToken")); assert.ok(!raw.includes("BEGIN PRIVATE KEY"));
   assert.equal((await store.load())[0].refreshToken, "TOP_SECRET_REFRESH");
   const locked = createConnectionPersistence(filename, { ...codec, isEncryptionAvailable: () => false });
   await assert.rejects(locked.load(), /keychain/);

@@ -1,3 +1,4 @@
+import { testDevice } from "./helpers/node-device.mjs";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
@@ -28,10 +29,11 @@ async function fixture(t, initialize = true) {
   let auth;
   const server = createServer(async (req, res) => {
     try {
+      res.setHeader("DPoP-Nonce", auth.getDpopNonce());
       const url = new URL(req.url, origin);
       if (await auth.handle(req, res, url)) return;
       if (url.pathname === "/protected") { res.end(JSON.stringify(auth.authenticate(req))); return; }
-      if (url.pathname === "/event-ticket") { res.end(JSON.stringify(auth.createEventTicket(req))); return; }
+      if (url.pathname === "/event-ticket") { res.end(JSON.stringify(auth.createEventTicket(auth.authenticate(req)))); return; }
       res.writeHead(404); res.end();
     } catch (error) { res.writeHead(error.status ?? 500); res.end(JSON.stringify({ error: error.code })); }
   });
@@ -39,7 +41,8 @@ async function fixture(t, initialize = true) {
   const origin = `http://127.0.0.1:${server.address().port}`;
   auth = new NodeAuth({ dataDir, issuer: origin });
   t.after(async () => { await new Promise(resolve => server.close(resolve)); auth.close(); });
-  const request = (endpoint, options = {}) => fetch(`${origin}${endpoint}`, { redirect: "manual", ...options });
+  const device = testDevice();
+  const request = (endpoint, options = {}) => device.request(`${origin}${endpoint}`, { redirect: "manual", ...options });
   const post = (endpoint, body, headers = {}) => request(endpoint, {
     method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams(body),
   });
@@ -60,7 +63,7 @@ async function fixture(t, initialize = true) {
   const startAuthorization = async (overrides = {}) => {
     const verifier = random(); const state = random();
     const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state,
-      redirect_uri: "http://127.0.0.1:54321/oauth/callback", code_challenge: hash(verifier), code_challenge_method: "S256", device_name: "My Mac", ...overrides });
+      redirect_uri: "http://127.0.0.1:54321/oauth/callback", code_challenge: hash(verifier), code_challenge_method: "S256", device_name: "My Mac", dpop_jkt: device.jkt, ...overrides });
     const browser = await form(`/oauth/authorize?${query}`);
     return { ...browser, verifier, state, query };
   };
@@ -78,10 +81,10 @@ async function fixture(t, initialize = true) {
     return { ...(await response.json()), code, verifier: flow.verifier };
   };
   const refresh = value => post("/oauth/token", { client_id: "beebot-desktop", grant_type: "refresh_token", refresh_token: value });
-  const protectedRequest = token => request("/protected", { headers: { Authorization: `Bearer ${token}` } });
+  const protectedRequest = token => request("/protected", { headers: { Authorization: `DPoP ${token}` } });
   const alterDb = run => { const db = new DatabaseSync(path.join(dataDir, "auth.sqlite")); try { return run(db); } finally { db.close(); } };
   if (initialize) await setup();
-  return { get auth() { return auth; }, origin, dataDir, request, post, form, setup, startAuthorization, login, exchange, createSession, refresh, protectedRequest, alterDb,
+  return { get auth() { return auth; }, origin, dataDir, device, request, post, form, setup, startAuthorization, login, exchange, createSession, refresh, protectedRequest, alterDb,
     restart() { auth.close(); auth = new NodeAuth({ dataDir, issuer: origin }); } };
 }
 
@@ -137,7 +140,7 @@ test("authorization verifies browser CSRF, explicit consent, state, verifier, an
   assert.equal((await f.exchange(code, random())).status, 400);
   assert.equal((await f.exchange(code, flow.verifier, { redirect_uri: "http://127.0.0.1:54322/oauth/callback" })).status, 400);
   const exchanged = await f.exchange(code, flow.verifier); assert.equal(exchanged.status, 200);
-  const tokens = await exchanged.json(); assert.equal(tokens.expires_in, 600); assert.equal(tokens.scope, "owner:node");
+  const tokens = await exchanged.json(); assert.equal(tokens.expires_in, 300); assert.equal(tokens.scope, "owner:node");
   assert.equal((await f.protectedRequest(tokens.access_token)).status, 200);
   assert.equal((await f.exchange(code, flow.verifier)).status, 400);
   assert.equal((await f.protectedRequest(tokens.access_token)).status, 401, "code replay revokes its device family");
@@ -169,14 +172,14 @@ test("refresh rotates credentials and replay revokes only the affected device fa
 test("event tickets are single-use and every session check observes revocation", async t => {
   const f = await fixture(t); const tokens = await f.createSession();
   const identity = await (await f.protectedRequest(tokens.access_token)).json();
-  const headers = { Authorization: `Bearer ${tokens.access_token}` };
+  const headers = { Authorization: `DPoP ${tokens.access_token}` };
   const ticket = await (await f.request("/event-ticket", { headers })).json();
-  assert.deepEqual(f.auth.redeemEventTicket(ticket.ticket), identity);
-  assert.throws(() => f.auth.redeemEventTicket(ticket.ticket), { status: 401 });
+  assert.deepEqual(f.auth.redeemEventTicket(ticket.ticket, f.device.proof(`${f.origin}/v1/events`, "GET", ticket.ticket, ticket.nonce)), identity);
+  assert.throws(() => f.auth.redeemEventTicket(ticket.ticket, f.device.proof(`${f.origin}/v1/events`, "GET", ticket.ticket, ticket.nonce)), { status: 401 });
   const pending = await (await f.request("/event-ticket", { headers })).json();
   assert.equal((await f.post("/oauth/revoke", { client_id: "beebot-desktop", token: tokens.refresh_token })).status, 200);
   assert.throws(() => f.auth.assertSession(identity.sessionId), { status: 401 });
-  assert.throws(() => f.auth.redeemEventTicket(pending.ticket), { status: 401 });
+  assert.throws(() => f.auth.redeemEventTicket(pending.ticket, f.device.proof(`${f.origin}/v1/events`, "GET", pending.ticket, pending.nonce)), { status: 401 });
   assert.equal((await f.protectedRequest(tokens.access_token)).status, 401);
   assert.equal((await f.post("/oauth/revoke", { client_id: "beebot-desktop", token: "unknown" })).status, 200);
 });

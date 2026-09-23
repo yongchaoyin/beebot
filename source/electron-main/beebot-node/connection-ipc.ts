@@ -53,6 +53,15 @@ export function installNodeConnectionIpc(electron: NodeConnectionElectron, rende
     if (action === "logout") return manager.logout(id);
     if (action === "remove") return manager.remove(id);
     if (action === "resume") return manager.resume(id);
+    if (action === "securitySessions") return manager.securitySessions(id);
+    if (action === "securityEvents") return manager.securityEvents(id);
+    if (action === "revokeSession") return manager.revokeSession(id, text(input.sessionId, "device session", 100));
+    if (action === "setSessionGrant") {
+      const role = choice(input.role, ["admin", "operator", "viewer"] as const, "device permission");
+      const botIds = input.botIds;
+      if (!(botIds === "*" || Array.isArray(botIds) && botIds.length <= 500 && botIds.every(id => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id)))) throw new Error("Invalid Bot permission scope.");
+      return manager.setSessionGrant(id, text(input.sessionId, "device session", 100), { role, botIds });
+    }
     if (action === "snapshot") return manager.snapshot(id);
     if (action === "goal") return manager.goal(id, text(input.goalId, "goal", 100));
     const key = text(input.key, "request identifier", 128);

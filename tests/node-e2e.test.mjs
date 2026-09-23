@@ -17,8 +17,8 @@ test("Mac transport → PKCE → server → real Host → disconnected completio
   // Only test directories and a deterministic model are used; the Host/tools are real.
   const temporary = await mkdtemp(path.join(os.tmpdir(), "beebot-node-e2e-"));
   const modulePath = path.join(temporary, "system.mjs");
-  await build({ stdin: { contents: 'export { BeeBotServer } from "./source/node/server.ts"; export { HostRuntime } from "./source/node/runtime.ts"; export { NodeConnectionManager } from "./source/client-connections/manager.ts"; export { authorizeNode } from "./source/client-connections/transport.ts";', resolveDir: repo }, outfile: modulePath, bundle: true, platform: "node", format: "esm", target: "node26", banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
-  const { BeeBotServer, HostRuntime, NodeConnectionManager, authorizeNode } = await import(pathToFileURL(modulePath));
+  await build({ stdin: { contents: 'export { BeeBotServer } from "./source/node/server.ts"; export { HostRuntime } from "./source/node/runtime.ts"; export { NodeConnectionManager } from "./source/client-connections/manager.ts"; export { authorizeNode, DpopClient } from "./source/client-connections/transport.ts"; export { generateDpopKey } from "./source/shared/security/dpop.ts";', resolveDir: repo }, outfile: modulePath, bundle: true, platform: "node", format: "esm", target: "node26", banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
+  const { BeeBotServer, HostRuntime, NodeConnectionManager, authorizeNode, DpopClient, generateDpopKey } = await import(pathToFileURL(modulePath));
   const portProbe = createServer(); await new Promise(resolve => portProbe.listen(0, "127.0.0.1", resolve));
   const port = portProbe.address().port; await new Promise(resolve => portProbe.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
@@ -52,29 +52,30 @@ test("Mac transport → PKCE → server → real Host → disconnected completio
     assert.equal((await postForm(`${origin}/setup`, { flow_id: setup.flow_id, csrf: setup.csrf, username: "owner", password }, setup.cookie)).status, 200);
     assert.equal((await fetch(`${origin}/v1/snapshot`)).status, 401);
     const profile = await client.add(origin); await client.login(profile.id);
-    const eventTokens = await authorizeNode(origin, openExternal);
-    const eventHeaders = { Authorization: `Bearer ${eventTokens.access_token}`, "Content-Type": "application/json" };
+    const eventDevice = new DpopClient(origin, generateDpopKey());
+    const eventTokens = await authorizeNode(origin, openExternal, eventDevice);
+    const eventHeaders = { "Content-Type": "application/json" };
     const eventCursor = server.store.cursor;
     const created = await client.createBot(profile.id, { name: "Independent writer", description: "Write in your own workspace" }, "create-e2e-bot");
     const command = await client.submitGoal(profile.id, { botId: created.bot.id, prompt: "Create a file in your workspace and report the result" }, "submit-e2e-goal");
     client.close();
     for (let i = 0; i < 600 && !["review", "failed", "uncertain"].includes(server.store.goal(command.goalId).status); i++) await delay(50);
     assert.equal(server.store.goal(command.goalId).status, "review", server.store.goal(command.goalId).error);
-    const { ticket } = await (await fetch(`${origin}/v1/events/ticket`, { method: "POST", headers: eventHeaders, body: "{}" })).json();
+    const { ticket, nonce } = await eventDevice.request("/v1/events/ticket", { method: "POST", headers: eventHeaders, body: "{}" }, eventTokens.access_token);
     replay = new WebSocket(`${origin.replace("http:", "ws:")}/v1/events`);
     const replayed = [];
     const replayReady = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("Event replay timed out")), 5000);
       replay.on("message", raw => { const event = JSON.parse(raw); replayed.push(event); if (event.type === "ready") { clearTimeout(timeout); resolve(); } });
       replay.on("error", reject);
-      replay.on("open", () => replay.send(JSON.stringify({ ticket, after: eventCursor })));
+      replay.on("open", () => replay.send(JSON.stringify({ ticket, proof: eventDevice.eventProof(ticket, nonce), after: eventCursor })));
     });
     await replayReady;
     assert.ok(replayed.some(event => event.data?.goal?.id === command.goalId && event.data.goal.status === "review"));
     const seqs = replayed.filter(event => event.seq).map(event => event.seq);
     assert.deepEqual([...seqs].sort((a, b) => a - b), seqs);
     const revoked = new Promise(resolve => replay.once("close", code => resolve(code)));
-    await fetch(`${origin}/oauth/revoke`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: "beebot-desktop", token: eventTokens.refresh_token }) });
+    await eventDevice.request("/oauth/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: "beebot-desktop", token: eventTokens.refresh_token }) });
     server.store.createBot(created.bot.ownerId, "event-revocation-check", { name: "Event check", description: "" });
     assert.equal(await revoked, 4401); replay = undefined;
     client = new NodeConnectionManager(persistence, openExternal);

@@ -1,3 +1,4 @@
+import { testDevice } from "./lib/node-device-fixture.mjs";
 // Runs the packaged server with temporary data and a local HTTP model fixture.
 // No real model credentials, existing accounts, or public ports are used.
 import assert from "node:assert/strict";
@@ -42,6 +43,7 @@ await new Promise(resolve => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port;
 await new Promise(resolve => probe.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
+const device = testDevice();
 const password = "isolated-container-smoke-passphrase";
 async function waitFor(check, timeout = 45_000) {
   const deadline = Date.now() + timeout;
@@ -74,7 +76,7 @@ async function form(url) {
   return { flow_id: /name="flow_id" value="([^"]+)"/.exec(page)[1], csrf: /name="csrf" value="([^"]+)"/.exec(page)[1], cookie: response.headers.get("set-cookie").split(";")[0] };
 }
 async function postForm(route, fields, cookie) {
-  return fetch(`${origin}${route}`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { Origin: origin, Cookie: cookie } : {}) }, body: new URLSearchParams(fields) });
+  return (route.startsWith("/oauth/") && route !== "/oauth/authorize" ? device.request : fetch)(`${origin}${route}`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { Origin: origin, Cookie: cookie } : {}) }, body: new URLSearchParams(fields) });
 }
 try {
   await promisify(execFile)(process.execPath, [entry, "init", "--data-dir", dataDir]);
@@ -89,7 +91,7 @@ try {
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(32).toString("base64url");
   const redirect = "http://127.0.0.1:54321/oauth/callback";
-  const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state, redirect_uri: redirect, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", device_name: "Packaged smoke" });
+  const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state, redirect_uri: redirect, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", device_name: "Packaged smoke", dpop_jkt: device.jkt });
   const authorization = await form(`${origin}/oauth/authorize?${query}`);
   const consent = await postForm("/oauth/authorize", { flow_id: authorization.flow_id, csrf: authorization.csrf, username: "owner", password, decision: "allow" }, authorization.cookie);
   assert.equal(consent.status, 303);
@@ -99,7 +101,7 @@ try {
   assert.equal(exchange.status, 200);
   const credentials = await exchange.json();
   const api = async (route, body, key) => {
-    const response = await fetch(`${origin}${route}`, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${credentials.access_token}`, "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await device.request(`${origin}${route}`, { method: body ? "POST" : "GET", headers: { Authorization: `DPoP ${credentials.access_token}`, "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const value = await response.json();
     assert.ok(response.ok, JSON.stringify(value));
     return value;

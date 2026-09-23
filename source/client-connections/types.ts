@@ -44,6 +44,8 @@ export interface OAuthTokens {
 export interface StoredConnection {
   profile: NodeProfile;
   refreshToken?: string;
+  /** Only in the main process; encrypted by ConnectionPersistence. */
+  deviceKeyPem?: string;
 }
 
 export interface ConnectionPersistence {

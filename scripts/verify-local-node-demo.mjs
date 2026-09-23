@@ -1,3 +1,4 @@
+import { testDevice } from "./lib/node-device-fixture.mjs";
 // Creates test owners and verifies ONLY the two containers in node-local-demo-compose.yml.
 // Keeps their data for the Mac client. Passwords stay in an ignored, mode-0600 file.
 import assert from "node:assert/strict";
@@ -54,13 +55,14 @@ async function form(url) {
   return { flow_id, csrf, cookie: response.headers.get("set-cookie").split(";")[0] };
 }
 async function post(node, route, fields, cookie) {
-  return fetch(`${node.baseUrl}${route}`, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { Origin: node.baseUrl, Cookie: cookie } : {}) }, body: new URLSearchParams(fields) });
+  return (route.startsWith("/oauth/") && route !== "/oauth/authorize" ? node.device.request : fetch)(`${node.baseUrl}${route}`, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { Origin: node.baseUrl, Cookie: cookie } : {}) }, body: new URLSearchParams(fields) });
 }
 async function login(node) {
+  node.device ??= testDevice();
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(24).toString("base64url");
   const redirect_uri = "http://127.0.0.1:54321/oauth/callback";
-  const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state, redirect_uri, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", device_name: "Local Docker verification" });
+  const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state, redirect_uri, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", device_name: "Local Docker verification", dpop_jkt: node.device.jkt });
   const flow = await form(`${node.baseUrl}/oauth/authorize?${query}`);
   const credentials = saved.nodes[node.id];
   const response = await post(node, "/oauth/authorize", { flow_id: flow.flow_id, csrf: flow.csrf, username: credentials.username, password: credentials.password, decision: "allow" }, flow.cookie);
@@ -73,7 +75,7 @@ async function login(node) {
   node.tokens = await tokens.json();
 }
 async function api(node, route, body) {
-  const response = await fetch(`${node.baseUrl}${route}`, { method: body === undefined ? "GET" : "POST", signal: AbortSignal.timeout(10_000), headers: { Authorization: `Bearer ${node.tokens.access_token}`, "content-type": "application/json", ...(body === undefined ? {} : { "idempotency-key": randomUUID() }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await node.device.request(`${node.baseUrl}${route}`, { method: body === undefined ? "GET" : "POST", signal: AbortSignal.timeout(10_000), headers: { Authorization: `DPoP ${node.tokens.access_token}`, "content-type": "application/json", ...(body === undefined ? {} : { "idempotency-key": randomUUID() }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const value = await response.json();
   assert.ok(response.ok, `${node.id} ${route}: ${JSON.stringify(value)}`);
   return value;
@@ -151,7 +153,7 @@ try {
   assert.notEqual(saved.nodes.a.nodeId, saved.nodes.b.nodeId);
   assert.notEqual(saved.nodes.a.botId, saved.nodes.b.botId);
   for (const [node, peer] of [[a, b], [b, a]]) {
-    const cross = await fetch(`${peer.baseUrl}/v1/snapshot`, { headers: { Authorization: `Bearer ${node.tokens.access_token}` } });
+    const cross = await node.device.request(`${peer.baseUrl}/v1/snapshot`, { headers: { Authorization: `DPoP ${node.tokens.access_token}` } });
     assert.equal(cross.status, 401, "A token must not authenticate with B");
   }
   await Promise.all(nodes.map(node => finishGoal(node, `验证 Docker ${node.id.toUpperCase()} 环境：在自己的工作目录写入环境标识和 Linux 平台，报告结果。`)));

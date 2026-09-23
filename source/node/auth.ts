@@ -3,12 +3,13 @@ import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync } from
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { DpopError, verifyDpopProof } from "../shared/security/dpop.js";
 
 const CLIENT_ID = "beebot-desktop";
 const SCOPE = "owner:node";
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
-const ACCESS_TTL = 10 * MINUTE;
+const ACCESS_TTL = 5 * MINUTE;
 const SESSION_IDLE_TTL = 30 * DAY;
 const SESSION_ABSOLUTE_TTL = 90 * DAY;
 const FORM_TTL = 10 * MINUTE;
@@ -21,12 +22,13 @@ export class NodeAuthError extends Error {
   }
 }
 
-type Identity = { principalId: string; sessionId: string };
+export type Identity = { principalId: string; sessionId: string };
+export type DeviceGrant = { role: "admin" | "operator" | "viewer"; botIds: "*" | string[] };
 type Owner = { principal_id: string; username: string; salt: string; password_hash: string };
-type Session = { id: string; principal_id: string; idle_expires: number; absolute_expires: number; revoked_at: number | null };
-type AuthRequest = { redirectUri: string; challenge: string; state: string; deviceName: string };
+type Session = { id: string; principal_id: string; idle_expires: number; absolute_expires: number; revoked_at: number | null; dpop_jkt: string | null; device_name: string; created_at: number; grant_json: string };
+type AuthRequest = { redirectUri: string; challenge: string; state: string; deviceName: string; dpopJkt: string };
 type Form = { kind: "setup" | "authorize"; expires: number; csrfHash: string; request?: AuthRequest };
-type Code = { hash: string; principal_id: string; redirect_uri: string; challenge: string; device_name: string; expires: number; session_id: string | null };
+type Code = { hash: string; principal_id: string; redirect_uri: string; challenge: string; device_name: string; expires: number; session_id: string | null; dpop_jkt: string | null };
 type Token = { hash: string; kind: string; session_id: string; expires: number; used_at: number | null };
 
 function secret(): string { return randomBytes(32).toString("base64url"); }
@@ -116,6 +118,10 @@ export class NodeAuth {
   private readonly limits = new Map<string, { count: number; expires: number }>();
   private passwordJobs = 0;
   private closed = false;
+  private currentNonce = secret();
+  private previousNonce: string | undefined;
+  private nonceSince = Date.now();
+  private readonly sessionListeners = new Set<(id: string) => void>();
 
   constructor({ dataDir, issuer }: { dataDir: string; issuer: string }) {
     const address = new URL(issuer);
@@ -160,6 +166,19 @@ export class NodeAuth {
       CREATE INDEX IF NOT EXISTS auth_tokens_session ON auth_tokens(session_id);
     `);
     for (const suffix of ["-wal", "-shm"]) if (existsSync(`${dbPath}${suffix}`)) chmodSync(`${dbPath}${suffix}`, 0o600);
+    // Existing owner/Bot data survives. Unbound legacy sessions cannot be upgraded silently.
+    for (const table of ["auth_sessions", "auth_codes"]) {
+      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some(c => c.name === "dpop_jkt")) this.db.exec(`ALTER TABLE ${table} ADD COLUMN dpop_jkt TEXT`);
+    }
+    const sessionColumns = this.db.prepare("PRAGMA table_info(auth_sessions)").all() as Array<{ name: string }>;
+    if (!sessionColumns.some(c => c.name === "grant_json")) this.db.exec(`ALTER TABLE auth_sessions ADD COLUMN grant_json TEXT NOT NULL DEFAULT '{"role":"admin","botIds":"*"}'`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS auth_proofs(jkt TEXT NOT NULL, jti TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY(jkt,jti));
+      CREATE INDEX IF NOT EXISTS auth_proofs_expiry ON auth_proofs(expires);
+      CREATE TABLE IF NOT EXISTS auth_security_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER NOT NULL, principal_id TEXT NOT NULL,
+        kind TEXT NOT NULL, session_id TEXT, target_session_id TEXT);`);
+    this.db.prepare("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE dpop_jkt IS NULL").run(Date.now());
+    this.db.prepare("DELETE FROM auth_codes WHERE dpop_jkt IS NULL").run();
     if (!this.owner()) this.setupCode = secret();
   }
 
@@ -168,38 +187,134 @@ export class NodeAuth {
     return this.setupCode && Date.now() < this.setupExpires ? { required: true, code: this.setupCode } : { required: true };
   }
 
+  /** Authoritative nonce, shared by HTTP and event authentication. No proxy headers are trusted. */
+  getDpopNonce(): string {
+    if (Date.now() - this.nonceSince > MINUTE) {
+      this.previousNonce = this.currentNonce; this.currentNonce = secret(); this.nonceSince = Date.now();
+    }
+    return this.currentNonce;
+  }
+  private proof(raw: string | undefined, method: string, uri: string, accessToken?: string, thumbprint?: string): string {
+    const nonce = this.getDpopNonce();
+    try {
+      const result = verifyDpopProof(raw, { method, uri, nonces: [nonce, ...(this.previousNonce ? [this.previousNonce] : [])],
+        ...(accessToken === undefined ? {} : { accessToken }), ...(thumbprint === undefined ? {} : { thumbprint }) });
+      this.db.prepare("DELETE FROM auth_proofs WHERE expires<=?").run(Date.now());
+      if (Number((this.db.prepare("SELECT count(*) AS count FROM auth_proofs").get() as { count: number }).count) >= 50_000) {
+        throw new NodeAuthError(429, "temporarily_unavailable", "Device proof capacity exceeded; try again later.");
+      }
+      const inserted = this.db.prepare("INSERT OR IGNORE INTO auth_proofs(jkt,jti,expires) VALUES (?,?,?)").run(result.thumbprint, result.jti, result.expiresAt);
+      if (Number(inserted.changes) !== 1) throw new DpopError("invalid_dpop_proof", "Invalid or replayed device proof.");
+      return result.thumbprint;
+    } catch (error) {
+      if (error instanceof DpopError) throw new NodeAuthError(401, error.code, error.message);
+      throw error;
+    }
+  }
+  private requestProof(req: IncomingMessage, accessToken?: string, thumbprint?: string): string {
+    if (req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i]!.toLowerCase() === "dpop").length !== 1) throw invalid("One device proof is required.");
+    const target = new URL(req.url ?? "/", this.issuer);
+    if (target.origin !== this.issuer) throw invalid();
+    this.limit(`proof:${req.socket.remoteAddress ?? "unknown"}`, 600, MINUTE);
+    return this.proof(typeof req.headers.dpop === "string" ? req.headers.dpop : undefined, req.method ?? "", target.href, accessToken, thumbprint);
+  }
   authenticate(req: IncomingMessage): Identity {
-    const auth = req.headers.authorization;
-    if (!auth || !/^Bearer [A-Za-z0-9_-]{43}$/i.test(auth)) throw invalid();
-    const token = this.db.prepare("SELECT * FROM auth_tokens WHERE hash=? AND kind='access'").get(digest(auth.slice(7))) as Token | undefined;
+    const authorization = req.headers.authorization;
+    if (!authorization || !/^DPoP [A-Za-z0-9_-]{43}$/i.test(authorization)) throw invalid("A device-bound session is required. Sign in with an updated BeeBot client.");
+    const value = authorization.slice(5);
+    const token = this.db.prepare("SELECT * FROM auth_tokens WHERE hash=? AND kind='access'").get(digest(value)) as Token | undefined;
     if (!token || token.expires <= Date.now()) throw invalid("Session expired or revoked");
     const session = this.activeSession(token.session_id);
+    try { this.requestProof(req, value, session.dpop_jkt!); }
+    catch (error) {
+      // Only a known, still-active session can produce this event. Normal nonce
+      // challenges are not alerts; repeated failures are coalesced per minute.
+      if (error instanceof NodeAuthError && error.status === 401 && error.code !== "use_dpop_nonce") {
+        let record = true;
+        try { this.limit(`audit-proof:${session.id}`, 1, MINUTE); } catch { record = false; }
+        if (record) this.audit("session.proof_rejected", { principalId: session.principal_id, sessionId: session.id });
+      }
+      throw error;
+    }
     return { principalId: session.principal_id, sessionId: session.id };
   }
-
   assertSession(sessionId: string): void { this.activeSession(sessionId); }
-
-  createEventTicket(req: IncomingMessage): { ticket: string } {
-    const identity = this.authenticate(req); this.prune();
-    if (this.tickets.size >= 1000) throw new NodeAuthError(429, "temporarily_unavailable", "Too many pending event connections");
-    const ticket = secret();
-    this.tickets.set(digest(ticket), { ...identity, expires: Date.now() + 30_000 });
-    return { ticket };
+  onSessionChanged(listener: (id: string) => void): () => void { this.sessionListeners.add(listener); return () => this.sessionListeners.delete(listener); }
+  private notifySession(id: string): void { for (const listener of this.sessionListeners) { try { listener(id); } catch { /* Revocation already committed. */ } } }
+  private audit(kind: string, identity: Identity, target?: string): void {
+    this.db.prepare("INSERT INTO auth_security_events(time,principal_id,kind,session_id,target_session_id) VALUES (?,?,?,?,?)")
+      .run(Date.now(), identity.principalId, kind, identity.sessionId, target ?? null);
+    this.db.exec("DELETE FROM auth_security_events WHERE seq <= (SELECT COALESCE(MAX(seq),0)-10000 FROM auth_security_events)");
   }
-
-  redeemEventTicket(ticket: string): Identity {
-    const key = digest(ticket); const entry = this.tickets.get(key); this.tickets.delete(key);
+  grant(identity: Identity): DeviceGrant {
+    const session = this.activeSession(identity.sessionId);
+    if (session.principal_id !== identity.principalId) throw invalid();
+    return this.validateGrant(JSON.parse(session.grant_json));
+  }
+  validateGrant(raw: unknown): DeviceGrant {
+    const value = raw as DeviceGrant;
+    if (!value || typeof value !== "object" || Object.keys(value).some(k => !["role", "botIds"].includes(k)) ||
+        !["admin", "operator", "viewer"].includes(value.role) || !(value.botIds === "*" || Array.isArray(value.botIds) && value.botIds.length <= 500 && value.botIds.every(id => typeof id === "string" && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(id))) ||
+        value.role === "admin" && value.botIds !== "*") throw bad("Invalid device permissions.");
+    return { role: value.role, botIds: value.botIds === "*" ? "*" : [...new Set(value.botIds)] };
+  }
+  permits(identity: Identity, action: "read" | "write" | "admin", botId?: string): boolean {
+    const grant = this.grant(identity);
+    if (grant.role === "admin") return true;
+    if (action === "admin" || action === "write" && grant.role !== "operator") return false;
+    return botId !== undefined && (grant.botIds === "*" || grant.botIds.includes(botId));
+  }
+  requirePermission(identity: Identity, action: "read" | "write" | "admin", botId?: string): void {
+    if (!this.permits(identity, action, botId)) throw new NodeAuthError(403, "insufficient_scope", "This device is not authorized for that Bot or operation.");
+  }
+  listSessions(identity: Identity): unknown {
+    this.requirePermission(identity, "admin");
+    const rows = this.db.prepare("SELECT id,device_name,created_at,last_refreshed_at,idle_expires,absolute_expires,revoked_at,dpop_jkt,grant_json FROM auth_sessions WHERE principal_id=? ORDER BY created_at DESC LIMIT 200").all(identity.principalId);
+    return { currentSessionId: identity.sessionId, sessions: rows.map(row => ({ ...row, grant: this.validateGrant(JSON.parse(String(row.grant_json))), grant_json: undefined })) };
+  }
+  securityEvents(identity: Identity): unknown {
+    this.requirePermission(identity, "admin");
+    return { events: this.db.prepare("SELECT seq,time,kind,session_id,target_session_id FROM auth_security_events WHERE principal_id=? ORDER BY seq DESC LIMIT 200").all(identity.principalId) };
+  }
+  changeSession(identity: Identity, targetId: string, grant?: DeviceGrant): void {
+    this.requirePermission(identity, "admin");
+    const actor = this.activeSession(identity.sessionId);
+    if (Date.now() - actor.created_at > 5 * MINUTE) throw new NodeAuthError(428, "reauthentication_required", "Sign in again before changing device permissions or revoking another session.");
+    const target = this.db.prepare("SELECT * FROM auth_sessions WHERE id=? AND principal_id=?").get(targetId, identity.principalId) as Session | undefined;
+    if (!target) throw new NodeAuthError(404, "not_found", "Unknown device session.");
+    this.transaction(() => {
+      if (grant) {
+        if (target.revoked_at !== null) throw bad("A revoked session cannot be reactivated.");
+        this.db.prepare("UPDATE auth_sessions SET grant_json=? WHERE id=?").run(JSON.stringify(this.validateGrant(grant)), targetId);
+      } else this.db.prepare("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE id=?").run(Date.now(), targetId);
+      this.audit(grant ? "session.permissions_changed" : "session.revoked", identity, targetId);
+    });
+    this.invalidateTickets(targetId); this.notifySession(targetId);
+  }
+  createEventTicket(identity: Identity): { ticket: string; nonce: string } {
+    const session = this.activeSession(identity.sessionId); this.prune();
+    if (session.principal_id !== identity.principalId) throw invalid();
+    if (this.tickets.size >= 1000) throw new NodeAuthError(429, "temporarily_unavailable", "Too many pending event connections");
+    const ticket = secret(); this.tickets.set(digest(ticket), { ...identity, expires: Date.now() + 30_000 });
+    return { ticket, nonce: this.getDpopNonce() };
+  }
+  redeemEventTicket(ticket: string, proof: string): Identity {
+    const key = digest(ticket); const entry = this.tickets.get(key);
     if (!entry || entry.expires <= Date.now()) throw invalid("Event ticket expired or already used");
-    this.assertSession(entry.sessionId);
+    const session = this.activeSession(entry.sessionId);
+    this.proof(proof, "GET", `${this.issuer}/v1/events`, ticket, session.dpop_jkt!);
+    this.tickets.delete(key);
     return { principalId: entry.principalId, sessionId: entry.sessionId };
   }
+  private invalidateTickets(id: string): void { for (const [key, ticket] of this.tickets) if (ticket.sessionId === id) this.tickets.delete(key); }
 
-  close(): void { if (!this.closed) { this.closed = true; this.forms.clear(); this.tickets.clear(); this.db.close(); } }
+  close(): void { if (!this.closed) { this.closed = true; this.forms.clear(); this.tickets.clear(); this.sessionListeners.clear(); this.db.close(); } }
 
   async handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
     const route = url.pathname;
     if (!["/setup", "/oauth/authorize", "/oauth/token", "/oauth/revoke", "/.well-known/oauth-authorization-server"].includes(route)) return false;
     this.securityHeaders(res);
+    res.setHeader("DPoP-Nonce", this.getDpopNonce());
     try {
       this.prune();
       if (route === "/.well-known/oauth-authorization-server") {
@@ -209,7 +324,7 @@ export class NodeAuth {
           revocation_endpoint: `${this.issuer}/oauth/revoke`, response_types_supported: ["code"],
           grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"],
           token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], scopes_supported: [SCOPE],
-          authorization_response_iss_parameter_supported: true,
+          authorization_response_iss_parameter_supported: true, dpop_signing_alg_values_supported: ["ES256"], beebot_dpop_required: true,
         });
       } else if (route === "/setup") {
         await this.setup(req, res, url);
@@ -222,21 +337,23 @@ export class NodeAuth {
         if (form.get("client_id") !== CLIENT_ID) throw bad("Unknown public client", "invalid_client");
         if (route === "/oauth/revoke") {
           const token = form.get("token"); if (!token || token.length > 512) throw bad("Missing token");
-          const row = this.db.prepare("SELECT session_id FROM auth_tokens WHERE hash=?").get(digest(token)) as { session_id: string } | undefined;
-          if (row) this.revokeSession(row.session_id);
+          const row = this.db.prepare("SELECT s.* FROM auth_tokens t JOIN auth_sessions s ON s.id=t.session_id WHERE t.hash=?").get(digest(token)) as Session | undefined;
+          this.requestProof(req, undefined, row?.dpop_jkt ?? undefined);
+          if (row) this.revokeSession(row.id);
           responseJson(res, 200, {});
         } else {
           const grant = form.get("grant_type");
-          if (grant === "authorization_code") responseJson(res, 200, this.exchangeCode(form));
-          else if (grant === "refresh_token") responseJson(res, 200, this.refresh(form));
+          if (grant === "authorization_code") responseJson(res, 200, this.exchangeCode(form, req));
+          else if (grant === "refresh_token") responseJson(res, 200, this.refresh(form, req));
           else throw bad("Unsupported grant type", "unsupported_grant_type");
         }
       }
     } catch (error) {
       const safe = error instanceof NodeAuthError ? error : new NodeAuthError(503, "temporarily_unavailable", "Authentication service unavailable");
+      if (safe.code === "use_dpop_nonce") res.setHeader("DPoP-Nonce", this.getDpopNonce());
       if (safe.status === 429) res.setHeader("Retry-After", "60");
       if (safe.status === 405) res.setHeader("Allow", route === "/setup" || route === "/oauth/authorize" ? "GET, POST" : route.startsWith("/.well-known/") ? "GET" : "POST");
-      if (!res.headersSent) responseJson(res, safe.status, { error: safe.code, error_description: safe.message });
+      if (!res.headersSent) responseJson(res, safe.code === "use_dpop_nonce" || safe.code === "invalid_dpop_proof" ? 400 : safe.status, { error: safe.code, error_description: safe.message });
       else res.end();
     }
     return true;
@@ -246,16 +363,21 @@ export class NodeAuth {
 
   private activeSession(id: string): Session {
     const row = this.db.prepare("SELECT * FROM auth_sessions WHERE id=?").get(id) as Session | undefined;
-    if (!row || row.revoked_at !== null || row.idle_expires <= Date.now() || row.absolute_expires <= Date.now()) throw invalid("Session expired or revoked");
+    if (!row || !row.dpop_jkt || row.revoked_at !== null || row.idle_expires <= Date.now() || row.absolute_expires <= Date.now()) throw invalid("Session expired or revoked");
     return row;
   }
 
   private revokeSession(id: string): void {
-    this.db.prepare("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE id=?").run(Date.now(), id);
-    for (const [key, ticket] of this.tickets) if (ticket.sessionId === id) this.tickets.delete(key);
+    const row = this.db.prepare("SELECT principal_id FROM auth_sessions WHERE id=?").get(id) as { principal_id: string } | undefined;
+    this.transaction(() => {
+      this.db.prepare("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE id=?").run(Date.now(), id);
+      if (row) this.audit("session.revoked", { principalId: row.principal_id, sessionId: id });
+    });
+    this.invalidateTickets(id); this.notifySession(id);
   }
 
   private transaction<T>(run: () => T): T {
+    if (this.db.isTransaction) return run();
     this.db.exec("BEGIN IMMEDIATE");
     try { const result = run(); this.db.exec("COMMIT"); return result; }
     catch (error) { this.db.exec("ROLLBACK"); throw error; }
@@ -268,35 +390,41 @@ export class NodeAuth {
     this.db.prepare("INSERT INTO auth_tokens(hash,kind,session_id,expires) VALUES (?,'access',?,?)").run(digest(access), session.id, accessExpires);
     this.db.prepare("INSERT INTO auth_tokens(hash,kind,session_id,expires) VALUES (?,'refresh',?,?)").run(digest(refresh), session.id, refreshExpires);
     this.db.prepare("UPDATE auth_sessions SET last_refreshed_at=?,idle_expires=? WHERE id=?").run(now, refreshExpires, session.id);
-    return { access_token: access, token_type: "Bearer", expires_in: Math.max(0, Math.floor((accessExpires - now) / 1000)), refresh_token: refresh, scope: SCOPE };
+    return { access_token: access, token_type: "DPoP", expires_in: Math.max(0, Math.floor((accessExpires - now) / 1000)), refresh_token: refresh, scope: SCOPE };
   }
 
-  private exchangeCode(form: URLSearchParams): Record<string, unknown> {
+  private exchangeCode(form: URLSearchParams, req: IncomingMessage): Record<string, unknown> {
     const code = form.get("code") ?? ""; const verifier = form.get("code_verifier") ?? "";
     if (!/^[A-Za-z0-9_-]{43}$/.test(code) || !/^[A-Za-z0-9._~-]{43,128}$/.test(verifier)) throw bad("Invalid authorization grant", "invalid_grant");
+    const proofJkt = this.requestProof(req);
     const result = this.transaction(() => {
       const row = this.db.prepare("SELECT * FROM auth_codes WHERE hash=?").get(digest(code)) as Code | undefined;
-      if (!row || row.expires <= Date.now() || row.redirect_uri !== form.get("redirect_uri") || !equalDigest(row.challenge, digest(verifier))) {
+      if (!row || !row.dpop_jkt || row.dpop_jkt !== proofJkt || row.expires <= Date.now() || row.redirect_uri !== form.get("redirect_uri") || !equalDigest(row.challenge, digest(verifier))) {
         throw bad("Invalid authorization grant", "invalid_grant");
       }
       // Commit replay-triggered revocation before returning the protocol error.
       if (row.session_id) { this.revokeSession(row.session_id); return null; }
       const now = Date.now(); const id = randomUUID();
-      this.db.prepare("INSERT INTO auth_sessions(id,principal_id,device_name,created_at,last_refreshed_at,idle_expires,absolute_expires) VALUES (?,?,?,?,?,?,?)")
-        .run(id, row.principal_id, row.device_name, now, now, now + SESSION_IDLE_TTL, now + SESSION_ABSOLUTE_TTL);
+      this.db.prepare("INSERT INTO auth_sessions(id,principal_id,device_name,created_at,last_refreshed_at,idle_expires,absolute_expires,dpop_jkt) VALUES (?,?,?,?,?,?,?,?)")
+        .run(id, row.principal_id, row.device_name, now, now, now + SESSION_IDLE_TTL, now + SESSION_ABSOLUTE_TTL, proofJkt);
       this.db.prepare("UPDATE auth_codes SET session_id=? WHERE hash=? AND session_id IS NULL").run(id, row.hash);
+      this.audit("session.authorized", { principalId: row.principal_id, sessionId: id });
       return this.issueTokens(this.activeSession(id));
     });
     if (!result) throw bad("Authorization code already used", "invalid_grant");
     return result;
   }
 
-  private refresh(form: URLSearchParams): Record<string, unknown> {
+  private refresh(form: URLSearchParams, req: IncomingMessage): Record<string, unknown> {
     const value = form.get("refresh_token") ?? "";
     if (!/^[A-Za-z0-9_-]{43}$/.test(value)) throw bad("Invalid refresh token", "invalid_grant");
     const result = this.transaction(() => {
       const row = this.db.prepare("SELECT * FROM auth_tokens WHERE hash=? AND kind='refresh'").get(digest(value)) as Token | undefined;
       if (!row) throw bad("Invalid refresh token", "invalid_grant");
+      const bound = this.db.prepare("SELECT dpop_jkt FROM auth_sessions WHERE id=?").get(row.session_id) as { dpop_jkt: string | null } | undefined;
+      if (!bound?.dpop_jkt) throw bad("Device sign-in is required", "invalid_grant");
+      // Prove possession BEFORE checking reuse: a stolen refresh token cannot revoke its owner.
+      this.requestProof(req, undefined, bound.dpop_jkt);
       if (row.used_at !== null) { this.revokeSession(row.session_id); return null; }
       let session: Session;
       try { session = this.activeSession(row.session_id); } catch { throw bad("Session expired or revoked", "invalid_grant"); }
@@ -342,7 +470,7 @@ export class NodeAuth {
       const request = this.authorizationRequest(url);
       this.allowCallback(res, request.redirectUri);
       const fields = this.newForm(req, res, { kind: "authorize", request });
-      html(res, "连接 BeeBot 客户端", `<p>设备名称：<strong>${escapeHtml(request.deviceName)}</strong></p><p>应用：BeeBot Desktop<br>节点：<code>${escapeHtml(this.issuer)}</code></p><p>授权后，此设备可以管理该节点的 Bot、对话、任务和设置。设备名称由客户端提供，仅供识别。</p><form method="post" action="/oauth/authorize">${fields}<label for="username">用户名</label><input id="username" name="username" autocomplete="username" maxlength="64" required><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required><button type="submit" name="decision" value="allow">登录并授权此设备</button><button type="submit" name="decision" value="deny" class="secondary" formnovalidate>取消</button></form>`);
+      html(res, "连接 BeeBot 客户端", `<p>设备名称：<strong>${escapeHtml(request.deviceName)}</strong></p><p>应用：BeeBot Desktop<br>节点：<code>${escapeHtml(this.issuer)}</code></p><p>授权后，此设备可以管理该节点的 Bot、对话、任务和设置。设备名称由客户端提供，仅供识别。</p><p>此授权绑定设备密钥：<code>${escapeHtml(request.dpopJkt)}</code>。不要批准并非由你发起的连接。</p><form method="post" action="/oauth/authorize">${fields}<label for="username">用户名</label><input id="username" name="username" autocomplete="username" maxlength="64" required><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required><button type="submit" name="decision" value="allow">登录并授权此设备</button><button type="submit" name="decision" value="deny" class="secondary" formnovalidate>取消</button></form>`);
       return;
     }
     this.method(req, "POST"); this.checkOrigin(req, true);
@@ -359,8 +487,8 @@ export class NodeAuth {
       throw new NodeAuthError(401, "access_denied", "Incorrect username or password; reopen the connection request to try again");
     }
     const code = secret();
-    this.db.prepare("INSERT INTO auth_codes(hash,principal_id,redirect_uri,challenge,device_name,expires) VALUES (?,?,?,?,?,?)")
-      .run(digest(code), owner.principal_id, request.redirectUri, request.challenge, request.deviceName, Date.now() + MINUTE);
+    this.db.prepare("INSERT INTO auth_codes(hash,principal_id,redirect_uri,challenge,device_name,expires,dpop_jkt) VALUES (?,?,?,?,?,?,?)")
+      .run(digest(code), owner.principal_id, request.redirectUri, request.challenge, request.deviceName, Date.now() + MINUTE, request.dpopJkt);
     this.redirect(res, request, { code });
   }
 
@@ -384,7 +512,9 @@ export class NodeAuth {
     if (query.has("scope") && query.get("scope") !== SCOPE) throw bad("Unsupported scope", "invalid_scope");
     const deviceName = (query.get("device_name") ?? "BeeBot Desktop").trim();
     if (!deviceName || deviceName.length > 80 || /[\u0000-\u001f\u007f]/.test(deviceName)) throw bad("Invalid device name");
-    return { redirectUri, state, challenge, deviceName };
+    const dpopJkt = query.get("dpop_jkt") ?? "";
+    if (!/^[A-Za-z0-9_-]{43}$/.test(dpopJkt)) throw bad("Update BeeBot: authorization requires a device key binding.", "invalid_dpop_proof");
+    return { redirectUri, state, challenge, deviceName, dpopJkt };
   }
 
   private redirect(res: ServerResponse, request: AuthRequest, response: Record<string, string>): void {

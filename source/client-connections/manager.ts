@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
-import { authorizeNode, exchangeToken, fetchNodeJson, NodeHttpError, normalizeNodeUrl } from "./transport.js";
+import { generateDpopKey, exportDpopKey, importDpopKey } from "../shared/security/dpop.js";
+import type { DeviceGrant } from "../node/auth.js";
+import { authorizeNode, DpopClient, exchangeToken, fetchNodeJson, NodeHttpError, normalizeNodeUrl } from "./transport.js";
 import type { ConnectionPersistence, CreateNodeBotInput, NodeProfile, NodeSnapshot, OAuthTokens, StoredConnection } from "./types.js";
 
 interface Connection {
   profile: NodeProfile;
   refreshToken?: string;
+  deviceKeyPem?: string;
+  device?: DpopClient;
   accessToken?: string;
   expiresAt?: number;
   refreshing?: Promise<void>;
@@ -32,13 +36,14 @@ export class NodeConnectionManager {
 
   private async load(): Promise<void> {
     for (const entry of await this.persistence.load()) {
+      if (!entry.deviceKeyPem) delete entry.refreshToken;
       if (entry.refreshToken) entry.profile.status = "reconnecting";
-      this.connections.set(entry.profile.id, { ...entry, reconnectAttempt: 0, generation: 0 });
+      this.connections.set(entry.profile.id, { ...entry, ...(entry.deviceKeyPem ? { device: new DpopClient(entry.profile.baseUrl, importDpopKey(entry.deviceKeyPem)) } : {}), reconnectAttempt: 0, generation: 0 });
     }
   }
 
   private save(): Promise<void> {
-    return this.persistence.save([...this.connections.values()].map((c): StoredConnection => ({ profile: c.profile, ...(c.refreshToken ? { refreshToken: c.refreshToken } : {}) })));
+    return this.persistence.save([...this.connections.values()].map((c): StoredConnection => ({ profile: c.profile, ...(c.refreshToken ? { refreshToken: c.refreshToken } : {}), ...(c.deviceKeyPem ? { deviceKeyPem: c.deviceKeyPem } : {}) })));
   }
 
   subscribe(listener: (id: string) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -64,6 +69,7 @@ export class NodeConnectionManager {
     if (previous) return { ...previous.profile };
     const node = await fetchNodeJson(baseUrl, "/v1/node");
     if (node.protocolVersion !== 1 || typeof node.id !== "string" || !node.id || typeof node.name !== "string") throw new Error("This server does not support BeeBot protocol version 1.");
+    if (node.security?.dpopRequired !== true) throw new Error("Update this BeeBot Node before connecting: device-bound authentication is required.");
     const profile: NodeProfile = { id: randomUUID(), nodeId: node.id, name: node.name, baseUrl, status: "signed-out" };
     const c: Connection = { profile, reconnectAttempt: 0, generation: 0 };
     this.connections.set(profile.id, c);
@@ -74,7 +80,7 @@ export class NodeConnectionManager {
 
   private async verifyIdentity(c: Connection): Promise<void> {
     const node = await fetchNodeJson(c.profile.baseUrl, "/v1/node");
-    if (node.id !== c.profile.nodeId || node.protocolVersion !== 1) throw new Error("The server identity changed. Remove this connection and add the server again.");
+    if (node.id !== c.profile.nodeId || node.protocolVersion !== 1 || node.security?.dpopRequired !== true) throw new Error("The server identity changed. Remove this connection and add the server again.");
   }
 
   async login(id: string): Promise<void> {
@@ -86,7 +92,11 @@ export class NodeConnectionManager {
     c.profile.status = "connecting"; delete c.profile.error; this.changed(c);
     try {
       await this.verifyIdentity(c);
-      const tokens = await authorizeNode(c.profile.baseUrl, this.openExternal, abort.signal);
+      if (!c.device) {
+        const key = generateDpopKey(); c.deviceKeyPem = exportDpopKey(key); c.device = new DpopClient(c.profile.baseUrl, key);
+        await this.save(); // Persist the key before the browser can grant a session.
+      }
+      const tokens = await authorizeNode(c.profile.baseUrl, this.openExternal, c.device, abort.signal);
       if (c.generation !== generation) return;
       await this.storeTokens(c, tokens);
       await this.connect(c);
@@ -111,7 +121,7 @@ export class NodeConnectionManager {
     const generation = c.generation;
     const operation = (async () => {
       await this.verifyIdentity(c);
-      const tokens = await exchangeToken(c.profile.baseUrl, { grant_type: "refresh_token", refresh_token: refreshToken });
+      const tokens = await exchangeToken(c.profile.baseUrl, { grant_type: "refresh_token", refresh_token: refreshToken }, c.device!);
       if (c.generation !== generation) throw new Error("The server connection changed during sign-in.");
       await this.storeTokens(c, tokens);
     })();
@@ -120,16 +130,27 @@ export class NodeConnectionManager {
   }
 
   private async request(c: Connection, route: string, method = "GET", data?: unknown, key?: string): Promise<any> {
-    await this.ensureAccess(c);
-    const send = () => fetchNodeJson(c.profile.baseUrl, route, {
-      method, headers: { Authorization: `Bearer ${c.accessToken}`, ...(data === undefined ? {} : { "Content-Type": "application/json" }), ...(key ? { "Idempotency-Key": key } : {}) },
-      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    });
+    const generation = c.generation;
+    const assertCurrent = () => {
+      if (this.closed || generation !== c.generation || this.connections.get(c.profile.id) !== c) throw new Error("The server session changed during this request. Its result was not applied.");
+    };
+    await this.ensureAccess(c); assertCurrent();
+    if (!c.device) throw new Error("Sign in again to bind this connection to a device key.");
+    const device = c.device;
+    const send = async () => {
+      assertCurrent();
+      const result = await device.request(route, {
+        method, headers: { ...(data === undefined ? {} : { "Content-Type": "application/json" }), ...(key ? { "Idempotency-Key": key } : {}) },
+        ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+      }, c.accessToken);
+      assertCurrent(); return result;
+    };
     try { return await send(); }
     catch (error) {
-      if (!(error instanceof NodeHttpError) || error.status !== 401) throw error;
+      assertCurrent();
+      if (!(error instanceof NodeHttpError) || error.status !== 401 || error.code !== "invalid_token") throw error;
       delete c.accessToken;
-      await this.ensureAccess(c);
+      await this.ensureAccess(c); assertCurrent();
       return send();
     }
   }
@@ -171,7 +192,7 @@ export class NodeConnectionManager {
     c.profile.status = "connecting"; this.changed(c);
     await this.verifyIdentity(c);
     await this.sync(c);
-    const { ticket } = await this.request(c, "/v1/events/ticket", "POST", {});
+    const { ticket, nonce } = await this.request(c, "/v1/events/ticket", "POST", {});
     if (typeof ticket !== "string" || !ticket) throw new Error("Invalid event session.");
     if (this.closed || generation !== c.generation || c.socket) return;
     const endpoint = new URL("/v1/events", c.profile.baseUrl);
@@ -181,7 +202,7 @@ export class NodeConnectionManager {
     const active = () => !this.closed && generation === c.generation && c.socket === socket;
     socket.on("open", () => {
       if (!active()) { socket.close(); return; }
-      socket.send(JSON.stringify({ ticket, after: c.snapshot?.cursor ?? 0 }));
+      socket.send(JSON.stringify({ ticket, proof: c.device!.eventProof(ticket, nonce), after: c.snapshot?.cursor ?? 0 }));
       c.profile.status = "online"; delete c.profile.error; c.reconnectAttempt = 0; this.changed(c);
     });
     socket.on("message", raw => {
@@ -233,6 +254,15 @@ export class NodeConnectionManager {
     const c = await this.get(id); const result = await this.request(c, `/v1/goals/${encodeURIComponent(goalId)}/reconcile`, "POST", { expectedVersion, note }, key); this.changed(c); return result;
   }
 
+  async securitySessions(id: string): Promise<unknown> { return this.request(await this.get(id), "/v1/security/sessions"); }
+  async securityEvents(id: string): Promise<unknown> { return this.request(await this.get(id), "/v1/security/events"); }
+  async revokeSession(id: string, sessionId: string): Promise<void> {
+    const c = await this.get(id); await this.request(c, `/v1/security/sessions/${encodeURIComponent(sessionId)}/revoke`, "POST", {});
+  }
+  async setSessionGrant(id: string, sessionId: string, grant: DeviceGrant): Promise<void> {
+    const c = await this.get(id); await this.request(c, `/v1/security/sessions/${encodeURIComponent(sessionId)}/grant`, "POST", grant);
+  }
+
   async logout(id: string): Promise<void> {
     const c = await this.get(id);
     this.stopConnection(c);
@@ -243,7 +273,8 @@ export class NodeConnectionManager {
   }
   private async revoke(c: Connection): Promise<void> {
     await this.verifyIdentity(c);
-    await fetchNodeJson(c.profile.baseUrl, "/oauth/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: "beebot-desktop", token: c.refreshToken!, token_type_hint: "refresh_token" }).toString() });
+    if (!c.device) throw new Error("The saved session is not device-bound; sign in again.");
+    await c.device.request("/oauth/revoke", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: "beebot-desktop", token: c.refreshToken!, token_type_hint: "refresh_token" }).toString() });
   }
   async remove(id: string): Promise<{ remoteRevoked: boolean }> {
     const c = await this.get(id); this.stopConnection(c);

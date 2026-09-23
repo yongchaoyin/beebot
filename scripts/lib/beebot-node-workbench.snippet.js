@@ -59,7 +59,7 @@
     // Render as text, limit length and redact common credential-bearing formats.
     return String(error?.message || error || "")
       .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[redacted]@")
-      .replace(/(Bearer\s+)\S+/gi, "$1[redacted]")
+      .replace(/((?:Bearer|DPoP)\s+)\S+/gi, "$1[redacted]")
       .replace(/((?:access_token|refresh_token|api_key|code|state)=)[^&\s]+/gi, "$1[redacted]")
       .slice(0, 400);
   }
@@ -69,7 +69,7 @@
     const css = element("style");
     css.id = "beebot-node-style";
     css.textContent = `
-      #beebot-node-workbench{--bb-line:var(--cursor-stroke-secondary, #8884);--bb-muted:var(--cursor-text-secondary, GrayText);--bb-surface:var(--cursor-bg-secondary, transparent);--bb-accent:var(--cursor-accent, #3477c9);--bb-danger:var(--cursor-text-red-primary, #c84452);color:inherit;font:inherit;font-size:13px;line-height:1.55;min-width:0;max-width:720px;width:100%;container-type:inline-size;container-name:bb-server-panel;box-sizing:border-box;-webkit-app-region:no-drag}
+      #beebot-node-workbench{--bb-line:var(--cursor-stroke-secondary, #8884);--bb-muted:var(--cursor-text-secondary, GrayText);--bb-surface:var(--cursor-bg-secondary, transparent);--bb-accent:var(--cursor-accent, #3477c9);--bb-danger:var(--cursor-error, #AF2D38);color:inherit;font:inherit;font-size:13px;line-height:1.55;min-width:0;max-width:720px;width:100%;container-type:inline-size;container-name:bb-server-panel;box-sizing:border-box;-webkit-app-region:no-drag}
       #beebot-node-workbench *{box-sizing:border-box}
       #beebot-node-workbench [hidden]{display:none!important}
       #beebot-node-workbench h2,#beebot-node-workbench h3,#beebot-node-workbench p{margin:0}
@@ -103,7 +103,7 @@
       #beebot-node-workbench .bb-server-url{font-size:11px;color:var(--bb-muted);overflow-wrap:anywhere}
       #beebot-node-workbench .bb-status{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:11px;padding:4px 8px;border:1px solid var(--bb-line);border-radius:6px;white-space:nowrap}
       #beebot-node-workbench .bb-status::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
-      #beebot-node-workbench .bb-status[data-state="online"]{color:var(--cursor-text-green-primary,#23734f);background:color-mix(in srgb,currentColor 5%,transparent)}
+      #beebot-node-workbench .bb-status[data-state="online"]{color:var(--cursor-success,#23734f);background:color-mix(in srgb,currentColor 5%,transparent)}
       #beebot-node-workbench .bb-status[data-state="reconnecting"]{color:var(--cursor-text-yellow-primary,#946621)}
       #beebot-node-workbench .bb-status[data-state="connecting"]::before{width:8px;height:8px;background:none;border:1.5px solid currentColor;border-right-color:transparent;animation:bb-node-spin 1s linear infinite}
       #beebot-node-workbench .bb-card-body{padding:0 18px 17px;display:grid;gap:13px}
@@ -140,6 +140,12 @@
       #beebot-node-workbench .bb-empty-title{font-size:12px;font-weight:550}
       #beebot-node-workbench .bb-sync{font-size:10px;color:var(--bb-muted);margin-top:10px;min-height:16px}
       #beebot-node-workbench .bb-live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+      #beebot-node-workbench .bb-security{display:grid;gap:12px;margin-top:14px;padding:16px;border:1px solid var(--bb-line);border-radius:12px}
+      #beebot-node-workbench .bb-security details{border-top:1px solid var(--bb-line);padding:10px 0;min-width:0}
+      #beebot-node-workbench .bb-security summary{cursor:pointer;overflow-wrap:anywhere;font-weight:550}
+      #beebot-node-workbench .bb-security code{font-size:11px;overflow-wrap:anywhere;display:block;color:var(--bb-muted);margin:8px 0}
+      #beebot-node-workbench .bb-security-fields{display:grid;gap:8px;margin:10px 0}
+      #beebot-node-workbench .bb-security select[multiple]{min-height:100px}
       @keyframes bb-node-spin{to{transform:rotate(360deg)}}
       @media(max-width:520px){#beebot-node-workbench .bb-identity{display:grid;grid-template-columns:40px minmax(0,1fr);align-items:start;padding:14px}#beebot-node-workbench .bb-status{grid-column:2;justify-self:start;margin-inline-start:0}#beebot-node-workbench .bb-card-body{padding:0 14px 14px}#beebot-node-workbench .bb-add-line{flex-direction:column}#beebot-node-workbench .bb-address-field{width:100%}#beebot-node-workbench .bb-add-line button{width:100%}#beebot-node-workbench .bb-actions-end{margin-inline-start:0}#beebot-node-workbench .bb-add-form{padding:14px}}
       @container bb-server-panel (max-width:440px){#beebot-node-workbench .bb-identity{display:grid;grid-template-columns:40px minmax(0,1fr);align-items:start}#beebot-node-workbench .bb-status{grid-column:2;justify-self:start;margin-inline-start:0}#beebot-node-workbench .bb-add-line{flex-direction:column}#beebot-node-workbench .bb-address-field,#beebot-node-workbench .bb-add-line button{width:100%}#beebot-node-workbench .bb-steps{display:grid;gap:7px}#beebot-node-workbench .bb-step-divider{display:none}#beebot-node-workbench .bb-actions-end{margin-inline-start:0}}
@@ -161,6 +167,8 @@
     let generation = 0, listPending = false, listAgain = false, loading = true, profilesTrusted = false;
     let operation = null, confirmation = null, notice = null, showAdd = false;
     let timer, poll, unsubscribe, pickerSignature = "";
+    let securityOpen = false, securityEpoch = 0, securityWorking = false, securityIntent = null;
+    let securityTranslations = [];
     const pendingSnapshots = new Map();
     const botRows = new Map();
     const translations = [];
@@ -238,6 +246,14 @@
     const remove = button("移除连接", "Remove", () => confirm("remove"), "bb-quiet");
     actionsEnd.append(logout, remove);
     actions.append(auth, reconnect, cancelLogin, actionsEnd);
+    const securityToggle = button("安全与设备", "Security & devices", () => {
+      if (!profilesTrusted || operation || current()?.status !== "online") return;
+      securityOpen = !securityOpen; securityPanel.hidden = !securityOpen;
+      securityToggle.setAttribute("aria-expanded", String(securityOpen));
+      if (securityOpen) void loadSecurity(); else clearSecurity();
+    }, "bb-quiet");
+    securityToggle.setAttribute("aria-expanded", "false"); securityToggle.setAttribute("aria-controls", "bb-node-security");
+    actions.append(securityToggle);
     cardBody.append(statusHelp, actions);
 
     const confirmBox = element("div", "bb-confirm");
@@ -332,10 +348,103 @@
     empty.append(icon("bot"), emptyTitle, emptyHelp);
     const sync = element("p", "bb-sync");
     bots.append(botsHeading, botsHelp, botList, empty, sync);
-    root.append(intro, pickerBox, card, addToggle, form, noticeBox, bots, live);
+    const securityPanel = element("section", "bb-security"); securityPanel.id = "bb-node-security"; securityPanel.hidden = true;
+    securityPanel.append(text("h3", "安全与设备", "Security & devices"));
+    securityPanel.append(text("p", "会话绑定设备密钥。撤销会话会断开其连接，但不会自动取消已接收的工作。", "Sessions are bound to device keys. Revocation disconnects a session; it does not cancel already accepted work.", "bb-muted"));
+    const securityStatus = element("p", "bb-muted"); securityStatus.setAttribute("role", "status");
+    const securityTools = element("div", "bb-actions");
+    const securityRefresh = button("刷新安全记录", "Refresh security", () => void loadSecurity());
+    const securityAuth = button("重新验证身份", "Verify identity again", () => void run("login"));
+    securityTools.append(securityRefresh, securityAuth);
+    const sessionList = element("div"), eventList = element("div", "bb-muted");
+    const securityConfirm = element("div", "bb-confirm"); securityConfirm.hidden = true; securityConfirm.setAttribute("role", "group");
+    const securityPrompt = element("p");
+    const securityCancel = button("取消", "Cancel", () => { securityIntent = null; securityConfirm.hidden = true; });
+    const securityProceed = button("确认操作", "Confirm operation", () => void mutateSecurity(), "bb-danger");
+    securityConfirm.append(securityPrompt, securityCancel, securityProceed);
+    securityPanel.append(securityTools, securityStatus, sessionList, securityConfirm, eventList);
+    root.append(intro, pickerBox, card, securityPanel, addToggle, form, noticeBox, bots, live);
     host.append(root);
 
+    function clearSecurity() {
+      securityEpoch++; securityOpen = false; securityWorking = false; securityIntent = null;
+      securityPanel.hidden = true; securityConfirm.hidden = true; sessionList.replaceChildren(); eventList.replaceChildren(); securityTranslations = [];
+      securityToggle.setAttribute("aria-expanded", "false");
+    }
+    function secText(tag, cn, en, cls) {
+      const node = element(tag, cls), apply = () => { node.textContent = t(cn, en); }; apply(); securityTranslations.push(apply); return node;
+    }
+    function secButton(cn, en, action) { const node = secText("button", cn, en); node.type = "button"; node.onclick = action; return node; }
+    async function loadSecurity() {
+      if (!alive || !securityOpen || !profilesTrusted || current()?.status !== "online" || securityWorking) return;
+      const key = currentKey(), at = generation, epoch = ++securityEpoch, id = selected;
+      securityWorking = true; securityRefresh.disabled = true; securityIntent = null; securityConfirm.hidden = true;
+      securityStatus.textContent = t("正在读取安全记录…", "Loading security records…");
+      try {
+        const [result, log] = await Promise.all([request("securitySessions", { id }), request("securityEvents", { id })]);
+        if (!alive || !securityOpen || epoch !== securityEpoch || at !== generation || key !== currentKey() || !profilesTrusted) return;
+        if (!result || !Array.isArray(result.sessions) || !Array.isArray(log?.events) || result.sessions.length > 200 || log.events.length > 200) throw new Error("Invalid security response.");
+        sessionList.replaceChildren(); eventList.replaceChildren(); securityTranslations = [];
+        for (const item of result.sessions) {
+          if (typeof item.id !== "string" || typeof item.device_name !== "string" || !["admin", "operator", "viewer"].includes(item.grant?.role)) throw new Error("Invalid device session.");
+          const row = element("details"); row.dataset.sessionId = item.id;
+          const own = item.id === result.currentSessionId;
+          const revoked = item.revoked_at !== null || item.idle_expires <= Date.now() || item.absolute_expires <= Date.now();
+          const summary = secText("summary", `${item.device_name}${own ? "（当前会话）" : ""}${revoked ? " · 已失效" : ""}`, `${item.device_name}${own ? " (current session)" : ""}${revoked ? " · inactive" : ""}`);
+          const fingerprint = element("code"); fingerprint.textContent = item.dpop_jkt || t("旧版未绑定会话", "Legacy unbound session");
+          row.append(summary, fingerprint);
+          if (revoked) { row.append(secText("p", "已失效，不能继续访问。", "Inactive. This session cannot access the Node.", "bb-muted")); sessionList.append(row); continue; }
+          const fields = element("div", "bb-security-fields"), role = element("select"), scope = element("select");
+          role.setAttribute("aria-label", t("设备权限", "Device permission")); scope.setAttribute("aria-label", t("可访问的 Bot", "Accessible Bots")); scope.multiple = true;
+          for (const [value,cn,en] of [["admin","管理节点","Manage Node"],["operator","使用 Bot","Use Bots"],["viewer","仅查看","View only"]]) {
+            const option = secText("option",cn,en); option.value = value; role.append(option);
+          }
+          role.value = item.grant.role;
+          const all = secText("option", "全部 Bot（含未来创建的）", "All Bots (including future Bots)"); all.value = "*"; all.selected = item.grant.botIds === "*"; scope.append(all);
+          for (const bot of snapshot?.bots || []) { const option = element("option"); option.value = bot.id; option.textContent = bot.name; option.selected = Array.isArray(item.grant.botIds) && item.grant.botIds.includes(bot.id); scope.append(option); }
+          scope.disabled = role.value === "admin"; const cancelStaleApproval = () => { securityIntent = null; securityConfirm.hidden = true; };
+          role.onchange = () => { scope.disabled = role.value === "admin"; cancelStaleApproval(); };
+          scope.onchange = cancelStaleApproval;
+          fields.append(secText("label", "权限", "Permission"), role, secText("label", "Bot 范围", "Bot scope"), scope);
+          const controls = element("div", "bb-actions");
+          const propose = (action, grant) => {
+            if (!alive || securityWorking || epoch !== securityEpoch || key !== currentKey() || at !== generation || !profilesTrusted) return;
+            securityIntent = { action, grant, sessionId: item.id, id, key, at, epoch };
+            const roleNames = { admin: ["管理", "administrator"], operator: ["使用", "operator"], viewer: ["仅查看", "viewer"] };
+            const proposedRole = grant ? t(...roleNames[grant.role]) : "";
+            const proposedScope = !grant ? "" : grant.botIds === "*" ? t("全部 Bot（含未来创建的）", "all Bots (including future Bots)") : grant.botIds.map(botId => snapshot?.bots.find(bot => bot.id === botId)?.name || botId).join(", ") || t("无 Bot", "no Bots");
+            securityPrompt.textContent = action === "revokeSession"
+              ? t(`撤销「${item.device_name}」${own ? "的当前会话" : "的会话"}？此操作不能撤回已完成的外部动作。`, `Revoke ${item.device_name}${own ? " (current session)" : ""}? Completed external actions cannot be undone.`)
+              : t(`将「${item.device_name}」设为${proposedRole}，范围：${proposedScope}？新权限会在服务器立即生效。`, `Set ${item.device_name} to ${proposedRole}, scope: ${proposedScope}? The server enforces this immediately.`);
+            securityConfirm.hidden = false; securityCancel.focus();
+          };
+          controls.append(secButton("保存权限", "Save permissions", () => { const chosen = [...scope.selectedOptions].map(o => o.value); propose("setSessionGrant", { role: role.value, botIds: role.value === "admin" || chosen.includes("*") ? "*" : chosen }); }),
+            secButton("撤销会话", "Revoke session", () => propose("revokeSession")));
+          row.append(fields, controls); sessionList.append(row);
+        }
+        eventList.append(secText("h3", "最近安全事件", "Recent security events"));
+        const names = { "session.authorized": ["设备已授权","Device authorized"], "session.revoked": ["会话已撤销","Session revoked"], "session.permissions_changed": ["权限已更改","Permissions changed"], "session.proof_rejected": ["设备证明被拒绝","Device proof rejected"] };
+        for (const event of log.events.slice(0,20)) { const name = names[event.kind] || ["安全事件","Security event"]; const date = Number.isFinite(event.time) ? new Date(event.time).toISOString() : ""; eventList.append(secText("p", `${date} · ${name[0]}`, `${date} · ${name[1]}`)); }
+        securityStatus.textContent = t("记录来自当前服务器；不会显示密钥或令牌。", "Records come from this Node. Keys and tokens are never displayed.");
+      } catch (error) {
+        if (alive && securityOpen && epoch === securityEpoch && at === generation && key === currentKey()) { sessionList.replaceChildren(); eventList.replaceChildren(); securityStatus.textContent = t("无法读取安全记录。此操作需要管理权限：", "Cannot read security records. Management permission is required: ") + errorDetail(error); }
+      } finally { if (epoch === securityEpoch) { securityWorking = false; securityRefresh.disabled = false; } }
+    }
+    async function mutateSecurity() {
+      const intent = securityIntent;
+      if (!intent || securityWorking || !alive || !profilesTrusted || intent.epoch !== securityEpoch || intent.at !== generation || intent.key !== currentKey()) return;
+      securityIntent = null; securityWorking = true; securityProceed.disabled = true; securityRefresh.disabled = true;
+      try {
+        await request(intent.action, { id: intent.id, sessionId: intent.sessionId, ...(intent.grant || {}) });
+        if (!alive || intent.epoch !== securityEpoch || intent.at !== generation || intent.key !== currentKey()) return;
+        securityConfirm.hidden = true; securityWorking = false; await loadSecurity();
+      } catch (error) {
+        if (alive && intent.epoch === securityEpoch && intent.key === currentKey()) { securityConfirm.hidden = true; securityStatus.textContent = t("更改未确认。请重新验证身份后重试：", "Change not confirmed. Verify your identity again and retry: ") + errorDetail(error); }
+      } finally { if (alive) { if (intent.epoch === securityEpoch) securityWorking = false; securityProceed.disabled = false; securityRefresh.disabled = false; } }
+    }
+
     function invalidate(clearNotice = true) {
+      clearSecurity();
       operation?.abort?.abort();
       generation++;
       profilesTrusted = false;
@@ -363,6 +472,7 @@
     }
 
     root.addEventListener("keydown", event => {
+      if (event.key === "Escape" && securityIntent) { event.preventDefault(); event.stopPropagation(); securityIntent = null; securityConfirm.hidden = true; securityToggle.focus(); return; }
       if (event.key === "Escape" && confirmation) {
         event.preventDefault();
         event.stopPropagation();
@@ -503,6 +613,7 @@
       logout.disabled = busy || !profilesTrusted;
       remove.disabled = busy || !profilesTrusted;
       actionsEnd.hidden = signingIn;
+      securityToggle.hidden = !p || p.status !== "online"; securityToggle.disabled = busy || !profilesTrusted;
       addToggle.hidden = profiles.length === 0;
       addToggle.disabled = busy;
       addToggle.setAttribute("aria-expanded", String(showAdd));
@@ -678,6 +789,7 @@
           setNotice("所选连接已移除，请重新选择。", "The selected connection was removed. Choose a connection.", "", "info");
         }
         if (previousKey !== currentKey() || (before && before.status !== current()?.status)) {
+          clearSecurity();
           generation++;
           snapshot = null; snapshotOwner = ""; syncedAt = 0; snapshotError = false;
           confirmation = null;
@@ -721,6 +833,7 @@
     function localize() {
       if (!alive) return;
       translations.forEach(apply => apply());
+      securityTranslations.forEach(apply => apply());
       if (fieldError.textContent) fieldError.textContent = validateAddress(address.value);
       update();
     }
