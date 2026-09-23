@@ -1,0 +1,29 @@
+name: task security verification
+on:
+  push:
+    branches: [work/task-security-verification-20260923]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5fffdd773141970778f5fcf7df8f24fe59a8113f
+          persist-credentials: false
+      - name: Export source difference from the mounted installation baseline
+        run: |
+          git fetch --depth=1 origin 7fab604ebbc926150e64964c0d79aeb2d3860acf
+          mkdir -p baseline
+          git diff --binary 7fab604ebbc926150e64964c0d79aeb2d3860acf HEAD > baseline/to-trusted-devices.patch
+          git rev-parse HEAD > baseline/commit.txt
+          git rev-parse 'HEAD^{tree}' > baseline/tree.txt
+          sha256sum baseline/to-trusted-devices.patch > baseline/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: task-security-baseline
+          path: baseline/
+          retention-days: 3
+          if-no-files-found: error
