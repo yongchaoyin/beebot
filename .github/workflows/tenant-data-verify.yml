@@ -1,0 +1,170 @@
+name: Verify tenant data foundation
+on:
+  push:
+    branches: [work/tenant-data-validation-20260923]
+    paths: [.github/workflows/tenant-data-verify.yml, '.dev-submit/tenant-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify exact reviewed source without changing existing product branches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/tenant-{i:02}.bin').read_bytes() for i in range(11))
+          assert len(raw)==24060 and hashlib.sha256(raw).hexdigest()=='1e3008185cec7a906c82586d2019cd6a8a2e37f407d838cb6838f4081d2fac9d'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stage=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='d6dd284822cf78afd15736221da141635e7496f5'
+          assert stage['base']==parent
+          git('checkout','--detach',parent)
+          for change in stage['files']:
+              name=change['path'];p=pathlib.Path(name)
+              assert name=='scripts/build-node.mjs' or name.startswith(('source/hosting/','source/node/','tests/','docs/implementation/'))
+              assert not p.is_absolute() and '..' not in p.parts and not p.is_symlink() and p.resolve().is_relative_to(pathlib.Path.cwd())
+              if change['old'] is None:
+                  assert not p.exists();lines=[]
+              else:
+                  assert git('hash-object',name).decode().strip()==change['old']
+                  lines=p.read_text().splitlines(keepends=True)
+              for start,end,replacement in reversed(change['ops']):
+                  assert 0<=start<=end<=len(lines)
+                  lines[start:end]=replacement.splitlines(keepends=True)
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(''.join(lines))
+              assert git('hash-object',name).decode().strip()==change['new'],name
+              git('add',name)
+          tree=git('write-tree').decode().strip()
+          assert tree==stage['tree']=='7303b42ccf0f86728d8e0fd218f86c5959bbde1a'
+          commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+          sha=git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()
+          assert sha==stage['sha']=='9f619a7d0704e56f890352ce286cffdb0c360d63'
+          git('update-ref','HEAD',sha,parent);assert not git('status','--porcelain').strip()
+          git('push','origin','HEAD:refs/heads/work/tenant-data-candidate-20260923')
+          print('Verified source',sha,tree,'; no public registration or tenant execution enabled')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9f619a7d0704e56f890352ce286cffdb0c360d63
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and environment
+        run: |
+          test "$(git rev-parse HEAD)" = 9f619a7d0704e56f890352ce286cffdb0c360d63
+          test "$(git rev-parse HEAD^{tree})" = 7303b42ccf0f86728d8e0fd218f86c5959bbde1a
+          mkdir -p /tmp/tenant-data-verification
+          git show -s --format=fuller HEAD > /tmp/tenant-data-verification/commit.txt
+          git rev-parse HEAD^{tree} > /tmp/tenant-data-verification/tree.txt
+          node --version > /tmp/tenant-data-verification/node.txt
+          sw_vers > /tmp/tenant-data-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Full source and regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/tenant-data-verification/check.log
+      - name: Shipped frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/tenant-data-verification/frontend.log
+      - name: Lossless publication export
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/tenant-data-verification/publication.log
+      - name: Real existing Host and Shell using deterministic models
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/tenant-data-verification/runtime.log
+      - name: Explicit security freeze and actual process exit
+        shell: bash
+        run: |
+          set -o pipefail
+          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-task-security-runtime.test.mjs 2>&1 | tee /tmp/tenant-data-verification/security-runtime.log
+      - name: Built hosting export remains storage-only
+        shell: bash
+        run: |
+          node --input-type=module - <<'JS' | tee /tmp/tenant-data-verification/export.log
+          import assert from 'node:assert/strict';
+          import { mkdtemp, rm } from 'node:fs/promises';
+          import { randomBytes } from 'node:crypto';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { TenantDirectory, TenantWorkspaces, LocalTenantKeyWrapper } from './.build/node/hosting/index.mjs';
+          const root=await mkdtemp(path.join(os.tmpdir(),'beebot-tenant-built-'));
+          const issuer='https://identity.example.test';
+          const a=()=>({issuer,subject:'a',deviceRole:'admin',botIds:'*'});
+          const b=()=>({issuer,subject:'b',deviceRole:'admin',botIds:'*'});
+          const wrapper=new LocalTenantKeyWrapper('test-only',randomBytes(32));
+          const directory=new TenantDirectory(root,[issuer]);const cells=new TenantWorkspaces(directory,wrapper);
+          try {
+            const ta=await cells.provision(a,'built-tenant-a','Space A'),tb=await cells.provision(b,'built-tenant-b','Space B');
+            const sa=directory.scope(a,ta),sb=directory.scope(b,tb);
+            const ba=await cells.createBot(sa,'same-command',{name:'A Bot',description:'A job'});
+            const bb=await cells.createBot(sb,'same-command',{name:'B Bot',description:'B job'});
+            assert.notEqual(ba.bot.id,bb.bot.id);
+            assert.equal((await cells.snapshot(sa)).bots[0].name,'A Bot');
+            assert.equal((await cells.snapshot(sb)).bots[0].name,'B Bot');
+            await assert.rejects(cells.bot(sa,bb.bot.id),{code:'bot_not_found'});
+            await assert.rejects(cells.submitGoal(sa,ba.bot.id),{code:'tenant_execution_unavailable'});
+            console.log('Built export: isolated records and rejected cross-tenant reads; no tenant execution enabled.');
+          } finally {await cells.close();directory.close();wrapper.close();await rm(root,{recursive:true,force:true});}
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-data-macos-verification
+          path: /tmp/tenant-data-verification/
+          retention-days: 7
+  linux:
+    needs: import
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9f619a7d0704e56f890352ce286cffdb0c360d63
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Tenant and existing Linux installer regression
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir /tmp/tenant-linux
+          git rev-parse HEAD > /tmp/tenant-linux/commit.txt
+          node --test tests/tenant-encrypted-store.test.mjs tests/tenant-workspaces.test.mjs tests/node-installer.test.mjs 2>&1 | tee /tmp/tenant-linux/check.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tenant-data-linux-verification
+          path: /tmp/tenant-linux/
+          retention-days: 7
