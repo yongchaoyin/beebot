@@ -10,6 +10,11 @@ Bots are long-lived collaborators. Groups are shared workplaces. Coordination
 is task-scoped, not a permanent manager hierarchy. Users specify goals and
 boundaries, can intervene, and can leave while their team works.
 
+The desktop connects to an independently deployed Node. Do not make SSH, Docker,
+server installation, or administrator machine credentials a client prerequisite.
+Reuse server-owned browser authentication and trusted-device enrollment; connection
+readiness is not model readiness or permission to operate every Bot.
+
 Keep remote Bots in the existing Bot list, New bot entry and conversation
 route. Manage connections in Settings → Servers. Do not introduce a parallel
 remote dashboard, fake a local account, set a fake model key, or mark local

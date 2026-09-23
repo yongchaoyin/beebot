@@ -14,7 +14,8 @@ test("Settings Servers manages connections in its panel and preserves the active
   window.desktop={nodes:{onChanged(){return()=>{};},async request(input){
     calls.push(structuredClone(input));
     if(input.action==="list")return structuredClone(profiles);
-    if(input.action==="add"){profiles=[{id:"a",name:"Server A",baseUrl:input.address,status:"signed-out"}];return profiles[0];}
+    if(input.action==="inspect")return{previewId:"preview-a",nodeId:"node-a",name:"Server A",baseUrl:input.address,expiresAt:Date.now()+300000};
+    if(input.action==="confirmConnection"){assert.equal(input.previewId,"preview-a");profiles=[{id:"a",name:"Server A",baseUrl:"https://a.example",status:"signed-out"}];return profiles[0];}
     if(input.action==="login"){profiles[0].status="online";return;}
     if(input.action==="snapshot")return{node:{id:"node-a"},bots:[{id:"bot",name:"助手"}],goals:[]};
     throw new Error(input.action);
@@ -33,6 +34,8 @@ test("Settings Servers manages connections in its panel and preserves the active
     assert.equal([...panel.querySelectorAll("button")].some(b=>b.textContent==="返回"),false);
     window.document.querySelector('[aria-label="服务器地址"]').value="https://a.example";
     await click("添加服务器");assert.equal(calls.filter(c=>c.action==="snapshot").length,0);
+    assert.equal(calls.some(c=>c.action==="login"),false,"checking never opens authorization");
+    await click("确认服务器并继续");
     await click("登录");
     const root=window.document.getElementById("beebot-node-workbench");
     assert.match(root.textContent,/此服务器上的 Bot/);

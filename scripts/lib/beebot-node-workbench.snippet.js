@@ -167,7 +167,7 @@
     let alive = true, profiles = [], selected = "", initialized = false;
     let snapshot = null, snapshotOwner = "", syncedAt = 0, snapshotError = false;
     let generation = 0, listPending = false, listAgain = false, loading = true, profilesTrusted = false;
-    let operation = null, confirmation = null, notice = null, showAdd = false;
+    let operation = null, confirmation = null, notice = null, showAdd = false, connectionPreview = null;
     let timer, poll, unsubscribe, pickerSignature = "";
     let securityOpen = false, securityEpoch = 0, securityWorking = false, securityIntent = null;
     let securityTranslations = [];
@@ -196,6 +196,8 @@
     const close = () => {
       if (!alive) return;
       alive = false;
+      if (operation?.kind === "login") void request("cancelLogin", { id: operation.id }).catch(() => {});
+      connectionPreview = null;
       operation?.abort?.abort();
       generation++;
       clearTimeout(timer);
@@ -212,7 +214,7 @@
     intro.append(text("h2", "服务器连接", "Server connections"));
     intro.append(text("p", "Bot 在服务器上工作，你在这里保持联系。", "Your Bots work on their server. Stay connected from here.", "bb-muted"));
     const steps = element("div", "bb-steps");
-    [["添加服务器", "Add a server"], ["浏览器登录", "Sign in securely"], ["回到 Bot", "Return to your Bots"]].forEach(([cn, en], index) => {
+    [["确认服务器", "Confirm server"], ["登录与设备授权", "Sign in & approve device"], ["使用获授权的 Bot", "Use allowed Bots"]].forEach(([cn, en], index) => {
       if (index) steps.append(element("span", "bb-step-divider"));
       const step = element("span", "bb-step");
       const number = element("span", "bb-step-number");
@@ -241,7 +243,16 @@
     const cardBody = element("div", "bb-card-body");
     const statusHelp = element("p", "bb-muted");
     const actions = element("div", "bb-actions");
-    const auth = button("登录", "Sign in", () => void run("login"), "bb-primary");
+    const deviceLabel = text("label", "这台设备的名称", "This device’s name");
+    deviceLabel.htmlFor = "bb-node-device-name";
+    const deviceName = element("input"); deviceName.id = "bb-node-device-name";
+    deviceName.type = "text"; deviceName.value = "BeeBot Desktop"; deviceName.maxLength = 80; deviceName.autocomplete = "off";
+    const deviceField = element("div", "bb-security-fields");
+    deviceField.append(deviceLabel, deviceName, text("p", "名称仅帮助管理员识别；批准仍绑定这台设备的密钥。", "The label helps your administrator recognize this device. Approval is bound to its key.", "bb-muted"));
+    const auth = button("登录", "Sign in", () => {
+      if (!deviceName.value.trim()) { deviceName.focus(); return; }
+      void run("login", { deviceName: deviceName.value.trim() });
+    }, "bb-primary");
     const reconnect = button("重新连接", "Reconnect", () => void run("resume"));
     const cancelLogin = button("取消登录", "Cancel sign-in", () => void run("cancel-login"));
     const actionsEnd = element("div", "bb-actions-end");
@@ -257,7 +268,7 @@
     }, "bb-quiet");
     securityToggle.setAttribute("aria-expanded", "false"); securityToggle.setAttribute("aria-controls", "bb-node-security");
     actions.append(securityToggle);
-    cardBody.append(statusHelp, actions);
+    cardBody.append(statusHelp, deviceField, actions);
 
     const confirmBox = element("div", "bb-confirm");
     confirmBox.setAttribute("role", "group");
@@ -309,7 +320,20 @@
     addressHelp.id = "bb-node-address-help";
     const trust = element("p", "bb-trust");
     trust.append(icon("shield"), text("span", "登录将在系统浏览器中完成；不要在地址里粘贴密钥。", "Sign-in opens in your system browser. Never paste credentials into the address."));
-    form.append(addressLabel, addLine, addressHelp, trust);
+    const previewBox = element("section", "bb-notice"); previewBox.id = "bb-node-connection-preview";
+    previewBox.setAttribute("aria-label", "Server identity"); previewBox.hidden = true;
+    const previewHeading = text("h3", "确认要连接的服务器", "Confirm the server to connect");
+    const previewName = element("p"), previewOrigin = element("code"), previewIdentity = element("code");
+    const previewHelp = text("p", "请核对地址来自可信管理员。服务器名称和节点编号不是身份证明；此检查未登录，也未获得 Bot 权限。", "Check that this address came from a trusted administrator. The name and node ID are labels, not proof of trust. This check does not sign in or grant Bot access.", "bb-muted");
+    const previewExpiry = element("p", "bb-muted");
+    const connectConfirmed = button("确认服务器并继续", "Confirm server and continue", () => {
+      if (!connectionPreview || validateAddress(address.value) || connectionPreview.baseUrl !== new URL(address.value.trim()).origin || Date.now() >= connectionPreview.expiresAt) {
+        connectionPreview = null; update(); return;
+      }
+      void run("confirmConnection", { previewId: connectionPreview.previewId });
+    }, "bb-primary");
+    previewBox.append(previewHeading, previewName, previewOrigin, previewIdentity, previewHelp, previewExpiry, connectConfirmed);
+    form.append(addressLabel, addLine, addressHelp, trust, previewBox);
     form.onsubmit = event => {
       event.preventDefault();
       if (operation || loading) return;
@@ -317,9 +341,11 @@
       fieldError.textContent = problem;
       address.setAttribute("aria-invalid", String(!!problem));
       if (problem) { address.focus(); return; }
-      void run("add", { address: new URL(address.value.trim()).origin });
+      connectionPreview = null;
+      void run("inspect", { address: new URL(address.value.trim()).origin });
     };
     address.oninput = () => {
+      connectionPreview = null;
       fieldError.textContent = "";
       address.removeAttribute("aria-invalid");
       update();
@@ -598,7 +624,8 @@
     async function run(kind, data = {}) {
       if (!alive || (operation && !(kind === "cancel-login" && operation.kind === "login"))) return;
       const p = current();
-      if (kind !== "add" && (!p || (!profilesTrusted && kind !== "cancel-login"))) return;
+      const adding = kind === "inspect" || kind === "confirmConnection";
+      if (!adding && (!p || (!profilesTrusted && kind !== "cancel-login"))) return;
       const op = { kind, id: p?.id, key: currentKey() };
       operation = op;
       confirmation = null;
@@ -607,10 +634,15 @@
       update();
       let succeeded = false;
       try {
-        const result = await request(kind === "cancel-login" ? "logout" : kind, kind === "add" ? data : { id: op.id });
+        const result = await request(kind === "cancel-login" ? "cancelLogin" : kind, adding ? data : { id: op.id, ...data });
         if (!alive || operation !== op) return;
         succeeded = true;
-        if (kind === "add") {
+        if (kind === "inspect") {
+          if (validateAddress(address.value) || new URL(address.value.trim()).origin !== data.address) { succeeded = false; return; }
+          if (!result || result.baseUrl !== data.address || typeof result.previewId !== "string" || typeof result.nodeId !== "string" || typeof result.name !== "string" || !Number.isFinite(result.expiresAt) || result.expiresAt <= Date.now()) throw new Error(t("服务器检查结果无效，请重新检查。", "Invalid server check. Please check again."));
+          connectionPreview = result;
+        } else if (kind === "confirmConnection") {
+          connectionPreview = null;
           if (!result || typeof result.id !== "string") throw new Error(t("服务器没有返回有效的连接。", "The server did not return a valid connection."));
           selected = result.id;
           initialized = true;
@@ -635,13 +667,15 @@
         if (!alive || operation !== op) return;
         succeeded = false;
         const titles = {
-          add: ["无法添加服务器，请检查地址与服务版本。", "Could not add this server. Check its address and version."],
+          inspect: ["无法验证服务器，请检查地址、证书与服务版本。", "Could not verify this server. Check its address, certificate and version."],
+          confirmConnection: ["未能确认连接，需重新检查服务器。", "Connection was not confirmed. Check the server again."],
           login: ["登录未完成，请重试。", "Sign-in did not complete. Please try again."],
           "cancel-login": ["未能确认登录已取消。", "Could not confirm that sign-in was cancelled."],
           resume: ["连接尚未恢复，任务状态没有被改写。", "The connection has not recovered. Task states were not changed."],
           logout: ["退出未完成，服务器会话可能仍然有效。", "Sign-out did not complete. The server session may still be active."],
           remove: ["移除未完成，本机连接仍被保留。", "Removal did not complete. The local connection was retained."],
         };
+        if (adding) connectionPreview = null;
         setNotice(...titles[kind], error);
       } finally {
         if (alive && operation === op) {
@@ -649,7 +683,8 @@
           invalidate(false);
           update();
           await refresh();
-          if (alive && succeeded && kind === "add" && current()?.id === selected && current()?.status === "signed-out") auth.focus();
+          if (alive && succeeded && kind === "inspect" && connectionPreview) connectConfirmed.focus();
+          if (alive && succeeded && kind === "confirmConnection" && current()?.id === selected && current()?.status === "signed-out") auth.focus();
           if (alive && succeeded && kind === "remove") (profiles.length ? picker : address).focus();
           if (alive && succeeded && kind === "cancel-login" && !auth.hidden) auth.focus();
         }
@@ -660,7 +695,7 @@
       if (!p) return "";
       if (operation?.id === p.id) {
         const labels = {
-          login: t("等待浏览器授权", "Waiting for sign-in"),
+          login: p.loginStage === "verifying-server" ? t("核对服务器", "Verifying server") : p.loginStage === "connecting-events" ? t("等待连接确认", "Confirming connection") : t("等待登录或设备批准", "Awaiting sign-in or approval"),
           "cancel-login": t("正在取消登录", "Cancelling sign-in"),
           resume: t("正在重新连接", "Reconnecting"),
           logout: t("正在退出", "Signing out"),
@@ -686,7 +721,7 @@
       steps.hidden = profiles.some(item => item.status === "online");
       pickerBox.hidden = profiles.length === 0;
       picker.disabled = busy;
-      const signature = JSON.stringify([window.__sandUiLanguage, profiles.map(item => [item.id, item.name, item.status])]);
+      const signature = JSON.stringify([window.__sandUiLanguage, operation?.id, operation?.kind, profiles.map(item => [item.id, item.name, item.status, item.loginStage])]);
       if (signature !== pickerSignature) {
         pickerSignature = signature;
         const placeholder = element("option"); placeholder.value = ""; placeholder.textContent = t("请选择服务器", "Choose a server");
@@ -704,9 +739,11 @@
         status.textContent = statusText(p);
         status.dataset.state = signingIn ? "connecting" : p.status;
         statusHelp.textContent = signingIn
-          ? t("请在系统浏览器中完成授权。未出现登录页时，可取消后重试。", "Complete sign-in in your system browser. No sign-in page? Cancel and try again.")
+          ? (p.loginStage === "connecting-events"
+            ? t("授权已返回，正在等待服务器确认事件连接。尚未声明模型可用。", "Authorization returned. Waiting for the server to confirm events; model readiness is not tested.")
+            : t("请在系统浏览器登录。新设备由已有可信管理员批准；第一台设备使用所有者的离线恢复码。关闭本页只取消本机等待，不会删除任务或撤销已有批准。", "Complete sign-in in your system browser. New devices need a trusted administrator’s approval; the first device needs the owner’s offline recovery code. Closing this page only cancels local waiting, not tasks or existing approval."))
           : p.status === "online"
-          ? t("连接已就绪。选择下方的 Bot，回到熟悉的聊天界面。", "Connection ready. Choose a Bot below to return to your conversation.")
+          ? t("已通过授权并连接。仅显示允许访问的 Bot；模型是否可用需在实际工作时确认。", "Authorized and connected. Only permitted Bots are shown; model readiness is checked when you work.")
           : p.status === "reconnecting"
           ? t("正在尝试恢复连接。断线不代表任务失败，也不会切换到其他服务器。", "Trying to reconnect. Disconnection is not task failure; work is not moved to another server.")
           : p.status === "connecting"
@@ -715,6 +752,8 @@
           ? t("使用这台服务器的账号登录，无需在 BeeBot 中填写模型密钥。", "Sign in with your account on this server. No model key is entered in BeeBot.")
           : t("客户端无法识别此状态，请核对服务端版本。", "This client cannot recognize the status. Check the server version.");
       }
+      deviceField.hidden = !p || p.status !== "signed-out" || signingIn;
+      deviceName.disabled = busy || !profilesTrusted;
       auth.hidden = !p || p.status !== "signed-out" || signingIn;
       auth.disabled = busy || !profilesTrusted;
       reconnect.hidden = !p || p.status !== "reconnecting" || signingIn;
@@ -731,8 +770,18 @@
       form.hidden = profiles.length > 0 && !showAdd;
       address.disabled = busy || loading;
       add.disabled = busy || loading;
-      add.textContent = operation?.kind === "add" ? t("检查服务器…", "Checking server…") : t("添加服务器", "Add server");
-      form.setAttribute("aria-busy", String(operation?.kind === "add"));
+      add.textContent = operation?.kind === "inspect" ? t("检查服务器…", "Checking server…") : connectionPreview ? t("重新检查", "Check again") : t("添加服务器", "Add server");
+      form.setAttribute("aria-busy", String(operation?.kind === "inspect" || operation?.kind === "confirmConnection"));
+      previewBox.hidden = !connectionPreview;
+      previewBox.setAttribute("aria-label", t("服务器身份", "Server identity"));
+      if (connectionPreview) {
+        previewName.textContent = connectionPreview.name;
+        previewOrigin.textContent = connectionPreview.baseUrl;
+        previewIdentity.textContent = `${t("节点编号", "Node ID")}: ${connectionPreview.nodeId}`;
+        const expired = Date.now() >= connectionPreview.expiresAt;
+        previewExpiry.textContent = expired ? t("检查已过期，请重新检查。", "This check expired. Check again.") : t("已核对浏览器登录、PKCE 与设备绑定协议；确认时会再次核对服务器。", "Browser sign-in, PKCE and device-binding metadata checked. The server will be checked again on confirmation.");
+        connectConfirmed.disabled = busy || expired;
+      }
       proceed.disabled = busy || !profilesTrusted;
       confirmBox.hidden = !confirmation || confirmation.key !== currentKey();
       if (confirmation && !confirmBox.hidden) {
@@ -817,8 +866,8 @@
         emptyTitle.textContent = t("正在读取 Bot…", "Loading Bots…");
         emptyHelp.textContent = t("只读取当前已登录服务器的数据。", "Reading only the currently signed-in server.");
       } else {
-        emptyTitle.textContent = t("这台服务器还没有 Bot。", "This server has no Bots yet.");
-        emptyHelp.textContent = t("通过原来的 + → 新建 Bot 入口创建一个长期伙伴。", "Create a lasting collaborator from the existing + → New bot entry.");
+        emptyTitle.textContent = t("当前权限下还没有可见的 Bot。", "No Bots are visible with the current permissions.");
+        emptyHelp.textContent = t("请管理员核对访问范围；有创建权限时，可使用原来的 + → 新建 Bot 入口。", "Ask your administrator to check access. If allowed to create Bots, use the existing + → New bot entry.");
       }
       sync.textContent = syncedAt && snapshotOwner === currentKey() && p?.status === "online"
         ? `${t("最近同步", "Last synced")} ${new Date(syncedAt).toLocaleTimeString(window.__sandUiLanguage === "zh" ? "zh-CN" : "en", { hour: "2-digit", minute: "2-digit" })}`

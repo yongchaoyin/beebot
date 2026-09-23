@@ -20,14 +20,18 @@ export class NodeHttpError extends Error {
   constructor(readonly status: number, message: string, readonly code?: string, readonly nonce?: string) { super(message); }
 }
 
-export async function fetchNodeJson(baseUrl: string, route: string, init: RequestInit = {}): Promise<any> {
+export async function fetchNodeJson(baseUrl: string, route: string, init: RequestInit = {}, maxBytes = 8 * 1024 * 1024): Promise<any> {
+  // Cancellation and the request deadline are independent; keep both through
+  // response-body consumption, including token exchange during browser login.
+  const deadline = AbortSignal.timeout(20_000);
+  const signal = init.signal ? AbortSignal.any([init.signal, deadline]) : deadline;
   // Do not follow a redirect with credentials to a different origin.
   const response = await fetch(new URL(route, baseUrl), {
-    ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(20_000),
+    ...init, redirect: "error", signal,
   });
   const reader = response.body?.getReader(); const chunks: Uint8Array[] = []; let size = 0;
   if (reader) for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length;
-    if (size > 8 * 1024 * 1024) { await reader.cancel(); throw new Error("The server response exceeds the client limit."); } chunks.push(part.value); }
+    if (size > maxBytes) { await reader.cancel(); throw new Error("The server response exceeds the client limit."); } chunks.push(part.value); }
   const raw = Buffer.concat(chunks).toString("utf8");
   let data: any;
   try { data = raw ? JSON.parse(raw) : {}; }
@@ -75,16 +79,17 @@ export function validateTokens(value: any): OAuthTokens {
   return value;
 }
 
-export async function exchangeToken(baseUrl: string, parameters: Record<string, string>, device: DpopClient): Promise<OAuthTokens> {
+export async function exchangeToken(baseUrl: string, parameters: Record<string, string>, device: DpopClient, signal?: AbortSignal): Promise<OAuthTokens> {
   if (device.baseUrl !== baseUrl) throw new Error("The device belongs to a different server connection.");
   return validateTokens(await device.request("/oauth/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    method: "POST", ...(signal ? { signal } : {}), headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: "beebot-desktop", ...parameters }).toString(),
   }));
 }
 
 /** The OS browser owns the login UI; this process receives only a single-use code. */
-export async function authorizeNode(baseUrl: string, openExternal: (url: string) => Promise<unknown>, device: DpopClient, signal?: AbortSignal): Promise<OAuthTokens> {
+export async function authorizeNode(baseUrl: string, openExternal: (url: string) => Promise<unknown>, device: DpopClient, signal?: AbortSignal, deviceName = "BeeBot Desktop"): Promise<OAuthTokens> {
+  if (!deviceName.trim() || deviceName.length > 80 || /[\u0000-\u001f\u007f]/.test(deviceName)) throw new Error("Invalid device name.");
   if (device.baseUrl !== baseUrl) throw new Error("The device belongs to a different server connection.");
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(48).toString("base64url");
@@ -94,18 +99,20 @@ export async function authorizeNode(baseUrl: string, openExternal: (url: string)
   const receivedCode = new Promise<string>((resolve, reject) => { resolveCode = resolve; rejectCode = reject; });
   // Install a handler immediately: cancellation can happen while the browser is opening.
   void receivedCode.catch(() => {});
-  let redirectUri = "";
+  let redirectUri = "", consumed = false;
   const server = createServer((request, response) => {
     const expected = new URL(redirectUri);
     const requestUrl = new URL(request.url ?? "/", redirectUri);
     const issuer = requestUrl.searchParams.get("iss");
-    if (request.method !== "GET" || request.headers.host !== expected.host || requestUrl.pathname !== "/oauth/callback" || requestUrl.searchParams.get("state") !== state || (issuer !== baseUrl) || [...requestUrl.searchParams.keys()].some(k => requestUrl.searchParams.getAll(k).length !== 1)) {
+    if (consumed || signal?.aborted || request.method !== "GET" || request.headers.host !== expected.host || requestUrl.pathname !== "/oauth/callback" || requestUrl.searchParams.get("state") !== state || (issuer !== baseUrl) || [...requestUrl.searchParams.keys()].some(k => requestUrl.searchParams.getAll(k).length !== 1)) {
       response.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid authorization callback.");
       return;
     }
     const code = requestUrl.searchParams.get("code");
+    if (code && (requestUrl.searchParams.has("error") || code.length > 512)) { response.writeHead(400).end("Invalid authorization callback."); return; }
+    consumed = true;
     response.writeHead(code ? 200 : 400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'" });
-    response.end(code ? "<h1>Connected to BeeBot</h1><p>You can return to the Mac app.</p>" : "<h1>Authorization was declined.</h1>");
+    response.end(code ? "<h1>Authorization received / 已收到授权</h1><p>Return to BeeBot to check the connection. 请回到应用查看连接结果。</p>" : "<h1>Authorization was declined.</h1>");
     if (code) resolveCode(code); else rejectCode(new Error("Server authorization was declined."));
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => { server.removeListener("error", reject); resolve(); }); });
@@ -116,10 +123,13 @@ export async function authorizeNode(baseUrl: string, openExternal: (url: string)
   try {
     if (signal?.aborted) throw new Error("Sign-in cancelled.");
     const url = new URL("/oauth/authorize", baseUrl);
-    url.search = new URLSearchParams({ response_type: "code", client_id: "beebot-desktop", redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: "S256", dpop_jkt: device.key.thumbprint }).toString();
-    await openExternal(url.href);
+    url.search = new URLSearchParams({ response_type: "code", client_id: "beebot-desktop", redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: "S256", dpop_jkt: device.key.thumbprint, device_name: deviceName.trim() }).toString();
+    // A slow OS browser launch must not hold the callback listener open after
+    // cancellation or the authorization deadline. A real callback can also win.
+    await Promise.race([openExternal(url.href), receivedCode]);
     const code = await receivedCode;
-    return await exchangeToken(baseUrl, { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri }, device);
+    if (signal?.aborted) throw new Error("Sign-in cancelled.");
+    return await exchangeToken(baseUrl, { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri }, device, signal);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);

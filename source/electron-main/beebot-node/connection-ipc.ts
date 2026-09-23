@@ -47,9 +47,12 @@ export function installNodeConnectionIpc(electron: NodeConnectionElectron, rende
     const input = request as Record<string, unknown>;
     const action = text(input.action, "action", 40);
     if (action === "list") return manager.list();
+    if (action === "inspect") return manager.inspect(text(input.address, "server address", 2048));
+    if (action === "confirmConnection") return manager.confirmConnection(text(input.previewId, "server check", 100));
     if (action === "add") return manager.add(text(input.address, "server address", 2048));
     const id = text(input.id, "connection", 100);
-    if (action === "login") return manager.login(id);
+    if (action === "login") return manager.login(id, input.deviceName === undefined ? undefined : text(input.deviceName, "device name", 80));
+    if (action === "cancelLogin") return manager.cancelLogin(id);
     if (action === "logout") return manager.logout(id);
     if (action === "remove") return manager.remove(id);
     if (action === "resume") return manager.resume(id);

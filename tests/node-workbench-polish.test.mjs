@@ -33,7 +33,13 @@ function harness(initial = []) {
       if (state.hooks[input.action]) return state.hooks[input.action](input);
       if (input.action === "list") return structuredClone(state.profiles);
       if (input.action === "snapshot") return structuredClone(state.snapshots[input.id] || snapshot(input.id));
-      if (input.action === "add") {
+      if (input.action === "inspect") {
+        state.preview = {previewId: "preview-new", nodeId: "node-new", name:"Server new", baseUrl:input.address, expiresAt:Date.now()+300000};
+        return structuredClone(state.preview);
+      }
+      if (input.action === "confirmConnection") {
+        assert.equal(input.previewId, state.preview.previewId);
+        input = {...input, address:state.preview.baseUrl};
         const existing = state.profiles.find(p => p.baseUrl === input.address);
         if (existing) return structuredClone(existing);
         const next = { ...profile("new", "signed-out"), baseUrl: input.address };
@@ -70,24 +76,27 @@ function harness(initial = []) {
 test("server origin validation blocks unsafe inputs before calling the trusted bridge", async () => {
   const h = harness();
   try {
-    await until(() => !h.panel.querySelector("input").disabled);
+    await until(() => !h.panel.querySelector("#bb-node-address").disabled);
     for (const input of ["", "not a URL", "http://192.168.1.3", "https://a.example/path", "https://user:secret@a.example", "https://a.example?token=x", "file:///tmp/file"]) {
       h.submit(input);
-      assert.equal(h.panel.querySelector("input").getAttribute("aria-invalid"), "true", input);
-      assert.equal(h.window.document.activeElement, h.panel.querySelector("input"));
+      assert.equal(h.panel.querySelector("#bb-node-address").getAttribute("aria-invalid"), "true", input);
+      assert.equal(h.window.document.activeElement, h.panel.querySelector("#bb-node-address"));
     }
-    assert.equal(h.state.calls.filter(call => call.action === "add").length, 0);
+    assert.equal(h.state.calls.filter(call => call.action === "inspect").length, 0);
   } finally { await h.close(); }
 });
 
 test("loopback HTTP remains valid and a repeated submit never duplicates the command", async () => {
   const h = harness(), pending = deferred();
   try {
-    await until(() => !h.panel.querySelector("input").disabled);
-    h.state.hooks.add = async input => { await pending.promise; const p = { ...profile("new", "signed-out"), baseUrl: input.address }; h.state.profiles.push(p); return p; };
-    h.submit("http://127.0.0.1:8787/"); h.submit("https://different.example");
-    assert.deepEqual(h.state.calls.filter(call => call.action === "add"), [{ action: "add", address: "http://127.0.0.1:8787" }]);
+    await until(() => !h.panel.querySelector("#bb-node-address").disabled);
+    h.state.hooks.inspect = async input => { await pending.promise; h.state.preview = {previewId:"preview-new",nodeId:"node-new",name:"Server new",baseUrl:input.address,expiresAt:Date.now()+300000};return h.state.preview; };
+    h.submit("http://127.0.0.1:8787/"); h.panel.querySelector("form").dispatchEvent(new h.window.Event("submit", {cancelable:true}));
+    assert.deepEqual(h.state.calls.filter(call => call.action === "inspect"), [{ action: "inspect", address: "http://127.0.0.1:8787" }]);
     pending.resolve();
+    await until(() => !h.panel.querySelector("#bb-node-connection-preview").hidden && !h.find("Confirm server and continue").disabled);
+    assert.equal(h.state.profiles.length,0,"inspection does not save a connection");
+    h.click("Confirm server and continue");
     await until(() => h.find("Sign in") && !h.find("Sign in").disabled);
     assert.equal(h.panel.querySelector(".bb-server-url").textContent, "http://127.0.0.1:8787");
   } finally { pending.resolve(); await h.close(); }
@@ -187,8 +196,8 @@ test("reconnecting and unknown states are never promoted to online", async () =>
 test("language changes preserve the address draft and keyboard focus", async () => {
   const h = harness();
   try {
-    await until(() => !h.panel.querySelector("input").disabled);
-    const input = h.panel.querySelector("input"); input.value = "https://draft.example"; input.focus();
+    await until(() => !h.panel.querySelector("#bb-node-address").disabled);
+    const input = h.panel.querySelector("#bb-node-address"); input.value = "https://draft.example"; input.focus();
     h.window.__sandUiLanguage = "zh";
     h.window.dispatchEvent(new h.window.Event("sand-ui-language-changed"));
     assert.equal(input.value, "https://draft.example");
