@@ -5,14 +5,17 @@ import { randomUUID } from "node:crypto";
 import { PreflightError, parseTarget, readHostKey, HOST_PROBE, parseHostReport, summarizeHost, type SshTarget } from "./preflight.js";
 import { runBounded, type ProcessRunner } from "./process.js";
 
+import { previewInstallation, type TrustedInspection } from "./install-plan.js";
+
 type Challenge = { id: string; target: SshTarget; fingerprint: string; key: string; expiresAt: number };
 export class ServerPreflight {
   private challenge: Challenge | undefined;
   private controller: AbortController | undefined;
   private generation = 0;
+  private inspection: TrustedInspection | undefined;
   private identity: string | undefined;
   constructor(private readonly run: ProcessRunner = runBounded, private readonly now = Date.now) {}
-  cancel(): void { this.generation++; this.challenge = undefined; this.controller?.abort(); this.controller = undefined; }
+  cancel(): void { this.generation++; this.inspection = undefined; this.challenge = undefined; this.controller?.abort(); this.controller = undefined; }
   async setIdentity(path: string | undefined): Promise<void> {
     this.cancel();
     const at = this.generation;
@@ -24,6 +27,7 @@ export class ServerPreflight {
       this.identity = path; // Only the path from a native picker; never read key bytes.
     } else this.identity = undefined;
   }
+  previewInstall(input: unknown) { return previewInstallation(this.inspection, input, this.now()); }
   private operation() { this.cancel(); return { at: this.generation, controller: this.controller = new AbortController() }; }
   async scan(input: unknown) {
     const target = parseTarget(input), { at, controller } = this.operation();
@@ -61,7 +65,9 @@ export class ServerPreflight {
           : /Permission denied|sign_and_send_pubkey|Load key|no such identity/i.test(result.stderr) ? "AUTHENTICATION_FAILED" : "CONNECTION_FAILED";
         throw new PreflightError(code); // Never return remote stderr (banners may contain credentials).
       }
-      return { target: challenge.target, fingerprint: challenge.fingerprint, checkedAt: this.now(), ...summarizeHost(parseHostReport(result.stdout)) };
+      const report = parseHostReport(result.stdout), checkedAt = this.now();
+      this.inspection = { target: challenge.target, fingerprint: challenge.fingerprint, checkedAt, report: { ...report } };
+      return { target: challenge.target, fingerprint: challenge.fingerprint, checkedAt, ...summarizeHost(report) };
     } finally { await rm(directory, { recursive: true, force: true }); }
   }
 }
