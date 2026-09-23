@@ -38,9 +38,19 @@ test("Mac transport → PKCE → server → real Host → disconnected completio
   };
   const postForm = async (url, fields, cookie) => fetch(url, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: origin, Cookie: cookie }, body: new URLSearchParams(fields) });
   const password = "integration-only owner passphrase";
+  let firstRecoveryCode, profile;
   const openExternal = async url => {
     const browser = await form(url);
-    const response = await postForm(new URL("/oauth/authorize", origin), { flow_id: browser.flow_id, csrf: browser.csrf, username: "owner", password, decision: "allow" }, browser.cookie);
+    let response = await postForm(new URL("/oauth/authorize", origin), { flow_id: browser.flow_id, csrf: browser.csrf, username: "owner", password, decision: "allow",
+      ...(firstRecoveryCode ? { recovery_code: firstRecoveryCode, confirm_recovery: "yes" } : {}) }, browser.cookie);
+    firstRecoveryCode = undefined;
+    if (response.status === 200) {
+      const page = await response.text();
+      const requestId = /name="request_id" value="([^"]+)"/.exec(page)?.[1];
+      assert.ok(requestId, "Additional event device must request independent approval");
+      await client.decideDevice(profile.id, requestId, 1, new URL(url).searchParams.get("dpop_jkt"), { role: "admin", botIds: "*" });
+      response = await postForm(`${origin}/oauth/device-approval`, { request_id: requestId, csrf: browser.csrf, decision: "check" }, browser.cookie);
+    }
     assert.equal(response.status, 303, await response.text());
     const callback = await fetch(response.headers.get("location")); assert.equal(callback.status, 200);
   };
@@ -49,9 +59,12 @@ test("Mac transport → PKCE → server → real Host → disconnected completio
   try {
     await server.listen();
     const setup = await form(`${origin}/setup?code=${server.auth.getSetupInfo().code}`);
-    assert.equal((await postForm(`${origin}/setup`, { flow_id: setup.flow_id, csrf: setup.csrf, username: "owner", password }, setup.cookie)).status, 200);
+    const initialized = await postForm(`${origin}/setup`, { flow_id: setup.flow_id, csrf: setup.csrf, username: "owner", password }, setup.cookie);
+    assert.equal(initialized.status, 200);
+    firstRecoveryCode = /data-recovery-code>([^<]+)</.exec(await initialized.text())?.[1];
+    assert.ok(firstRecoveryCode, "First device requires explicit one-time recovery material");
     assert.equal((await fetch(`${origin}/v1/snapshot`)).status, 401);
-    const profile = await client.add(origin); await client.login(profile.id);
+    profile = await client.add(origin); await client.login(profile.id);
     const eventDevice = new DpopClient(origin, generateDpopKey());
     const eventTokens = await authorizeNode(origin, openExternal, eventDevice);
     const eventHeaders = { "Content-Type": "application/json" };

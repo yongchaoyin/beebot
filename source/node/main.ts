@@ -9,6 +9,7 @@ const HELP = `BeeBot server
   node main.mjs init [--data-dir DIR] [--name NAME] [--public-url ORIGIN]
       [--bind-host HOST] [--trusted-proxy] [--if-absent]
   node main.mjs start [--data-dir DIR] [--setup-output console|file]
+  node main.mjs recovery-codes --data-dir DIR --output PRIVATE_FILE --confirm-recovery
   node main.mjs doctor [--data-dir DIR]
   node main.mjs verify [--data-dir DIR]
   node main.mjs setup-link [--data-dir DIR]
@@ -38,6 +39,12 @@ async function main(): Promise<void> {
     if (!flags["base-url"] || !flags["model-id"] || flags["api-key-stdin"] !== true) throw new Error("Expected --base-url URL --model-id ID --api-key-stdin; do not put a key in command arguments.");
     configureNodeModel(dataDir, String(flags["base-url"]), String(flags["model-id"]), await readModelKeyInput(process.stdin));
     console.log("Model configuration saved on this server. Restart the Node service to apply it."); return;
+  }
+  if (command === "recovery-codes") {
+    if (flags["confirm-recovery"] !== true || typeof flags.output !== "string") throw new Error("Stop the Node, then specify --output PRIVATE_FILE --confirm-recovery. Existing recovery codes will be replaced.");
+    const { writeOfflineRecoveryCodes } = await import("./offline-recovery.js");
+    writeOfflineRecoveryCodes(dataDir, flags.output);
+    console.log("New recovery codes saved to the requested private file. Keep them offline; using a code also requires the owner password and revokes other devices."); return;
   }
   const config = loadConfig(dataDir);
   if (command === "verify") {

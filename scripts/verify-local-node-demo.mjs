@@ -1,6 +1,7 @@
 import { testDevice } from "./lib/node-device-fixture.mjs";
 // Creates test owners and verifies ONLY the two containers in node-local-demo-compose.yml.
-// Keeps their data for the Mac client. Passwords stay in an ignored, mode-0600 file.
+// Keeps their data for the Mac client. Demo credentials and the fixture signing
+// key stay in an ignored, mode-0600 file. This is not the desktop secure store.
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -58,14 +59,16 @@ async function post(node, route, fields, cookie) {
   return (route.startsWith("/oauth/") && route !== "/oauth/authorize" ? node.device.request : fetch)(`${node.baseUrl}${route}`, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { "content-type": "application/x-www-form-urlencoded", ...(cookie ? { Origin: node.baseUrl, Cookie: cookie } : {}) }, body: new URLSearchParams(fields) });
 }
 async function login(node) {
-  node.device ??= testDevice();
+  node.device ??= testDevice(saved.nodes[node.id].deviceKeyPem);
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(24).toString("base64url");
   const redirect_uri = "http://127.0.0.1:54321/oauth/callback";
   const query = new URLSearchParams({ client_id: "beebot-desktop", response_type: "code", scope: "owner:node", state, redirect_uri, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", device_name: "Local Docker verification", dpop_jkt: node.device.jkt });
   const flow = await form(`${node.baseUrl}/oauth/authorize?${query}`);
   const credentials = saved.nodes[node.id];
-  const response = await post(node, "/oauth/authorize", { flow_id: flow.flow_id, csrf: flow.csrf, username: credentials.username, password: credentials.password, decision: "allow" }, flow.cookie);
+  const response = await post(node, "/oauth/authorize", { flow_id: flow.flow_id, csrf: flow.csrf, username: credentials.username, password: credentials.password, decision: "allow", ...(node.firstRecoveryCode ? { recovery_code: node.firstRecoveryCode, confirm_recovery: "yes" } : {}) }, flow.cookie);
+  delete node.firstRecoveryCode;
+  if (response.status === 200) throw new Error(`Node ${node.id} requires a trusted administrator to approve fixture key ${node.device.jkt}. No automatic recovery or owner reset was performed. After approval rerun with the saved fixture identity.`);
   assert.equal(response.status, 303, `Authorization failed on ${node.id}`);
   const callback = new URL(response.headers.get("location"));
   assert.equal(callback.searchParams.get("state"), state);
@@ -130,6 +133,9 @@ try {
       await persist();
     }
     assert.equal(saved.nodes[node.id].nodeId, identity.id);
+    node.device = testDevice(saved.nodes[node.id].deviceKeyPem);
+    saved.nodes[node.id].deviceKeyPem = node.device.privateKey.export({ format: "pem", type: "pkcs8" });
+    await persist(); // Save before authorization so a retry never swaps device identity.
     const setupResponse = await fetch(`${node.baseUrl}/setup`);
     if (setupResponse.status !== 409) {
       const logs = await docker("logs", node.container);
@@ -139,6 +145,8 @@ try {
       const credentials = saved.nodes[node.id];
       const result = await post(node, "/setup", { flow_id: setup.flow_id, csrf: setup.csrf, username: credentials.username, password: credentials.password }, setup.cookie);
       assert.equal(result.status, 200, `Owner setup ${node.id}`);
+      node.firstRecoveryCode = /data-recovery-code>([^<]+)</.exec(await result.text())?.[1];
+      assert.ok(node.firstRecoveryCode, "Fresh demo requires first-device bootstrap");
     }
     await login(node);
     if (!saved.nodes[node.id].botId) {

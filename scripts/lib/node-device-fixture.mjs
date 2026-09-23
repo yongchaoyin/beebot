@@ -1,7 +1,9 @@
 // Independent RFC 9449 test client (does not call the production signer/verifier).
-import { createHash, createPublicKey, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-export function testDevice() {
-  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomUUID, sign } from "node:crypto";
+export function testDevice(privateKeyPem) {
+  // Optional persisted identity belongs ONLY to the explicitly private local demo.
+  const privateKey = privateKeyPem ? createPrivateKey(privateKeyPem) : generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
+  if (privateKey.asymmetricKeyType !== "ec" || privateKey.asymmetricKeyDetails?.namedCurve !== "prime256v1") throw new Error("Fixture identity must be P-256.");
   const jwk = createPublicKey(privateKey).export({ format: "jwk" });
   const hash = value => createHash("sha256").update(value).digest("base64url");
   const jkt = hash(JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y }));
