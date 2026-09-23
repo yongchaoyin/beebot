@@ -82,3 +82,22 @@ not a newly implemented push-to-browser approval channel.
 References: RFC 8252 (external browser/PKCE), RFC 8414 (issuer metadata), RFC 9449
 (DPoP) and RFC 9700 (OAuth security). Custom BeeBot capability fields are a
 versioned profile, not additional standards.
+
+## Packaged Settings flow
+
+The actual `beebot-node-workbench.snippet.js` injected into the checksum-pinned
+renderer now uses inspect -> explicit confirm -> existing browser sign-in.
+Metadata/addresses remain inert text. Device labels, draft, focus and the current
+chat survive retry and localization; changed addresses and unmounted views discard
+late previews. Picker and status card include the same authorization stage.
+A scoped empty Bot list does not claim the entire server has no Bots.
+
+Offline Chromium runs cover Chinese/light 1280x900 and English/dark 390x844,
+including failure recovery, pending approval, local cancel and scoped readiness.
+The Browser plugin was absent. Browser navigation was blocked by environment
+policy (`ERR_BLOCKED_BY_ADMINISTRATOR`); no policy was changed. Actual packaged
+adapter and theme CSS were loaded into an in-memory page with controlled IPC and
+an outer-shell/chat fixture. These checks are not native Electron or WAN tests.
+The local full suite's preserved DMG check failed because this source snapshot
+contains a Git LFS pointer. Its assertion remains unchanged. Exact locked macOS
+checks with hydrated LFS and real Host/Shell tests are required before handoff.
