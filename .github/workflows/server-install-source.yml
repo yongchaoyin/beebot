@@ -1,0 +1,28 @@
+name: Server install source
+on:
+  push:
+    branches: [work/server-install-validation-20260923]
+    paths: [.github/workflows/server-install-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - name: Export tracked Git objects only
+        run: |
+          mkdir /tmp/server-install-source
+          git bundle create /tmp/server-install-source/history.bundle --all
+          git for-each-ref --format='%(refname) %(objectname)' refs/remotes/origin/ > /tmp/server-install-source/refs.txt
+          sha256sum /tmp/server-install-source/history.bundle > /tmp/server-install-source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-install-source
+          path: /tmp/server-install-source/
+          retention-days: 1
