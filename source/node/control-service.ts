@@ -13,6 +13,9 @@ export class ControlService {
   private readonly unsubscribe: () => void;
   private readonly executions = new Set<Promise<void>>();
   constructor(readonly store: ControlStore, private readonly runtime: BotRuntime, private readonly concurrency = 2, autoStart = true) {
+    if (store.executionBoundary !== "single-owner") {
+      throw new ControlError(503, "tenant_execution_unavailable", "Tenant-isolated execution is not configured. The shared single-owner runtime cannot consume this store.");
+    }
     store.recoverInterrupted();
     this.unsubscribe = store.subscribe(() => {
       try { this.abortCancelled(); this.schedule(); } catch (error) { this.fail(error); }

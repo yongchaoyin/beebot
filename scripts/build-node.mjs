@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const nodeBuildRoot = path.join(root, ".build", "node");
 const entries = [
   ["source/node/main.ts", "node/main.mjs"],
+  ["source/hosting/index.ts", "hosting/index.mjs"],
   ["source/node/host-entry.ts", "dist/host/host-main.cjs"],
   ["source/box-exec-daemon/cli.ts", "dist/box-exec-daemon/main.cjs"],
   ["source/host/agent-isolation/agent-store-worker.ts", "dist/host/agent-isolation/agent-store-worker.cjs"],
