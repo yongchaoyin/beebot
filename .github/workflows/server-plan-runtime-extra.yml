@@ -1,0 +1,61 @@
+name: Server plan explicit security and SSH regression
+on:
+  push:
+    branches: [work/server-plan-verification-20260923]
+    paths: [.github/workflows/server-plan-runtime-extra.yml]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8bfd26405e259152bccd59353ef5a16005450062
+          fetch-depth: 0
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Reproduce unpublished safety compatibility tree
+        run: |
+          git config user.name 'BeeBot validation'
+          git config user.email '151381126+yongchaoyin@users.noreply.github.com'
+          git merge --no-commit --no-ff 84880c2ae6514b0fecc41a6a57fedc612beda92e
+          test "$(git write-tree)" = 3a5ed9d8fe653b7b63d67301d460facf30190116
+          mkdir /tmp/server-plan-extra
+          git write-tree > /tmp/server-plan-extra/tree.txt
+          node --version > /tmp/server-plan-extra/node.txt
+          uname -a > /tmp/server-plan-extra/os.txt
+      - name: Test-only OpenSSH dependency
+        run: |
+          if [ ! -x /usr/sbin/sshd ]; then
+            sudo apt-get update
+            sudo apt-get install -y openssh-server
+          fi
+      - run: npm ci --no-audit --no-fund
+      - run: npm run node:build
+      - name: Explicit real Shell security-freeze integration, not in normal runtime script
+        shell: bash
+        run: |
+          set -o pipefail
+          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-task-security-runtime.test.mjs 2>&1 | tee /tmp/server-plan-extra/security-runtime.log
+      - name: Real loopback OpenSSH and fixture client keys
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test tests/server-preflight-ssh.integration.mjs 2>&1 | tee /tmp/server-plan-extra/ssh.log
+      - name: Linux-only installer fixtures
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test tests/node-installer.test.mjs 2>&1 | tee /tmp/server-plan-extra/installer.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-plan-extra-verification
+          path: /tmp/server-plan-extra/
+          retention-days: 7
