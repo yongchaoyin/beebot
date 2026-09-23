@@ -162,6 +162,25 @@ export class TenantDirectory {
     if (key.tenantId !== id) throw unavailable();
     return key;
   }
+  /** Account-visible membership page, not an operator's tenant directory.
+   * No business/key material is returned; callers resolve names only after scope validation. */
+  memberships(reader: ReadTenantIdentity, after = "", limit = 20): {
+    workspaces: Array<{ id: string; role: MemberRole; membershipVersion: number }>; nextCursor: string | null;
+  } {
+    const { principal } = this.read(reader);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || (after !== "" && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(after))) {
+      throw new TenantAccessError(400, "invalid_cursor", "Use a valid workspace cursor and limit.");
+    }
+    const rows = this.#db.prepare(`SELECT t.id,m.role,m.version FROM tenants t JOIN memberships m ON m.tenant=t.id
+      WHERE m.principal=? AND m.active=1 AND t.status='active' AND t.id>? ORDER BY t.id LIMIT ?`).all(principal, after, limit + 1);
+    const selected = rows.slice(0, limit);
+    return { workspaces: selected.map(row => ({ id: String(row.id), role: row.role as MemberRole, membershipVersion: Number(row.version) })),
+      nextCursor: rows.length > limit ? String(selected.at(-1)!.id) : null };
+  }
+  /** Protected profile envelope for the scoped storage layer, never a public response. */
+  profileEnvelope(scope: TenantScope): string {
+    const { tenantId: id } = this.assert(scope, "read"); return this.row(id).profile;
+  }
   scope(reader: ReadTenantIdentity, id: string): TenantScope {
     const { principal } = this.read(reader), row = this.row(id);
     const member = this.#db.prepare("SELECT version FROM memberships WHERE tenant=? AND principal=? AND active=1").get(id, principal);

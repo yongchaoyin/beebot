@@ -103,6 +103,12 @@ export class TenantWorkspaces {
     // Capacity is enforced transactionally with the receipt in ControlStore.
     return cell.store.createBot(access.tenantId, key, value, this.maxBots);
   }
+  async describe(scope: TenantScope): Promise<{ id: string; name: string; execution: "unavailable" }> {
+    const access = this.directory.assert(scope, "read"), cell = await this.open(access.tenantId);
+    this.directory.assert(scope, "read");
+    const profile = cell.codec.decode<{ name: string }>("tenant-profile", access.tenantId, this.directory.profileEnvelope(scope));
+    return { id: access.tenantId, name: profile.name, execution: "unavailable" };
+  }
   async snapshot(scope: TenantScope): Promise<{ bots: Bot[]; cursor: number; execution: "unavailable" }> {
     let access = this.directory.assert(scope, "read");
     const cell = await this.open(access.tenantId);
