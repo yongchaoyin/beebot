@@ -1,0 +1,146 @@
+name: Server onboarding preflight verification
+on:
+  push:
+    branches: [work/server-onboarding-verification-20260923]
+    paths: [.github/workflows/server-onboarding-verify.yml, '.dev-submit/preflight-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Import exact tested source, keep product and security refs unchanged
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/preflight-{i}.bin').read_bytes() for i in range(5))
+          assert len(raw)==25972 and hashlib.sha256(raw).hexdigest()=='6070666aa919052871d3e1aa8285fc913d05a5ead401626609973a583ad98541'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='183fd0bb11a78562177d8ee1197c72e5ba17a161';git('checkout','--detach',parent)
+          expected=[('8553adaf9ca263f4b3308f6f5fdb39b096e7c2b0','11d1dfe397a5ae8d50a2ce8709d1e5333e709735'),('5815b8abc993a328440dfb4a6b324b906fb2a6a9','e3259bafea46d81e1b63880e89896f15977ef9a2')]
+          assert len(stages)==2
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['parent']==parent and stage['tree']==tree
+              for c in stage['files']:
+                  p=pathlib.Path(c['path'])
+                  assert str(p).startswith(('source/','scripts/','tests/','docs/')) and '..' not in p.parts and not p.is_absolute()
+                  assert not p.is_symlink() and p.resolve().is_relative_to(pathlib.Path.cwd())
+                  if c['old'] is None:
+                      assert not p.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(p)).decode().strip()==c['old'];lines=p.read_text().splitlines(keepends=True)
+                  for a,b,text in reversed(c['ops']):
+                      assert 0<=a<=b<=len(lines);lines[a:b]=text.splitlines(keepends=True)
+                  p.parent.mkdir(parents=True,exist_ok=True);p.write_text(''.join(lines))
+                  assert git('hash-object',str(p)).decode().strip()==c['new'];git('add',str(p))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent);assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified source stage',sha,tree)
+          git('push','origin','HEAD:refs/heads/work/server-onboarding-candidate-20260923')
+          PY
+  macos:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Record exact source and environment
+        run: |
+          test "$(git rev-parse HEAD)" = 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+          mkdir -p /tmp/preflight-macos
+          git rev-parse HEAD HEAD^{tree} > /tmp/preflight-macos/revision.txt
+          node --version > /tmp/preflight-macos/node.txt
+          sw_vers > /tmp/preflight-macos/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: Complete source and repository regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/preflight-macos/check.log
+      - name: Shipped renderer and publication export
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/preflight-macos/frontend.log
+          npm run publication:check 2>&1 | tee /tmp/preflight-macos/publication.log
+      - name: Real Host and Shell, deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/preflight-macos/runtime.log
+      - name: Non-published merge compatibility with exact security PR head
+        shell: bash
+        run: |
+          set -o pipefail
+          git config user.name 'BeeBot verification'
+          git config user.email '151381126+yongchaoyin@users.noreply.github.com'
+          git merge --no-commit --no-ff 5a3dfa1b13ebab567668d9208c419f49d088d8fa
+          test "$(git write-tree)" = d673826f0052f4faf530840ae4d769957be4b5a2
+          git write-tree > /tmp/preflight-macos/security-merge-tree.txt
+          npm run source:typecheck 2>&1 | tee /tmp/preflight-macos/merged-typecheck.log
+          node --test tests/server-preflight*.test.mjs tests/node-security.test.mjs tests/node-security-ui.test.mjs tests/node-client.test.mjs 2>&1 | tee /tmp/preflight-macos/merged-security.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-preflight-macos-verification
+          path: /tmp/preflight-macos/
+          retention-days: 7
+  ssh:
+    needs: import
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5815b8abc993a328440dfb4a6b324b906fb2a6a9
+          persist-credentials: false
+          lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - name: Prepare OpenSSH only on disposable hosted test worker
+        run: |
+          if ! test -x /usr/sbin/sshd; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends openssh-server
+          fi
+          sudo mkdir -p /run/sshd
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Real SSH handshake, authentication, host substitution, fixed probe
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/preflight-ssh
+          git rev-parse HEAD HEAD^{tree} > /tmp/preflight-ssh/revision.txt
+          ssh -V 2> /tmp/preflight-ssh/openssh.txt
+          node --test tests/server-preflight-ssh.integration.mjs 2>&1 | tee /tmp/preflight-ssh/ssh.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-preflight-real-ssh-verification
+          path: /tmp/preflight-ssh/
+          retention-days: 7
