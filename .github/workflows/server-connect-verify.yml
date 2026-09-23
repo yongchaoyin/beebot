@@ -1,0 +1,115 @@
+name: Verify existing server connection
+on:
+  push:
+    branches: [work/server-connect-validation-20260923]
+    paths: [.github/workflows/server-connect-verify.yml, '.dev-submit/connect-*']
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+      - name: Verify two exact reviewed source commits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          raw=b''.join(pathlib.Path(f'.dev-submit/connect-{i:02}.bin').read_bytes() for i in range(8))
+          assert len(raw)==18924 and hashlib.sha256(raw).hexdigest()=='d92ab1137efb91c1beb60f87be573cdeec156480ab6efcaec646abf49bc292ae'
+          decoder=lzma.LZMADecompressor();decoded=decoder.decompress(raw,max_length=1000000)
+          assert decoder.eof and not decoder.unused_data
+          stages=json.loads(decoded)
+          def git(*args,data=None):return subprocess.check_output(['git',*args],input=data)
+          parent='84880c2ae6514b0fecc41a6a57fedc612beda92e'
+          git('checkout','--detach',parent)
+          expected=[('a770ff46e064de35d503d74f0636279a82e9cde7','7ddb54fe6672c87716239080e21ac09c317261fa'),('1fee3de71e61716a361534c6bae9151ee217be5c','777bbd843d049947e28a43012507f3a9eb392d7c')]
+          assert len(stages)==len(expected)
+          for stage,(sha,tree) in zip(stages,expected):
+              assert stage['sha']==sha and stage['tree']==tree and stage['parent']==parent
+              for change in stage['files']:
+                  path=pathlib.Path(change['path'])
+                  assert str(path)=='AGENTS.md' or str(path).startswith(('source/','tests/','scripts/','docs/'))
+                  assert not path.is_absolute() and '..' not in path.parts and not path.is_symlink() and path.resolve().is_relative_to(pathlib.Path.cwd())
+                  assert change['mode']=='100644'
+                  if change['old'] is None:
+                      assert not path.exists();lines=[]
+                  else:
+                      assert git('hash-object',str(path)).decode().strip()==change['old']
+                      lines=path.read_text().splitlines(keepends=True)
+                  for start,end,replacement in reversed(change['ops']):
+                      assert 0<=start<=end<=len(lines)
+                      lines[start:end]=replacement.splitlines(keepends=True)
+                  path.parent.mkdir(parents=True,exist_ok=True);path.write_text(''.join(lines))
+                  assert git('hash-object',str(path)).decode().strip()==change['new'],str(path)
+                  git('add',str(path))
+              assert git('write-tree').decode().strip()==tree
+              commit=stage['commit'].encode();assert commit.startswith(('tree '+tree+'\nparent '+parent+'\n').encode())
+              assert git('hash-object','-t','commit','-w','--stdin',data=commit).decode().strip()==sha
+              git('update-ref','HEAD',sha,parent);assert not git('status','--porcelain').strip()
+              parent=sha;print('Verified source stage',sha,tree)
+          git('push','origin','HEAD:refs/heads/work/server-connect-candidate-20260923')
+          PY
+  verify:
+    needs: import
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1fee3de71e61716a361534c6bae9151ee217be5c
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+          cache: npm
+      - name: Exact source and platform
+        run: |
+          test "$(git rev-parse HEAD)" = 1fee3de71e61716a361534c6bae9151ee217be5c
+          test "$(git rev-parse HEAD^{tree})" = 777bbd843d049947e28a43012507f3a9eb392d7c
+          mkdir -p /tmp/server-connect-verification
+          git log -2 --format='%H %s' > /tmp/server-connect-verification/commits.txt
+          git rev-parse HEAD^{tree} > /tmp/server-connect-verification/tree.txt
+          node --version > /tmp/server-connect-verification/node.txt
+          sw_vers > /tmp/server-connect-verification/os.txt
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - run: npm run icon:generate
+      - name: All source and regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee /tmp/server-connect-verification/check.log
+      - name: Frontend build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run frontend:build 2>&1 | tee /tmp/server-connect-verification/frontend.log
+      - name: Lossless publication export
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run publication:check 2>&1 | tee /tmp/server-connect-verification/publication.log
+      - name: Real Host and Shell with deterministic model
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run node:test:integration 2>&1 | tee /tmp/server-connect-verification/runtime.log
+      - name: Explicit security freeze runtime regression
+        shell: bash
+        run: |
+          set -o pipefail
+          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-task-security-runtime.test.mjs 2>&1 | tee /tmp/server-connect-verification/task-security.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-connect-verification
+          path: /tmp/server-connect-verification/
+          retention-days: 7
