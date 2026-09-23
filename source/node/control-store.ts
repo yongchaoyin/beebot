@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { plaintextRecords, type RecordCodec } from "./record-codec.js";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { TaskSecurityLedger, type TaskSource, type TaskFreeze } from "./task-security.js";
@@ -19,7 +20,6 @@ export class ControlError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
 }
 type Row = Record<string, unknown>;
-function decode<T>(row: Row | undefined): T | undefined { return row ? JSON.parse(String(row.data)) as T : undefined; }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -35,7 +35,7 @@ export class ControlStore {
   private readonly lock: DatabaseSync;
   readonly taskSecurity: TaskSecurityLedger;
   private readonly listeners = new Set<() => void>();
-  constructor(dataDir: string) {
+  constructor(dataDir: string, private readonly records: RecordCodec = plaintextRecords) {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     for (const name of ["controller-lock.sqlite", "control.sqlite"]) {
       const file = path.join(dataDir, name);
@@ -48,20 +48,49 @@ export class ControlStore {
     this.db = new DatabaseSync(path.join(dataDir, "control.sqlite"));
     try {
     const version = Number(this.db.prepare("PRAGMA user_version").get()!.user_version);
-    if (version > 2) throw new Error("This node database requires a newer BeeBot server.");
-    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
-      CREATE TABLE IF NOT EXISTS bots(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS transcripts(goal_id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS decisions(id TEXT PRIMARY KEY, goal_id TEXT NOT NULL, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS commands(principal TEXT NOT NULL, key TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL, PRIMARY KEY(principal,key));
-      CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL);
-      PRAGMA user_version=2;`);
-    this.taskSecurity = new TaskSecurityLedger(this.db);
+    const encrypted = records !== plaintextRecords;
+    if (version > (encrypted ? 3 : 2)) throw new Error("This database requires its tenant encryption key and a compatible server.");
+    const hasTables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get();
+    if (encrypted && version < 3 && hasTables) throw new Error("Refusing in-place conversion of a plaintext database. Use an explicit offline migration.");
+    if (encrypted && version === 3) {
+      const row = this.db.prepare("SELECT binding,probe FROM storage_protection WHERE singleton=1").get();
+      if (!row || row.binding !== records.binding ||
+          records.decode<string>("storage_protection", "control", String(row.probe)) !== "beebot-protected-control-v1") {
+        throw new Error("Tenant database identity or key does not match.");
+      }
+    }
+    // Encrypt the binding before schema writes, then initialize atomically.
+    const probe = encrypted && version < 3
+      ? records.encode("storage_protection", "control", "beebot-protected-control-v1") : undefined;
+    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE");
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS bots(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS goals(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS transcripts(goal_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS decisions(id TEXT PRIMARY KEY, goal_id TEXT NOT NULL, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS commands(principal TEXT NOT NULL, key TEXT NOT NULL, digest TEXT NOT NULL, response TEXT NOT NULL, PRIMARY KEY(principal,key));
+        CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL);`);
+      if (probe !== undefined) {
+        this.db.exec("CREATE TABLE storage_protection(singleton INTEGER PRIMARY KEY CHECK(singleton=1), binding TEXT NOT NULL, probe TEXT NOT NULL)");
+        this.db.prepare("INSERT INTO storage_protection VALUES(1,?,?)").run(records.binding, probe);
+      }
+      this.db.exec(encrypted ? "PRAGMA user_version=3" : "PRAGMA user_version=2");
+      this.taskSecurity = new TaskSecurityLedger(this.db, records);
+      this.db.exec("COMMIT");
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
     for (const name of ["control.sqlite-wal", "control.sqlite-shm"]) if (existsSync(path.join(dataDir, name))) chmodSync(path.join(dataDir, name), 0o600);
     } catch (error) { this.db.close(); this.lock.close(); throw error; }
+  }
+  private decode<T>(table: string, row: Row | undefined, id?: string): T | undefined {
+    return row ? this.records.decode<T>(table, id ?? String(row.id), String(row.data)) : undefined;
+  }
+  private commandId(principal: string, key: string): string { return JSON.stringify([principal, key]); }
+  private eventId(row: Row): string { return JSON.stringify([Number(row.seq), String(row.type), Number(row.at)]); }
+  get executionBoundary(): "single-owner" | "tenant-storage-only" {
+    return this.records === plaintextRecords ? "single-owner" : "tenant-storage-only";
   }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private tx<T>(fn: () => T): T {
@@ -74,46 +103,53 @@ export class ControlStore {
     return result;
   }
   private put<T extends { id: string }>(table: "bots" | "goals" | "tasks" | "runs", value: T): void {
-    this.db.prepare(`INSERT INTO ${table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`).run(value.id, JSON.stringify(value));
+    this.db.prepare(`INSERT INTO ${table}(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`).run(value.id, this.records.encode(table, value.id, value));
   }
   private event(type: string, data: unknown): void {
-    this.db.prepare("INSERT INTO events(type,data,at) VALUES(?,?,?)").run(type, JSON.stringify(data), Date.now());
+    const at = Date.now();
+    // Reserve the AUTOINCREMENT identity in the same transaction; only the
+    // authenticated ciphertext is visible after commit.
+    const seq = Number(this.db.prepare("INSERT INTO events(type,data,at) VALUES(?, '', ?)").run(type, at).lastInsertRowid);
+    this.db.prepare("UPDATE events SET data=? WHERE seq=?").run(this.records.encode("events", this.eventId({ seq, type, at }), data), seq);
   }
   private command<T>(principal: string, key: string, operation: unknown, fn: () => T): T {
     if (!/^[\w.:-]{8,128}$/.test(key)) throw new ControlError(400, "invalid_idempotency_key", "An Idempotency-Key of 8–128 safe characters is required.");
-    const digest = createHash("sha256").update(canonical(operation)).digest("hex");
+    const digest = this.records.fingerprint(canonical(operation));
     return this.tx(() => {
       const existing = this.db.prepare("SELECT digest,response FROM commands WHERE principal=? AND key=?").get(principal, key);
       if (existing) {
         if (existing.digest !== digest) throw new ControlError(409, "idempotency_conflict", "This command key was already used with different input.");
-        return JSON.parse(String(existing.response)) as T;
+        return this.records.decode<T>("commands", this.commandId(principal, key), String(existing.response));
       }
       const result = fn();
-      this.db.prepare("INSERT INTO commands VALUES(?,?,?,?)").run(principal, key, digest, JSON.stringify(result));
+      this.db.prepare("INSERT INTO commands VALUES(?,?,?,?)").run(principal, key, digest, this.records.encode("commands", this.commandId(principal, key), result));
       return result;
     });
   }
-  bots(ownerId?: string): Bot[] { return this.db.prepare("SELECT data FROM bots ORDER BY rowid").all().map(row => decode<Bot>(row)!).filter(bot => !ownerId || bot.ownerId === ownerId); }
-  goals(ownerId?: string): Goal[] { return this.db.prepare("SELECT data FROM goals ORDER BY rowid DESC").all().map(row => decode<Goal>(row)!).filter(goal => !ownerId || goal.ownerId === ownerId); }
+  bots(ownerId?: string): Bot[] { return this.db.prepare("SELECT id,data FROM bots ORDER BY rowid").all().map(row => this.decode<Bot>("bots", row)!).filter(bot => !ownerId || bot.ownerId === ownerId); }
+  goals(ownerId?: string): Goal[] { return this.db.prepare("SELECT id,data FROM goals ORDER BY rowid DESC").all().map(row => this.decode<Goal>("goals", row)!).filter(goal => !ownerId || goal.ownerId === ownerId); }
   bot(id: string): Bot {
-    const bot = decode<Bot>(this.db.prepare("SELECT data FROM bots WHERE id=?").get(id));
+    const bot = this.decode<Bot>("bots", this.db.prepare("SELECT id,data FROM bots WHERE id=?").get(id));
     if (!bot) throw new ControlError(404, "bot_not_found", "Bot not found.");
     return bot;
   }
   goal(id: string, ownerId?: string): Goal {
-    const goal = decode<Goal>(this.db.prepare("SELECT data FROM goals WHERE id=?").get(id));
+    const goal = this.decode<Goal>("goals", this.db.prepare("SELECT id,data FROM goals WHERE id=?").get(id));
     if (!goal || ownerId && goal.ownerId !== ownerId) throw new ControlError(404, "goal_not_found", "Goal not found.");
     return goal;
   }
-  task(id: string): Task { return decode<Task>(this.db.prepare("SELECT data FROM tasks WHERE id=?").get(id))!; }
-  run(id: string): Run { return decode<Run>(this.db.prepare("SELECT data FROM runs WHERE id=?").get(id))!; }
-  transcript(goalId: string): unknown[] { return decode<unknown[]>(this.db.prepare("SELECT data FROM transcripts WHERE goal_id=?").get(goalId)) ?? []; }
+  task(id: string): Task { return this.decode<Task>("tasks", this.db.prepare("SELECT id,data FROM tasks WHERE id=?").get(id))!; }
+  run(id: string): Run { return this.decode<Run>("runs", this.db.prepare("SELECT id,data FROM runs WHERE id=?").get(id))!; }
+  transcript(goalId: string): unknown[] { return this.decode<unknown[]>("transcripts", this.db.prepare("SELECT data FROM transcripts WHERE goal_id=?").get(goalId), goalId) ?? []; }
   get cursor(): number { return Number(this.db.prepare("SELECT COALESCE(MAX(seq),0) AS seq FROM events").get()!.seq); }
   events(after: number, limit = 256): NodeEvent[] {
-    return this.db.prepare("SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?").all(after, limit).map(row => ({ seq: Number(row.seq), type: String(row.type), data: JSON.parse(String(row.data)), at: Number(row.at) }));
+    return this.db.prepare("SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?").all(after, limit).map(row => ({ seq: Number(row.seq), type: String(row.type), data: this.records.decode("events", this.eventId(row), String(row.data)), at: Number(row.at) }));
   }
-  createBot(ownerId: string, key: string, input: { name: string; description: string } & BotAvatar): { bot: Bot } {
+  createBot(ownerId: string, key: string, input: { name: string; description: string } & BotAvatar, maximum?: number): { bot: Bot } {
     return this.command(ownerId, key, ["createBot", input], () => {
+      if (maximum !== undefined && (!Number.isInteger(maximum) || maximum < 1 || this.bots(ownerId).length >= maximum)) {
+        throw new ControlError(409, "bot_capacity", "This workspace has reached its Bot limit.");
+      }
       const bot: Bot = { ...input, id: randomUUID(), ownerId, createdAt: Date.now() };
       this.put("bots", bot); this.event("bot.created", { bot }); return { bot };
     });
@@ -169,7 +205,7 @@ export class ControlStore {
       // A completion concurrent with cancellation is still inspectable; never discard its result.
       this.updateGoal(goal, status, { result: fields.result ?? null, error: fields.error ?? null });
       this.put("runs", { ...this.run(runId), status, finishedAt: Date.now() });
-      if (fields.transcript) this.db.prepare("INSERT OR REPLACE INTO transcripts VALUES(?,?)").run(goal.id, JSON.stringify(fields.transcript));
+      if (fields.transcript) this.db.prepare("INSERT OR REPLACE INTO transcripts VALUES(?,?)").run(goal.id, this.records.encode("transcripts", goal.id, fields.transcript));
     });
   }
   cancel(ownerId: string, key: string, goalId: string): { goal: Goal } {
@@ -191,16 +227,16 @@ export class ControlStore {
   reconciliationResult(ownerId: string, key: string, goalId: string, expectedVersion: number, note: string): { goal: Goal } | undefined {
     const previous = this.db.prepare("SELECT digest,response FROM commands WHERE principal=? AND key=?").get(ownerId, key);
     if (!previous) return undefined;
-    const digest = createHash("sha256").update(canonical(["reconcile", goalId, expectedVersion, note])).digest("hex");
+    const digest = this.records.fingerprint(canonical(["reconcile", goalId, expectedVersion, note]));
     if (digest !== previous.digest) throw new ControlError(409, "idempotency_conflict", "This command key was already used with different input.");
-    return JSON.parse(String(previous.response)) as { goal: Goal };
+    return this.records.decode<{ goal: Goal }>("commands", this.commandId(ownerId, key), String(previous.response));
   }
   reconcile(ownerId: string, key: string, goalId: string, expectedVersion: number, note: string): { goal: Goal } {
     return this.command(ownerId, key, ["reconcile", goalId, expectedVersion, note], () => {
       const goal = this.goal(goalId, ownerId);
       if (goal.status !== "uncertain" || goal.version !== expectedVersion) throw new ControlError(409, "stale_review", "Refresh this interrupted result before reconciling it.");
       const decision = { id: randomUUID(), goalId, ownerId, kind: "manual-reconciliation", note, at: Date.now(), runId: this.task(goal.taskId).currentRunId };
-      this.db.prepare("INSERT INTO decisions VALUES(?,?,?)").run(decision.id, goalId, JSON.stringify(decision));
+      this.db.prepare("INSERT INTO decisions VALUES(?,?,?)").run(decision.id, goalId, this.records.encode("decisions", JSON.stringify([decision.id, goalId]), decision));
       return { goal: this.updateGoal(goal, "failed", { error: `Interrupted attempt closed after owner inspection: ${note}` }) };
     });
   }
@@ -257,10 +293,16 @@ export class ControlStore {
     }) };
   }
   taskSecurityEvents(ownerId: string): unknown[] {
-    return this.db.prepare("SELECT seq,at,type,data FROM events WHERE type LIKE 'security.%' AND json_extract(data,'$.principalId')=? ORDER BY seq DESC LIMIT 200").all(ownerId).map(row => {
-      const data = JSON.parse(String(row.data));
-      return { seq: Number(row.seq), time: Number(row.at), kind: String(row.type), session_id: data.actorSessionId, subject_id: data.target };
-    });
+    const result: unknown[] = [];
+    // Encrypted JSON cannot be filtered with json_extract. Iterate the indexed
+    // event metadata, authenticate each row, then select the authorized owner.
+    for (const row of this.db.prepare("SELECT seq,at,type,data FROM events WHERE type LIKE 'security.%' ORDER BY seq DESC").iterate()) {
+      const data = this.records.decode<{ principalId: string; actorSessionId: string; target: string }>("events", this.eventId(row), String(row.data));
+      if (data.principalId !== ownerId) continue;
+      result.push({ seq: Number(row.seq), time: Number(row.at), kind: String(row.type), session_id: data.actorSessionId, subject_id: data.target });
+      if (result.length === 200) break;
+    }
+    return result;
   }
   close(): void { this.listeners.clear(); this.db.close(); this.lock.exec("ROLLBACK"); this.lock.close(); }
 }

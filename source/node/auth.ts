@@ -7,7 +7,7 @@ import { DpopError, verifyDpopProof } from "../shared/security/dpop.js";
 import { DeviceEnrollmentStore, EnrollmentError, intersectGrants, type PendingDevice } from "./device-enrollment.js";
 
 const CLIENT_ID = "beebot-desktop";
-const SCOPE = "owner:node";
+export type AccountMode = "single-owner" | "invited";
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const ACCESS_TTL = 5 * MINUTE;
@@ -111,6 +111,9 @@ export class NodeAuth {
   private readonly db: DatabaseSync;
   private readonly enrollment: DeviceEnrollmentStore;
   private readonly isQuarantined: ((principal: string, jkt: string) => boolean) | undefined;
+  private readonly accountMode: AccountMode;
+  private readonly scopeName: string;
+  private readonly unknownAccountSalt = secret();
   private readonly issuer: string;
   private readonly origin: string;
   private readonly cookieName: string;
@@ -126,7 +129,12 @@ export class NodeAuth {
   private nonceSince = Date.now();
   private readonly sessionListeners = new Set<(id: string) => void>();
 
-  constructor({ dataDir, issuer, isQuarantined }: { dataDir: string; issuer: string; isQuarantined?: (principal: string, jkt: string) => boolean }) {
+  constructor({ dataDir, issuer, isQuarantined, accountMode = "single-owner" }: {
+    dataDir: string; issuer: string; isQuarantined?: (principal: string, jkt: string) => boolean; accountMode?: AccountMode;
+  }) {
+    if (!["single-owner", "invited"].includes(accountMode)) throw new Error("Invalid account mode.");
+    this.accountMode = accountMode;
+    this.scopeName = accountMode === "invited" ? "account:workspaces" : "owner:node";
     this.isQuarantined = isQuarantined;
     const address = new URL(issuer);
     if (address.username || address.password || address.search || address.hash || (address.pathname !== "/" && address.pathname !== "") ||
@@ -144,13 +152,23 @@ export class NodeAuth {
     closeSync(openSync(dbPath, "a", 0o600));
     chmodSync(dbPath, 0o600);
     this.db = new DatabaseSync(dbPath);
+    // Persist the authority mode before creating any identity. Never reinterpret
+    // a legacy owner's database as a hosted account directory (or the reverse).
+    try {
+      const marked = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_account_mode'").get();
+      const legacy = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='owner'").get();
+      const saved = marked ? this.db.prepare("SELECT mode FROM auth_account_mode WHERE singleton=1").get()?.mode : legacy ? "single-owner" : accountMode;
+      if (saved !== accountMode) throw new Error("Authentication account mode mismatch. Use a separate data directory; implicit migration is forbidden.");
+      this.db.exec("CREATE TABLE IF NOT EXISTS auth_account_mode(singleton INTEGER PRIMARY KEY CHECK(singleton=1),mode TEXT NOT NULL)");
+      this.db.prepare("INSERT OR IGNORE INTO auth_account_mode VALUES(1,?)").run(accountMode);
+    } catch (error) { this.db.close(); throw error; }
     this.db.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS owner (
-        singleton INTEGER PRIMARY KEY CHECK(singleton=1), principal_id TEXT NOT NULL UNIQUE,
+        singleton INTEGER PRIMARY KEY${accountMode === "single-owner" ? " CHECK(singleton=1)" : ""}, principal_id TEXT NOT NULL UNIQUE,
         username TEXT NOT NULL, salt TEXT NOT NULL, password_hash TEXT NOT NULL,
         password_scheme TEXT NOT NULL DEFAULT 'scrypt-n131072-r8-p1', created_at INTEGER NOT NULL
       );
@@ -191,11 +209,12 @@ export class NodeAuth {
           .run(Date.now(), principal, kind, actor, subject);
         this.db.exec("DELETE FROM auth_security_events WHERE seq <= (SELECT COALESCE(MAX(seq),0)-10000 FROM auth_security_events)");
       }, (principal, jkt) => this.isQuarantined?.(principal, jkt) === true));
-    if (!this.owner()) this.setupCode = secret();
+    if (accountMode === "invited") this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS hosted_username ON owner(username)");
+    if (accountMode === "single-owner" && !this.owner()) this.setupCode = secret();
   }
 
   getSetupInfo(): { required: boolean; code?: string } {
-    if (this.owner()) return { required: false };
+    if (this.accountMode === "invited" || this.owner()) return { required: false };
     return this.setupCode && Date.now() < this.setupExpires ? { required: true, code: this.setupCode } : { required: true };
   }
 
@@ -382,7 +401,7 @@ export class NodeAuth {
           issuer: this.issuer, authorization_endpoint: `${this.issuer}/oauth/authorize`, token_endpoint: `${this.issuer}/oauth/token`,
           revocation_endpoint: `${this.issuer}/oauth/revoke`, response_types_supported: ["code"],
           grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"],
-          token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], scopes_supported: [SCOPE],
+          token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"], scopes_supported: [this.scopeName],
           authorization_response_iss_parameter_supported: true, dpop_signing_alg_values_supported: ["ES256"], beebot_dpop_required: true, beebot_trusted_devices_required: true,
         });
       } else if (route === "/setup") {
@@ -420,7 +439,44 @@ export class NodeAuth {
     return true;
   }
 
-  private owner(): Owner | undefined { return this.db.prepare("SELECT * FROM owner WHERE singleton=1").get() as Owner | undefined; }
+  private owner(username?: string): Owner | undefined {
+    if (this.accountMode === "invited") return username === undefined ? undefined :
+      this.db.prepare("SELECT * FROM owner WHERE username=?").get(username.trim().toLowerCase()) as Owner | undefined;
+    return this.db.prepare("SELECT * FROM owner WHERE singleton=1").get() as Owner | undefined;
+  }
+
+  /** Trusted operator API, intentionally NOT an HTTP/renderer/Agent method.
+   * Accounts are pre-created, never auto-created by first login. The callback
+   * must durably store recovery material and throw on failure, before commit.
+   * A device administrator remains an ACCOUNT administrator, not a platform one. */
+  async provisionInvitedAccount(username: string, password: string,
+    persistRecovery: (principalId: string, codes: string[]) => void): Promise<{ principalId: string }> {
+    if (this.accountMode !== "invited" || this.closed) throw new Error("Invited account provisioning is unavailable.");
+    const name = username.trim().toLowerCase();
+    if (!/^[a-z0-9_.@-]{3,64}$/.test(name) || password.length < 12 || password.length > 1024 || typeof persistRecovery !== "function") throw bad("Invalid account provisioning options.");
+    const salt = secret(), passwordHash = await this.password(password, salt);
+    try {
+      if (this.closed) throw new Error("Authentication is closed.");
+      return this.transaction(() => {
+        if (this.owner(name)) throw new NodeAuthError(409, "account_exists", "Account already exists; use explicit recovery rather than provisioning again.");
+        const principalId = `account:${randomUUID()}`;
+        this.db.prepare("INSERT INTO owner(principal_id,username,salt,password_hash,created_at) VALUES (?,?,?,?,?)")
+          .run(principalId, name, salt, passwordHash.toString("base64url"), Date.now());
+        this.enrollment.rotateRecoveryCodes(principalId, "operator-provision", codes => {
+          const result: unknown = persistRecovery(principalId, codes);
+          if (result !== undefined) {
+            if (result instanceof Promise) void result.catch(() => {});
+            throw new Error("Recovery persistence must complete synchronously before account commit.");
+          }
+        });
+        return { principalId };
+      });
+    } finally { passwordHash.fill(0); }
+  }
+  /** Internal provisioning lookup. No account directory is exposed publicly. */
+  hasInvitedAccount(principalId: string): boolean {
+    return !this.closed && this.accountMode === "invited" && !!this.db.prepare("SELECT 1 FROM owner WHERE principal_id=?").get(principalId);
+  }
 
   private activeSession(id: string): Session {
     const row = this.db.prepare("SELECT * FROM auth_sessions WHERE id=?").get(id) as Session | undefined;
@@ -453,7 +509,7 @@ export class NodeAuth {
     this.db.prepare("INSERT INTO auth_tokens(hash,kind,session_id,expires) VALUES (?,'access',?,?)").run(digest(access), session.id, accessExpires);
     this.db.prepare("INSERT INTO auth_tokens(hash,kind,session_id,expires) VALUES (?,'refresh',?,?)").run(digest(refresh), session.id, refreshExpires);
     this.db.prepare("UPDATE auth_sessions SET last_refreshed_at=?,idle_expires=? WHERE id=?").run(now, refreshExpires, session.id);
-    return { access_token: access, token_type: "DPoP", expires_in: Math.max(0, Math.floor((accessExpires - now) / 1000)), refresh_token: refresh, scope: SCOPE };
+    return { access_token: access, token_type: "DPoP", expires_in: Math.max(0, Math.floor((accessExpires - now) / 1000)), refresh_token: refresh, scope: this.scopeName };
   }
 
   private exchangeCode(form: URLSearchParams, req: IncomingMessage): Record<string, unknown> {
@@ -501,6 +557,7 @@ export class NodeAuth {
   }
 
   private async setup(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (this.accountMode === "invited") throw new NodeAuthError(404, "not_found", "Public account setup is unavailable.");
     if (this.owner()) throw new NodeAuthError(409, "already_initialized", "This node already has an owner");
     if (!this.setupCode || Date.now() >= this.setupExpires) throw new NodeAuthError(410, "setup_expired", "Setup link expired; restart the node to generate a new link");
     if (req.method === "GET") {
@@ -529,7 +586,7 @@ export class NodeAuth {
   }
 
   private async authorize(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-    if (!this.owner()) throw new NodeAuthError(409, "setup_required", "The node owner must complete setup first");
+    if (this.accountMode === "single-owner" && !this.owner()) throw new NodeAuthError(409, "setup_required", "The node owner must complete setup first");
     if (req.method === "GET") {
       this.limit(`authorize-get:${req.socket.remoteAddress ?? "unknown"}`, 40, MINUTE);
       const request = this.authorizationRequest(url);
@@ -547,8 +604,13 @@ export class NodeAuth {
     this.limit("login-global", 30, 15 * MINUTE);
     const username = (form.get("username") ?? "").trim(); const password = form.get("password") ?? "";
     if (username.length > 64 || password.length > 1024) throw bad("Invalid credentials", "access_denied");
-    const owner = this.owner()!; const candidate = await this.password(password, owner.salt);
-    if (!timingSafeEqual(candidate, Buffer.from(owner.password_hash, "base64url")) || username !== owner.username) {
+    const owner = this.owner(username);
+    // Unknown hosted accounts pay the same password derivation cost. Do not
+    // expose account existence or fall back to the first registered principal.
+    const candidate = await this.password(password, owner?.salt ?? this.unknownAccountSalt);
+    const matches = timingSafeEqual(candidate, owner ? Buffer.from(owner.password_hash, "base64url") : Buffer.alloc(64));
+    candidate.fill(0);
+    if (!owner || !matches || (this.accountMode === "invited" ? username.toLowerCase() : username) !== owner.username) {
       throw new NodeAuthError(401, "access_denied", "Incorrect username or password; reopen the connection request to try again");
     }
     const recoveryCode = form.get("recovery_code") ?? "";
@@ -615,7 +677,7 @@ export class NodeAuth {
     if (!/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw bad("Invalid PKCE challenge");
     const state = query.get("state") ?? "";
     if (state.length < 16 || state.length > 512 || /[\u0000-\u001f\u007f]/.test(state)) throw bad("A random state of 16–512 characters is required");
-    if (query.has("scope") && query.get("scope") !== SCOPE) throw bad("Unsupported scope", "invalid_scope");
+    if (query.has("scope") && query.get("scope") !== this.scopeName) throw bad("Unsupported scope", "invalid_scope");
     const deviceName = (query.get("device_name") ?? "BeeBot Desktop").trim();
     if (!deviceName || deviceName.length > 80 || /[\u0000-\u001f\u007f]/.test(deviceName)) throw bad("Invalid device name");
     const dpopJkt = query.get("dpop_jkt") ?? "";
