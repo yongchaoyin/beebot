@@ -8,9 +8,9 @@ defaults:
   run:
     shell: bash
 jobs:
-  linux:
+  source:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,82 +21,104 @@ jobs:
           name: reviewed-security-candidate
           run-id: 35815291647
           github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/security-candidate
-      - name: Apply exact verified source
+          path: ${{ runner.temp }}/security-original
+      - name: Verify original source plus reviewed revocation race fix
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo 'c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa  '"$RUNNER_TEMP/security-candidate/source.patch" | sha256sum -c
-          git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
-          mkdir -p "$RUNNER_TEMP/security-logs"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26.5.0
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Both typechecks and security regressions
-        run: |
-          npm run source:typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/source-typecheck.log"
-          npm run typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/frontend-typecheck.log"
-          node --test tests/node-security.test.mjs tests/node-security-ui.test.mjs tests/node-auth.test.mjs tests/node-client.test.mjs tests/node-control.test.mjs tests/node-workbench.test.mjs tests/node-workbench-polish.test.mjs 2>&1 | tee "$RUNNER_TEMP/security-logs/security-tests.log"
-      - name: Standalone build and packaged CLI
-        run: |
-          npm run node:build 2>&1 | tee "$RUNNER_TEMP/security-logs/node-build.log"
-          data=$(mktemp -d)
-          node .build/node/node/main.mjs init --data-dir "$data" 2>&1 | tee "$RUNNER_TEMP/security-logs/packaged-init.log"
-          test -s "$data/node.json"
+          python3 - <<'PY'
+          import os,json,base64,hashlib,lzma,pathlib,subprocess,urllib.request
+          original=pathlib.Path(os.environ['RUNNER_TEMP'])/'security-original'
+          assert hashlib.sha256((original/'source.patch').read_bytes()).hexdigest()=='c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa'
+          subprocess.run(['git','apply','--unidiff-zero','--index',str(original/'source.patch')],check=True)
+          assert subprocess.check_output(['git','write-tree']).decode()==(original/'tree.txt').read_text()
+          sha='3bba17cd226e2c8712e6077e95cba841e9239843'
+          r=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          data=base64.b64decode(json.load(urllib.request.urlopen(r,timeout=30))['content'])
+          assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==sha
+          assert hashlib.sha256(data).hexdigest()=='ce4b009e1c12ac0c9e8e4c9dd637a1d49878e09f893abab5f816c6b78bf04cd5'
+          fix=lzma.decompress(data)
+          assert hashlib.sha256(fix).hexdigest()=='30e06f5192fe771fb206888c9889006f47946cd26257996407a7658f69ea9c69'
+          subprocess.run(['git','apply','--unidiff-zero','--index','-'],input=fix,check=True)
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
+          assert len(paths)==20 and all(p.startswith(('source/','scripts/','tests/','docs/implementation/')) for p in paths)
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'security-final';out.mkdir()
+          (out/'source.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
+          (out/'tree.txt').write_text(subprocess.check_output(['git','write-tree']).decode())
+          (out/'original-tree.txt').write_text((original/'tree.txt').read_text())
+          print('Final verified tree:',(out/'tree.txt').read_text())
+          PY
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: security-linux-evidence
-          path: ${{ runner.temp }}/security-logs/
+          name: reviewed-security-final
+          path: ${{ runner.temp }}/security-final/
           retention-days: 7
-          if-no-files-found: warn
-  macos:
-    runs-on: macos-15
+          if-no-files-found: error
+  verify:
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 183fd0bb11a78562177d8ee1197c72e5ba17a161
-          lfs: true
+          lfs: ${{ matrix.os == 'macos-15' }}
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: reviewed-security-candidate
-          run-id: 35815291647
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/security-candidate
-      - name: Materialize a local-only source commit
+          name: reviewed-security-final
+          path: ${{ runner.temp }}/security-final
+      - name: Apply exact final source and prepare logs
         run: |
-          echo 'c0a1c7caece77d8fb0474faf70d98c807db9dd7c680827eb356c486ee28e37fa  '"$RUNNER_TEMP/security-candidate/source.patch" | shasum -a 256 -c
-          git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
-          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only security candidate verification'
+          git apply --index "$RUNNER_TEMP/security-final/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/security-final/tree.txt")"
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only final security verification'
           mkdir -p "$RUNNER_TEMP/security-logs"
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
-      - run: npm ci --no-audit --no-fund
-      - run: npm run bootstrap
-      - run: npm run icon:generate
-      - name: Full source checks
-        run: npm run check 2>&1 | tee "$RUNNER_TEMP/security-logs/check.log"
-      - name: Frontend and publication checks
+      - name: Install locked dependencies
         run: |
-          npm run frontend:build 2>&1 | tee "$RUNNER_TEMP/security-logs/frontend-build.log"
-          npm run publication:check 2>&1 | tee "$RUNNER_TEMP/security-logs/publication.log"
-      - name: Real Host Shell and deterministic-model runtime acceptance
+          if test "$RUNNER_OS" = macOS; then npm ci --no-audit --no-fund; else npm ci --ignore-scripts --no-audit --no-fund; fi
+      - name: Hydrate original runtime and icon on macOS
+        if: runner.os == 'macOS'
+        run: |
+          npm run bootstrap
+          npm run icon:generate
+      - name: Full macOS checks or focused Linux checks
+        run: |
+          if test "$RUNNER_OS" = macOS; then
+            npm run check 2>&1 | tee "$RUNNER_TEMP/security-logs/check.log"
+            npm run frontend:build 2>&1 | tee "$RUNNER_TEMP/security-logs/frontend-build.log"
+            npm run publication:check 2>&1 | tee "$RUNNER_TEMP/security-logs/publication.log"
+          else
+            npm run source:typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/source-typecheck.log"
+            npm run typecheck 2>&1 | tee "$RUNNER_TEMP/security-logs/frontend-typecheck.log"
+            node --test tests/node-security.test.mjs tests/node-security-ui.test.mjs tests/node-auth.test.mjs tests/node-client.test.mjs tests/node-control.test.mjs tests/node-workbench.test.mjs tests/node-workbench-polish.test.mjs 2>&1 | tee "$RUNNER_TEMP/security-logs/security-tests.log"
+          fi
+      - name: Standalone packaged CLI and actual Host Shell runtime
         run: |
           npm run node:build 2>&1 | tee "$RUNNER_TEMP/security-logs/node-build.log"
-          BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-runtime.test.mjs tests/node-e2e.test.mjs 2>&1 | tee "$RUNNER_TEMP/security-logs/runtime.log"
+          data=$(mktemp -d)
+          node .build/node/node/main.mjs init --data-dir "$data" 2>&1 | tee "$RUNNER_TEMP/security-logs/packaged-init.log"
+          test -s "$data/node.json"
+          if test "$RUNNER_OS" = macOS; then
+            BEEBOT_RUNTIME_INTEGRATION=1 node --test tests/node-runtime.test.mjs tests/node-e2e.test.mjs 2>&1 | tee "$RUNNER_TEMP/security-logs/runtime.log"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: security-macos-evidence
+          name: security-evidence-${{ matrix.os }}
           path: ${{ runner.temp }}/security-logs/
           retention-days: 7
           if-no-files-found: warn
   publish:
-    needs: [linux, macos]
+    needs: [source, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -107,24 +129,24 @@ jobs:
           ref: 183fd0bb11a78562177d8ee1197c72e5ba17a161
       - uses: actions/download-artifact@v4
         with:
-          name: reviewed-security-candidate
-          run-id: 35815291647
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/security-candidate
-      - name: Publish tested source without overwriting existing work
+          name: reviewed-security-final
+          path: ${{ runner.temp }}/security-final
+      - name: Publish final source using a checked fast-forward only
         run: |
-          git apply --unidiff-zero --index "$RUNNER_TEMP/security-candidate/source.patch"
+          git apply --index "$RUNNER_TEMP/security-final/source.patch"
           tree=$(git write-tree)
-          test "$tree" = "$(cat "$RUNNER_TEMP/security-candidate/tree.txt")"
+          test "$tree" = "$(cat "$RUNNER_TEMP/security-final/tree.txt")"
           branch=feat/node-device-security-20260923
+          parent=183fd0bb11a78562177d8ee1197c72e5ba17a161
           existing=$(git ls-remote --heads origin "$branch" | cut -f1)
           if test -n "$existing"; then
             git fetch --depth=1 origin "$existing"
-            test "$(git rev-parse "$existing^{tree}")" = "$tree"
-            echo "Existing identical source commit: $existing"
-          else
-            git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'feat(security): bind Node sessions to device keys and enforce Bot-scoped grants'
-            git push origin HEAD:"refs/heads/$branch"
-            git rev-parse HEAD
+            oldtree=$(git rev-parse "$existing^{tree}")
+            if test "$oldtree" = "$tree"; then echo "Already published identical source: $existing"; exit 0; fi
+            test "$oldtree" = "$(cat "$RUNNER_TEMP/security-final/original-tree.txt")"
+            parent=$existing
           fi
-          echo "Verified product tree: $tree"
+          commit=$(git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit-tree "$tree" -p "$parent" -m 'feat(security): enforce device-bound Node sessions and revocation-safe Bot permissions')
+          git push origin "$commit:refs/heads/$branch"
+          echo "Final product commit: $commit"
+          echo "Final product tree: $tree"
