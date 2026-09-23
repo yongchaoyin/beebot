@@ -66,3 +66,50 @@ not a real Docker installation. SSH-manager unit tests substitute process output
 and assert host pinning, scope, expiry, cleanup and error redaction. Real SSH and
 native Electron acceptance must be reported separately. No production server,
 owner account, model credential or paid model call is used by these tests.
+
+## Actual Settings integration
+
+The packaged renderer loads the independent
+`beebot-server-preflight.snippet.js` extension after the existing Servers
+workbench. It mounts a collapsed check flow inside Settings -> Servers, with
+host, user, port, an optional native key picker, explicit out-of-band fingerprint
+confirmation, bounded read-only inspection, and localized blockers. It never
+adds a chat modal or mutates server authorization, connection identity, model
+configuration, onboarding flags, Bot work or drafts. Existing Node UI remains
+in its original file. Missing native bridge hides only this optional extension.
+
+The dedicated `beebot:server-preflight` main-process channel checks the existing
+trusted-window/main-frame boundary. A random window-local session owns its
+manager; Settings disposal, navigation, cancellation and quit invalidate pending
+reads. Native picker results expose only the basename, not the private path.
+Late picker/read/open responses cannot migrate into another view. All error
+responses use stable codes, not remote stderr or filesystem paths. This is an
+application management capability, not a tool exposed to Bot models.
+
+The readable preload and actual production-main activation both wire this
+channel; no change to `beebot:nodes`, its token store or login protocol is required.
+Happy DOM tests execute the original Servers component plus the extension;
+Chromium verifies the same two components in a controlled in-memory shell and
+IPC fixture. These are not full Electron, OS file-picker or real keychain tests.
+
+Explicit real-SSH regression, on a disposable Linux worker with OpenSSH installed:
+
+```sh
+node --test tests/server-preflight-ssh.integration.mjs
+```
+
+It generates its own ephemeral keys and loopback-only SSH daemon, exercising
+fingerprint verification, real public-key authentication, the unchanged probe,
+wrong-key refusal and host-key replacement. Its daemon allows a temporary
+AuthorizedKeysFile via fixture-only `StrictModes=no`; the client retains strict
+host-key checking. Missing OpenSSH causes failure, not a passing skip. It neither
+uses a production server nor modifies the worker's SSH config/known_hosts.
+
+## Next integration gate
+
+Re-read develop and PR #8 before integration; verify the current security branch
+can merge without conflicts and run both security and preflight regressions on
+that temporary merge tree. This does not promise conflict freedom for future
+unpublished changes. Actual installation, trusted release/image distribution,
+dependency setup, owner enrollment, model setup, SSH API tunnels and remote
+Group parity remain follow-on work; the UI deliberately claims only inspection.

@@ -96,6 +96,7 @@ function gjn(n){return p.jsx(RVendorSetup,{headingId:n.headingId,auth:n.auth,onS
 const CREATE_AGENT_BEFORE = "function MOn(n){const e=n.roster,t=S.useCallback((r,i)=>e.createAgent({...r,origin:\"user\",...i}),[e]),s=lr(e.deleteAgents);";
 const ACCOUNT_MENU_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-account-menu.snippet.js"), "utf8");
 const GROUP_UI_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-group-ui.snippet.js"), "utf8");
+const NODE_PREFLIGHT_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-server-preflight.snippet.js"), "utf8");
 const NODE_WORKBENCH_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-workbench.snippet.js"), "utf8");
 const createOverlay = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "sand-create-overlay.snippet.js"), "utf8");
 const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "persona-shape-paths.json"), "utf8");
@@ -151,7 +152,7 @@ export function patchOriginalLanding(source) {
   patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");
   patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
   patched = patchQuotedReplies(patched);
-  return patchPresenceRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
+  return patchPresenceRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_PREFLIGHT_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
 }
 
 function sha256(bytes) {

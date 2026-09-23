@@ -110,6 +110,7 @@ export function createDesktopPreloadBridge(options: {
   const subscribe = (event: string, listener: (payload: any) => void): (() => void) => mainEdge.subscribe({ [event]: listener });
   const initialState = options.initialState ?? readPrimaryPreloadInitialState(ipc);
   const desktop: Record<string, any> = {
+    serverPreflight: { request: (request: unknown) => ipc.invoke("beebot:server-preflight", request) },
     nodes: {
       request: (request: unknown) => ipc.invoke("beebot:nodes", request),
       onChanged: (listener: (payload: unknown) => void) => subscribeIpc(ipc, "beebot:nodes:changed", listener),
