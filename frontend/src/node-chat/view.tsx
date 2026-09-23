@@ -37,7 +37,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
   const working = snapshot.runningGoal?.status === "running";
   const online = snapshot.server.status === "online";
   const busy = snapshot.busy || actionBusy;
-  const blocked = busy || snapshot.loading || !online || snapshot.runningGoal?.status === "cancelling" || snapshot.uncertainGoal != null;
+  const blocked = busy || snapshot.loading || !online || snapshot.bot.securityFrozen === true || snapshot.runningGoal?.status === "cancelling" || snapshot.uncertainGoal != null;
   const entries = useMemo<TranscriptMessage[]>(() => snapshot.messages.filter((message) => !(message.role === "assistant" && !message.text.trim() && ["queued", "running", "cancelling"].includes(message.status ?? ""))).map((message) => ({
     kind: "message",
     id: message.id,
@@ -111,6 +111,7 @@ function NodeChatConversation({ store, snapshot }: { store: NodeChatStore; snaps
       {snapshot.loading && entries.length === 0 ? <p className="beebot-chat-loading" role="status">{t("Loading conversation…", "正在加载对话…")}</p> : null}
     </main>
     <div className="sand-chat-input-dock">
+      {snapshot.bot.securityFrozen ? <p className="beebot-chat-error" role="status">{t("This Bot is safety frozen. You can keep editing your draft. An administrator must inspect and release it in Settings → Servers → Security & devices; old tasks are never replayed.", "此 Bot 已被安全冻结，仍可编辑草稿。请管理员在设置 → 服务器 → 安全与设备中核查后解除；旧任务不会自动重放。")}</p> : null}
       {snapshot.runningGoal ? <div className="beebot-chat-status" role="status">
         <span>{snapshot.runningGoal.status === "cancelling" ? t("Stop requested. Waiting for the server…", "已请求停止，正在等待服务器确认…") : working ? t("Working…", "正在处理…") : t("Waiting to start…", "等待开始…")}</span>
         {["queued", "running"].includes(snapshot.runningGoal.status) ? <button type="button" disabled={busy || !online} onClick={() => void run(() => store.stop(snapshot.runningGoal!.id))}>{t("Stop", "停止")}</button> : null}

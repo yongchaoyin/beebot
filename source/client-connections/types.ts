@@ -12,7 +12,7 @@ export interface NodeProfile {
 
 export interface NodeSnapshot {
   node: { id: string; name: string };
-  bots: Array<{ id: string; name: string; description?: string } & BotAvatar>;
+  bots: Array<{ id: string; name: string; description?: string; securityFrozen?: boolean } & BotAvatar>;
   goals: NodeGoal[];
   cursor: number;
 }

@@ -370,3 +370,11 @@ test("opening times out without letting a late read change the selected conversa
   await Promise.resolve(); await Promise.resolve();
   assert.equal(ui.state().active, false); assert.equal(ui.selections.length, 0);
 });
+
+test("a safety-frozen Bot keeps an editable draft and never submits on release automatically",async t=>{
+  let frozen=true;const ui=await boot(t,{snapshot:(_request,current)=>({...clone(current),bots:current.bots.map(b=>({...b,securityFrozen:frozen}))})});
+  await ui.open();ui.controller.setDraft("Keep this unsent text");await ui.controller.send("Keep this unsent text");
+  assert.equal(ui.requests("submitGoal").length,0);assert.equal(ui.state().draft,"Keep this unsent text");assert.match(ui.state().error,/safety frozen/);
+  frozen=false;await ui.open();assert.equal(ui.requests("submitGoal").length,0);assert.equal(ui.state().draft,"Keep this unsent text");
+  await ui.controller.send(ui.state().draft);assert.equal(ui.requests("submitGoal").length,1);
+});

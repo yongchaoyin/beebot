@@ -12,7 +12,7 @@ export interface NodeChatMessage {
 export interface NodeChatSnapshot {
   active: boolean;
   connectionId: string;
-  bot: { id: string; name: string; avatarColor?: string; avatarShape?: string };
+  bot: { id: string; name: string; avatarColor?: string; avatarShape?: string; securityFrozen?: boolean };
   server: { name: string; baseUrl: string; status: string };
   messages: readonly NodeChatMessage[];
   draft: string;

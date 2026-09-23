@@ -57,7 +57,7 @@ function harness(initial = [profile("a"), profile("b")]) {
     { id: "other", device_name: "Office computer", dpop_jkt: "another-public-key-thumbprint", created_at: Date.now(), revoked_at: null, idle_expires: Date.now()+100000, absolute_expires: Date.now()+100000, grant: { role: "operator", botIds: ["bot-a"] } },
   ];
   state.requests = []; state.devices = []; state.recoveryCodesRemaining = 8;
-  state.hooks.securitySessions = () => ({ currentSessionId: "self", sessions: structuredClone(state.sessions), requests: structuredClone(state.requests), devices: structuredClone(state.devices), recoveryCodesRemaining: state.recoveryCodesRemaining });
+  state.hooks.securitySessions = () => ({ currentSessionId: "self", sessions: structuredClone(state.sessions), requests: structuredClone(state.requests), devices: structuredClone(state.devices), recoveryCodesRemaining: state.recoveryCodesRemaining, ...(state.taskSafety ? {taskSafety:structuredClone(state.taskSafety)} : {}) });
   state.hooks.securityEvents = () => ({ events: [{ kind: "session.authorized", time: Date.now() }] });
   state.hooks.setSessionGrant = async input => { state.sessions.find(s => s.id === input.sessionId).grant = { role: input.role, botIds: input.botIds }; };
   state.hooks.revokeSession = async input => { state.sessions.find(s => s.id === input.sessionId).revoked_at = Date.now(); };
@@ -110,7 +110,7 @@ test("Escape cancels revocation and a confirmed revocation is not sent twice", a
   const h=harness();
   try {
     const row=await openSecurity(h);rowClick(row,"Revoke session");
-    h.panel.dispatchEvent(new h.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true}));assert.equal(writes(h).length,0);
+    h.window.document.activeElement.dispatchEvent(new h.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true}));assert.equal(writes(h).length,0);
     rowClick(row,"Revoke session");h.click("Confirm operation");h.find("Confirm operation").click();
     await until(()=>h.panel.textContent.includes("Inactive. This session cannot access the Node."));assert.equal(writes(h).length,1);
   } finally {await h.close();}
@@ -184,4 +184,52 @@ test("late recovery output cannot be exposed after switching accounts or closing
   const h=harness(),p=deferred();h.state.hooks.rotateRecoveryCodes=()=>p.promise;
   try{await openSecurity(h);h.click("Regenerate recovery codes");h.click("Confirm operation");await until(()=>enrollmentWrites(h).length===1);h.state.profiles[0].status="signed-out";h.changed("a");p.resolve({codes:Array(8).fill("Z".repeat(43))});await until(()=>h.find("Sign in")&&!h.find("Sign in").hidden);assert.equal(h.panel.querySelector('textarea').value,"");}
   finally{p.resolve({codes:[]});await h.close();}
+});
+
+const safetyWrites = h => h.state.calls.filter(c => ["blockDeviceAndFreeze", "freezeBotTasks", "releaseBotFreeze"].includes(c.action));
+function safetyFixture(h) {
+  h.state.devices=[{jkt:pendingKey,device_name:"Office computer",status:"approved",version:7}];
+  h.state.taskSafety={unattributedActiveTasks:2,freezes:[]};
+  h.state.hooks.blockDeviceAndFreeze=()=>{h.state.devices[0].status="blocked";};
+  h.state.hooks.freezeBotTasks=()=>({ok:true});
+  h.state.hooks.releaseBotFreeze=()=>({ok:true});
+}
+test("safety stop is separate from ordinary device block, confirms exact key and never submits twice",async()=>{
+  const h=harness();safetyFixture(h);
+  try {await openSecurity(h);const row=h.panel.querySelector('[data-device-key]');
+    assert.ok([...row.querySelectorAll('button')].some(b=>b.textContent==="Block device sessions"));
+    rowClick(row,"Block & freeze associated tasks");assert.equal(safetyWrites(h).length,0);
+    assert.match(h.panel.querySelector('.bb-security .bb-confirm').textContent,new RegExp(pendingKey));
+    assert.match(h.panel.textContent,/legacy tasks have no device attribution/);
+    h.click("Confirm operation");h.find("Confirm operation").click();await until(()=>safetyWrites(h).length===1);
+    const call=safetyWrites(h)[0];assert.equal(call.id,"a");assert.equal(call.thumbprint,pendingKey);assert.equal(call.expectedVersion,7);assert.match(call.key,/^[a-f0-9-]{36}$/);
+    assert.equal(enrollmentWrites(h).length,0,"no fallback to ordinary blocking");
+  }finally{await h.close();}
+});
+test("Escape or Node switch invalidates a task-safety confirmation",async()=>{
+  const h=harness();safetyFixture(h);
+  try{await openSecurity(h);rowClick(h.panel.querySelector('[data-safety-bot]'),"Freeze this Bot's execution");
+    h.window.document.activeElement.dispatchEvent(new h.window.KeyboardEvent("keydown",{key:"Escape",bubbles:true}));h.find("Confirm operation").click();assert.equal(safetyWrites(h).length,0);
+    rowClick(h.panel.querySelector('[data-safety-bot]'),"Freeze this Bot's execution");h.select("b");await until(()=>h.find("Bot b"));h.find("Confirm operation").click();assert.equal(safetyWrites(h).length,0);
+  }finally{await h.close();}
+});
+test("partial safety error does not claim work stopped or silently undo or replay the mutation",async()=>{
+  const h=harness();safetyFixture(h);h.state.hooks.blockDeviceAndFreeze=()=>{throw Error("device_block_incomplete: quarantine is durable");};
+  try{await openSecurity(h);rowClick(h.panel.querySelector('[data-device-key]'),"Block & freeze associated tasks");h.click("Confirm operation");await until(()=>h.panel.textContent.includes("Safety operation is not fully confirmed"));assert.match(h.panel.textContent,/do not assume external effects were undone/);assert.equal(safetyWrites(h).length,1);assert.equal(enrollmentWrites(h).length,0);}
+  finally{await h.close();}
+});
+test("Bot freeze release binds version and shows stopping versus inspection without claiming automatic resume",async()=>{
+  const h=harness();safetyFixture(h);h.state.taskSafety.freezes=[{id:"10000000-0000-4000-8000-000000000001",scope:"bot",target:"bot-a",version:3,releasedAt:null,cancelledBeforeDispatch:2,stopping:1,needsInspection:4}];h.state.hooks.releaseBotFreeze=()=>{throw Error("inspection_required");};
+  try{await openSecurity(h);const row=h.panel.querySelector('[data-freeze-id]');row.open=true;assert.match(row.textContent,/2/);assert.match(row.textContent,/1/);assert.match(row.textContent,/4/);rowClick(row,"Release Bot after inspection");assert.match(h.panel.querySelector('.bb-security .bb-confirm').textContent,/Old tasks are never resumed/);h.click("Confirm operation");await until(()=>h.panel.textContent.includes("inspection_required"));assert.equal(safetyWrites(h)[0].expectedVersion,3);assert.equal(safetyWrites(h).length,1);}
+  finally{await h.close();}
+});
+test("already blocked devices can still freeze their earlier accepted tasks",async()=>{
+  const h=harness();safetyFixture(h);h.state.devices[0].status="blocked";
+  try{await openSecurity(h);rowClick(h.panel.querySelector('[data-device-key]'),"Freeze this key's accepted tasks");h.click("Confirm operation");await until(()=>safetyWrites(h).length===1);assert.equal(safetyWrites(h)[0].action,"blockDeviceAndFreeze");}
+  finally{await h.close();}
+});
+test("old Node does not receive unsupported task operations or silently fall back to session revocation",async()=>{
+  const h=harness();
+  try{await openSecurity(h);assert.match(h.panel.textContent,/does not offer task safety freezes/);assert.equal(h.find("Freeze this Bot's execution"),undefined);assert.equal(safetyWrites(h).length,0);}
+  finally{await h.close();}
 });

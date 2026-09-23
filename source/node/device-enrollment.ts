@@ -27,7 +27,8 @@ const rejected = () => new EnrollmentError(403, "device_not_approved", "This dev
 export class DeviceEnrollmentStore {
   constructor(private readonly db: DatabaseSync, private readonly issuer: string,
     private readonly validate: (value: unknown) => DeviceGrant,
-    private readonly record: (kind: string, principal: string, actor: string, subject: string) => void) {
+    private readonly record: (kind: string, principal: string, actor: string, subject: string) => void,
+    private readonly quarantined: (principal: string, jkt: string) => boolean = () => false) {
     const existed = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_trusted_devices'").get();
     db.exec(`
       CREATE TABLE IF NOT EXISTS auth_trusted_devices (
@@ -145,11 +146,12 @@ export class DeviceEnrollmentStore {
     this.db.prepare("DELETE FROM auth_codes WHERE principal_id=? AND dpop_jkt=?").run(principal, jkt);
     return this.sessionIds(principal, jkt);
   }
-  block(principal: string, actor: string, jkt: string, version: number): string[] {
+  block(principal: string, actor: string, jkt: string, version: number, beforeBlock?: () => void): string[] {
     return this.transaction(() => {
       const row = this.trusted(principal, jkt);
       if (row.version !== version) throw new EnrollmentError(409, "stale_device", "Device permissions changed. Refresh before blocking it.");
       this.protectLastAdmin(principal, row, true);
+      beforeBlock?.();
       this.db.prepare("UPDATE auth_trusted_devices SET status='blocked',updated_at=?,version=version+1 WHERE principal_id=? AND jkt=?").run(Date.now(), principal, jkt);
       const ids = this.sessionIds(principal, jkt);
       this.db.prepare("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,?) WHERE principal_id=? AND dpop_jkt=?").run(Date.now(), principal, jkt);
@@ -161,8 +163,8 @@ export class DeviceEnrollmentStore {
   }
   private protectLastAdmin(principal: string, row: TrustedDevice, removing: boolean): void {
     if (!removing || this.validate(JSON.parse(row.grant_json)).role !== "admin") return;
-    const others = this.db.prepare("SELECT grant_json FROM auth_trusted_devices WHERE principal_id=? AND jkt!=? AND status='approved'").all(principal, row.jkt);
-    if (!others.some(other => this.validate(JSON.parse(String(other.grant_json))).role === "admin")) {
+    const others = this.db.prepare("SELECT jkt,grant_json FROM auth_trusted_devices WHERE principal_id=? AND jkt!=? AND status='approved'").all(principal, row.jkt);
+    if (!others.some(other => !this.quarantined(principal, String(other.jkt)) && this.validate(JSON.parse(String(other.grant_json))).role === "admin")) {
       throw new EnrollmentError(409, "last_trusted_administrator", "Approve another administrator device before removing the last one. Recovery is a separate explicit operation.");
     }
   }
