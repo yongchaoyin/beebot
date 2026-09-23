@@ -8,6 +8,8 @@ export interface NodeProfile {
   baseUrl: string;
   status: "signed-out" | "connecting" | "online" | "reconnecting";
   error?: string;
+  /** Transient main-process progress; never an approval or model-readiness claim. */
+  loginStage?: "verifying-server" | "browser-authorization" | "connecting-events";
 }
 
 export interface NodeSnapshot {
