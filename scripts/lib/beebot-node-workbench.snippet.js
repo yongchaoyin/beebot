@@ -142,6 +142,8 @@
       #beebot-node-workbench .bb-live{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
       #beebot-node-workbench .bb-security{display:grid;gap:12px;margin-top:14px;padding:16px;border:1px solid var(--bb-line);border-radius:12px}
       #beebot-node-workbench .bb-security details{border-top:1px solid var(--bb-line);padding:10px 0;min-width:0}
+      #beebot-node-workbench .bb-security details>button{margin:6px 6px 0 0}
+      #beebot-node-workbench [data-task-safety]{display:grid;gap:8px}
       #beebot-node-workbench .bb-security summary{cursor:pointer;overflow-wrap:anywhere;font-weight:550}
       #beebot-node-workbench .bb-security code{font-size:11px;overflow-wrap:anywhere;display:block;color:var(--bb-muted);margin:8px 0}
       #beebot-node-workbench .bb-security-fields{display:grid;gap:8px;margin:10px 0}
@@ -351,12 +353,13 @@
     bots.append(botsHeading, botsHelp, botList, empty, sync);
     const securityPanel = element("section", "bb-security"); securityPanel.id = "bb-node-security"; securityPanel.hidden = true;
     securityPanel.append(text("h3", "安全与设备", "Security & devices"));
-    securityPanel.append(text("p", "新设备必须获准。权限按设备密钥保留，重新登录不会提权。撤销会话仅退出该会话；封禁设备会断开同一密钥的所有会话。已接收工作不会自动取消。", "New devices require approval. Permissions persist by device key across sign-in. Session revocation signs out one session; blocking a device disconnects all sessions for that key. Accepted work is not automatically cancelled.", "bb-muted"));
+    securityPanel.append(text("p", "新设备必须获准。权限按设备密钥保留，重新登录不会提权。撤销会话仅退出该会话；封禁设备会断开同一密钥的所有会话。普通退出或仅封禁会话不会自动取消工作；需要停止任务时，请使用下方安全冻结。", "New devices require approval. Permissions persist by device key across sign-in. Session revocation signs out one session; blocking a device disconnects all sessions for that key. Ordinary sign-out or session-only blocking does not cancel work; use the task safety controls below when needed.", "bb-muted"));
     const securityStatus = element("p", "bb-muted"); securityStatus.setAttribute("role", "status");
     const securityTools = element("div", "bb-actions");
     const securityRefresh = button("刷新安全记录", "Refresh security", () => void loadSecurity());
     const securityAuth = button("重新验证身份", "Verify identity again", () => void run("login"));
     securityTools.append(securityRefresh, securityAuth);
+    const safetyList = element("div"); safetyList.dataset.taskSafety = "";
     const sessionList = element("div"), eventList = element("div", "bb-muted"), requestList = element("div"), deviceList = element("div");
     const recoveryBox = element("section"); recoveryBox.hidden = true;
     const recoveryHelp = text("p", "请离线保存：恢复码只显示这一次。每码仅能使用一次，仍需所有者密码；恢复会撤销其他设备，但保留 Bot 和工作记录。", "Save offline: recovery codes are shown only once. Each code is single-use and still requires the owner password. Recovery revokes other devices but keeps Bots and work history.", "bb-muted");
@@ -377,19 +380,25 @@
     const securityCancel = button("取消", "Cancel", () => { securityIntent = null; securityConfirm.hidden = true; });
     const securityProceed = button("确认操作", "Confirm operation", () => void mutateSecurity(), "bb-danger");
     securityConfirm.append(securityPrompt, securityCancel, securityProceed);
-    securityPanel.append(securityTools, securityStatus, requestList, deviceList, sessionList, securityConfirm, recoveryBox, eventList);
+    securityPanel.append(securityTools, securityStatus, requestList, deviceList, safetyList, sessionList, securityConfirm, recoveryBox, eventList);
     root.append(intro, pickerBox, card, securityPanel, addToggle, form, noticeBox, bots, live);
     host.append(root);
 
     function clearSecurity() {
       securityEpoch++; securityOpen = false; securityWorking = false; securityIntent = null;
-      securityPanel.hidden = true; securityConfirm.hidden = true; sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityTranslations = [];
+      securityPanel.hidden = true; securityConfirm.hidden = true; sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); safetyList.replaceChildren(); hideRecovery(); securityTranslations = [];
       securityToggle.setAttribute("aria-expanded", "false");
     }
     function secText(tag, cn, en, cls) {
       const node = element(tag, cls), apply = () => { node.textContent = t(cn, en); }; apply(); securityTranslations.push(apply); return node;
     }
     function secButton(cn, en, action) { const node = secText("button", cn, en); node.type = "button"; node.onclick = action; return node; }
+    function proposeSafety(action, input, cn, en, context) {
+      const { id, key, at, epoch } = context;
+      if (!alive || securityWorking || !profilesTrusted || epoch !== securityEpoch || key !== currentKey() || at !== generation) return;
+      securityIntent = { action, input: { ...input, key: crypto.randomUUID() }, id, key, at, epoch };
+      securityPrompt.textContent = t(cn, en); securityConfirm.hidden = false; securityCancel.focus();
+    }
     async function loadSecurity() {
       if (!alive || !securityOpen || !profilesTrusted || current()?.status !== "online" || securityWorking) return;
       const key = currentKey(), at = generation, epoch = ++securityEpoch, id = selected;
@@ -399,8 +408,10 @@
         const [result, log] = await Promise.all([request("securitySessions", { id }), request("securityEvents", { id })]);
         if (!alive || !securityOpen || epoch !== securityEpoch || at !== generation || key !== currentKey() || !profilesTrusted) return;
         if (!result || !Array.isArray(result.sessions) || !Array.isArray(log?.events) || result.sessions.length > 200 || log.events.length > 200) throw new Error("Invalid security response.");
-        sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityTranslations = [];
+        sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); safetyList.replaceChildren(); hideRecovery(); securityTranslations = [];
         if (result.requests !== undefined && (!Array.isArray(result.requests) || result.requests.length > 20) || result.devices !== undefined && (!Array.isArray(result.devices) || result.devices.length > 200)) throw new Error("Invalid device trust response.");
+        const safety = result.taskSafety;
+        if (safety !== undefined && (!safety || !Array.isArray(safety.freezes) || safety.freezes.length > 200 || !Number.isSafeInteger(safety.unattributedActiveTasks) || safety.unattributedActiveTasks < 0)) throw new Error("Invalid task safety response.");
         if (result.requests?.length) requestList.append(secText("h3", "待批准的新设备", "Pending device requests"));
         for (const item of result.requests || []) {
           if (typeof item.id !== "string" || typeof item.device_name !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(item.jkt) || !Number.isSafeInteger(item.version) || !Number.isFinite(item.expires)) throw new Error("Invalid device request.");
@@ -446,9 +457,38 @@
             securityConfirm.hidden=false;securityCancel.focus();
           }));
           else row.append(secText("p","已封禁；普通登录不能重新授权此密钥。","Blocked; ordinary sign-in cannot reauthorize this key.","bb-muted"));
+          if (safety && !safety.freezes.some(f => f.scope === "device" && f.target === item.jkt && f.releasedAt === null)) {
+            row.append(secButton(item.status === "approved" ? "封禁并冻结关联任务" : "冻结该密钥的关联任务", item.status === "approved" ? "Block & freeze associated tasks" : "Freeze this key's accepted tasks", () =>
+              proposeSafety("blockDeviceAndFreeze", { thumbprint: item.jkt, expectedVersion: item.version },
+                `封禁「${item.device_name}」，密钥 ${item.jkt}，并冻结由它提交的任务？排队任务将取消；在途执行将请求停止并保留核查记录。不能撤回外部动作，也不能确认旧版无来源任务的归属。`,
+                `Block ${item.device_name}, key ${item.jkt}, and freeze its submitted tasks? Queued tasks are cancelled; running work receives a stop request and requires inspection. External actions cannot be undone. Legacy unattributed work cannot be assigned to this key.`, { id, key, at, epoch })));
+          }
           deviceList.append(row);
         }
         if (Number.isSafeInteger(result.recoveryCodesRemaining)) deviceList.append(secText("p",`可用恢复码：${result.recoveryCodesRemaining}。恢复码不会在普通查询中返回。`,`Recovery codes remaining: ${result.recoveryCodesRemaining}. Routine reads never return the codes.`,"bb-muted"));
+        if (safety) {
+          safetyList.append(secText("h3", "任务安全停止", "Task safety stops"), secText("p", "正常退出不会停止已授权工作。安全冻结不会随重新登录或服务器重启解除，也不会自动重放任务。", "Normal sign-out does not stop accepted work. Safety freezes survive sign-in and server restart and never replay tasks.", "bb-muted"));
+          if (safety.unattributedActiveTasks) safetyList.append(secText("p", `有 ${safety.unattributedActiveTasks} 项旧版任务没有设备来源，按设备冻结无法确认覆盖；需要时请冻结整个 Bot。`, `${safety.unattributedActiveTasks} legacy tasks have no device attribution. A device freeze cannot claim to cover them; freeze the whole Bot when required.`, "bb-muted"));
+          for (const item of safety.freezes) {
+            if (typeof item.id !== "string" || typeof item.target !== "string" || !["device","bot"].includes(item.scope) || !Number.isSafeInteger(item.version) || ![item.cancelledBeforeDispatch,item.stopping,item.needsInspection].every(n => Number.isSafeInteger(n) && n >= 0)) throw new Error("Invalid safety-stop record.");
+            const name = item.scope === "bot" ? snapshot?.bots.find(b => b.id === item.target)?.name || item.target : result.devices?.find(d => d.jkt === item.target)?.device_name || item.target;
+            const row = element("details"); row.dataset.freezeId = item.id;
+            row.append(secText("summary", `${name} · ${item.releasedAt === null ? "安全冻结" : "已解除 Bot 入口冻结"}`, `${name} · ${item.releasedAt === null ? "safety frozen" : "Bot admission released"}`));
+            if (item.scope === "device") { const fingerprint = element("code"); fingerprint.textContent = item.target; row.append(fingerprint); }
+            row.append(secText("p", `排队已取消：${item.cancelledBeforeDispatch}；正在停止：${item.stopping}；待核查：${item.needsInspection}。完成的外部动作不会撤回。`, `Cancelled before dispatch: ${item.cancelledBeforeDispatch}; stopping: ${item.stopping}; awaiting inspection: ${item.needsInspection}. Completed external actions are not undone.`, "bb-muted"));
+            if (item.scope === "bot" && item.releasedAt === null) row.append(secButton("核查后解除 Bot 冻结", "Release Bot after inspection", () => proposeSafety("releaseBotFreeze", { freezeId: item.id, expectedVersion: item.version },
+              `解除「${name}」的 Bot 入口冻结？服务器会先检查在途和不确定执行。旧任务不会恢复，设备密钥封禁也不会解除；只允许新授权的工作。`,
+              `Release the Bot admission freeze for ${name}? The server first checks running and uncertain attempts. Old tasks are never resumed and device quarantine stays. Only newly authorized work can start.`, { id, key, at, epoch })));
+            safetyList.append(row);
+          }
+          for (const bot of snapshot?.bots || []) if (!safety.freezes.some(f => f.scope === "bot" && f.target === bot.id && f.releasedAt === null)) {
+            const row = element("div", "bb-actions"); row.dataset.safetyBot = bot.id;
+            row.append(secText("span", bot.name, bot.name), secButton("冻结此 Bot 的执行", "Freeze this Bot's execution", () => proposeSafety("freezeBotTasks", { botId: bot.id },
+              `冻结「${bot.name}」的全部执行？排队工作取消，在途工作请求停止，新任务禁止进入。包括无法确认来源的旧任务。已完成的外部动作无法撤回。`,
+              `Freeze all execution for ${bot.name}? Cancel queued work, request running work to stop, and reject new tasks, including unattributed legacy work. Completed external effects cannot be undone.`, { id, key, at, epoch })));
+            safetyList.append(row);
+          }
+        } else safetyList.append(secText("p", "此服务器未提供任务安全冻结，请升级 Node；封禁会话不等于停止任务。", "This Node does not offer task safety freezes. Upgrade it; blocking a session is not a task stop.", "bb-muted"));
         for (const item of result.sessions) {
           if (typeof item.id !== "string" || typeof item.device_name !== "string" || !["admin", "operator", "viewer"].includes(item.grant?.role)) throw new Error("Invalid device session.");
           const row = element("details"); row.dataset.sessionId = item.id;
@@ -487,11 +527,11 @@
           row.append(fields, controls); sessionList.append(row);
         }
         eventList.append(secText("h3", "最近安全事件", "Recent security events"));
-        const names = { "device.requested": ["新设备申请接入","Device access requested"], "device.approved": ["新设备已批准","Device approved"], "device.denied": ["设备申请已拒绝","Device request denied"], "device.blocked": ["设备已封禁","Device blocked"], "recovery.device_replaced": ["恢复已替换可信设备","Trusted devices replaced by recovery"], "recovery.codes_rotated": ["恢复码已更新","Recovery codes regenerated"], "session.authorized": ["设备已授权","Device authorized"], "session.revoked": ["会话已撤销","Session revoked"], "session.permissions_changed": ["权限已更改","Permissions changed"], "session.proof_rejected": ["设备证明被拒绝","Device proof rejected"] };
+        const names = { "security.tasks_frozen": ["任务执行已冻结","Task execution frozen"], "security.bot_released": ["Bot 入口冻结已解除","Bot admission freeze released"], "device.requested": ["新设备申请接入","Device access requested"], "device.approved": ["新设备已批准","Device approved"], "device.denied": ["设备申请已拒绝","Device request denied"], "device.blocked": ["设备已封禁","Device blocked"], "recovery.device_replaced": ["恢复已替换可信设备","Trusted devices replaced by recovery"], "recovery.codes_rotated": ["恢复码已更新","Recovery codes regenerated"], "session.authorized": ["设备已授权","Device authorized"], "session.revoked": ["会话已撤销","Session revoked"], "session.permissions_changed": ["权限已更改","Permissions changed"], "session.proof_rejected": ["设备证明被拒绝","Device proof rejected"] };
         for (const event of log.events.slice(0,20)) { const name = names[event.kind] || ["安全事件","Security event"]; const date = Number.isFinite(event.time) ? new Date(event.time).toISOString() : ""; eventList.append(secText("p", `${date} · ${name[0]}`, `${date} · ${name[1]}`)); }
         securityStatus.textContent = t("记录来自当前服务器；不会显示密钥或令牌。", "Records come from this Node. Keys and tokens are never displayed.");
       } catch (error) {
-        if (alive && securityOpen && epoch === securityEpoch && at === generation && key === currentKey()) { sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); hideRecovery(); securityStatus.textContent = t("无法读取安全记录。此操作需要管理权限：", "Cannot read security records. Management permission is required: ") + errorDetail(error); }
+        if (alive && securityOpen && epoch === securityEpoch && at === generation && key === currentKey()) { sessionList.replaceChildren(); eventList.replaceChildren(); requestList.replaceChildren(); deviceList.replaceChildren(); safetyList.replaceChildren(); hideRecovery(); securityStatus.textContent = t("无法读取安全记录。此操作需要管理权限：", "Cannot read security records. Management permission is required: ") + errorDetail(error); }
       } finally { if (epoch === securityEpoch) { securityWorking = false; securityRefresh.disabled = false; } }
     }
     async function mutateSecurity() {
@@ -510,7 +550,7 @@
           recoveryValues.focus();
         } else await loadSecurity();
       } catch (error) {
-        if (alive && intent.epoch === securityEpoch && intent.key === currentKey()) { securityConfirm.hidden = true; securityStatus.textContent = t("更改未确认。请重新验证身份后重试：", "Change not confirmed. Verify your identity again and retry: ") + errorDetail(error); }
+        if (alive && intent.epoch === securityEpoch && intent.key === currentKey()) { securityConfirm.hidden = true; securityStatus.textContent = (["blockDeviceAndFreeze","freezeBotTasks","releaseBotFreeze"].includes(intent.action) ? t("安全操作结果未全部确认。请先刷新记录核对，不能假定外部动作已撤回：", "Safety operation is not fully confirmed. Refresh records to reconcile; do not assume external effects were undone: ") : t("更改未确认。请重新验证身份后重试：", "Change not confirmed. Verify your identity again and retry: ")) + errorDetail(error); }
       } finally { if (alive) { if (intent.epoch === securityEpoch) securityWorking = false; securityProceed.disabled = false; securityRefresh.disabled = false; } }
     }
 

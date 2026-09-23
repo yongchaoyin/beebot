@@ -62,6 +62,24 @@ export function installNodeConnectionIpc(electron: NodeConnectionElectron, rende
       if (!(botIds === "*" || Array.isArray(botIds) && botIds.length <= 500 && botIds.every(id => typeof id === "string" && /^[a-f0-9-]{36}$/.test(id)))) throw new Error("Invalid Bot permission scope.");
       return manager.setSessionGrant(id, text(input.sessionId, "device session", 100), { role, botIds });
     }
+    if (["blockDeviceAndFreeze", "freezeBotTasks", "releaseBotFreeze"].includes(action)) {
+      const key = text(input.key, "request identifier", 128);
+      if (!/^[\w.:-]{8,128}$/.test(key)) throw new Error("Invalid safety-stop request identifier.");
+      if (action === "freezeBotTasks") {
+        const botId = text(input.botId, "Bot", 36);
+        if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(botId)) throw new Error("Invalid Bot identifier.");
+        return manager.freezeBotTasks(id, botId, key);
+      }
+      if (!Number.isSafeInteger(input.expectedVersion) || Number(input.expectedVersion) < 1) throw new Error("Invalid safety-stop version.");
+      if (action === "blockDeviceAndFreeze") {
+        const thumbprint = text(input.thumbprint, "device fingerprint", 43);
+        if (!/^[A-Za-z0-9_-]{43}$/.test(thumbprint)) throw new Error("Invalid device fingerprint.");
+        return manager.blockDeviceAndFreeze(id, thumbprint, input.expectedVersion as number, key);
+      }
+      const freezeId = text(input.freezeId, "safety stop", 36);
+      if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(freezeId)) throw new Error("Invalid safety-stop identifier.");
+      return manager.releaseBotFreeze(id, freezeId, input.expectedVersion as number, key);
+    }
     if (action === "rotateRecoveryCodes") return manager.rotateRecoveryCodes(id);
     if (["approveDevice", "denyDevice", "blockDevice"].includes(action)) {
       if (!Number.isSafeInteger(input.expectedVersion) || Number(input.expectedVersion) < 1) throw new Error("Invalid device version.");

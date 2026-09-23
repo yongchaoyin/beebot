@@ -60,6 +60,11 @@ test("packaged source chat keeps remote actions on the selected Bot and hides un
     change({ runningGoal:{id:"existing",status:"running"}, draft:"Second question" });await tick();
     assert.equal(root.querySelector('[aria-label="Send message"]').disabled,false);
     assert.match(root.textContent,/New requests wait their turn/);
+    change({runningGoal:null,draft:"Frozen draft",bot:{...snapshot.bot,securityFrozen:true}});await tick();
+    assert.equal(root.querySelector('[aria-label="Send message"]').disabled,true);
+    assert.match(root.textContent,/safety frozen/);assert.equal(snapshot.draft,"Frozen draft");
+    change({bot:{...snapshot.bot,securityFrozen:false}});await tick();
+    assert.equal(root.querySelector('[aria-label="Send message"]').disabled,false);assert.equal(calls.length,2);
     change({runningGoal:null,draft:""});await tick();
     change({ connectionId: "server-a", bot: { id: "bot-a", name: "Other Bot" }, draft: "Keep this draft", messages: [], server: { ...snapshot.server, status: "reconnecting" } });
     await tick();

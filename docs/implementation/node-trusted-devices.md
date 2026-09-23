@@ -145,3 +145,11 @@ or revocation, executor sandbox changes, hardware non-exportable keys, passkeys/
 independent notification delivery, externally witnessed audit or installed Mac QA.
 The security journal is local, bounded and not an independent alert channel.
 The Node remains single-owner rather than a multi-tenant public hosting service.
+
+
+## Task-safety follow-up
+
+`node-task-safety.md` adds a separate, explicit device-block-and-freeze action and
+Bot admission freezes. Ordinary logout and the original block-only operation
+retain the behavior documented above; they do not silently cancel accepted work.
+Only tasks accepted after the provenance migration can be attributed to a device.

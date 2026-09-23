@@ -56,7 +56,7 @@ export class BeeBotServer {
     const listener = (req: IncomingMessage, res: ServerResponse) => { void this.route(req, res).catch(error => this.failure(res, error)); };
     this.http = tls ? createHttpsServer(tls, listener) : createHttpServer(listener);
     this.store = new ControlStore(options.dataDir);
-    try { this.auth = new NodeAuth({ dataDir: options.dataDir, issuer: options.config.publicUrl }); }
+    try { this.auth = new NodeAuth({ dataDir: options.dataDir, issuer: options.config.publicUrl, isQuarantined: (principal, jkt) => !!this.store.taskSecurity.active(principal, "device", jkt) }); }
     catch (error) { this.store.close(); throw error; }
     try { this.service = new ControlService(this.store, options.runtime, options.config.maxConcurrentRuns, false); }
     catch (error) { this.auth.close(); this.store.close(); throw error; }
@@ -93,13 +93,14 @@ export class BeeBotServer {
     if (this.service.failure && req.method !== "GET") throw new ControlError(503, "unavailable", "The task controller is unavailable. Restart after repairing its storage.");
     const key = typeof req.headers["idempotency-key"] === "string" ? req.headers["idempotency-key"] : "";
     if (req.method === "GET" && url.pathname === "/v1/snapshot") {
-      json(res, 200, { node: this.node, bots: this.store.bots(principalId).filter(bot => this.auth.permits(identity, "read", bot.id)), goals: this.store.goals(principalId).filter(goal => this.auth.permits(identity, "read", goal.botId)), cursor: this.store.cursor }); return;
+      json(res, 200, { node: this.node, bots: this.store.bots(principalId).filter(bot => this.auth.permits(identity, "read", bot.id)).map(bot => ({ ...bot, securityFrozen: !!this.store.taskSecurity.active(principalId, "bot", bot.id) })), goals: this.store.goals(principalId).filter(goal => this.auth.permits(identity, "read", goal.botId)), cursor: this.store.cursor }); return;
     }
     if (req.method === "POST" && url.pathname === "/v1/events/ticket") { await body(req); json(res, 200, this.auth.createEventTicket(identity)); return; }
     if (req.method === "POST" && url.pathname === "/v1/bots") { const input = botSchema.parse(await body(req)); this.auth.requirePermission(identity, "admin"); json(res, 201, this.store.createBot(principalId, key, input)); return; }
-    if (req.method === "POST" && url.pathname === "/v1/goals") { const input = goalSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", input.botId); json(res, 202, this.store.submitGoal(principalId, key, input)); return; }
-    if (req.method === "GET" && url.pathname === "/v1/security/sessions") { json(res, 200, this.auth.listSessions(identity)); return; }
-    if (req.method === "GET" && url.pathname === "/v1/security/events") { json(res, 200, this.auth.securityEvents(identity)); return; }
+    if (req.method === "POST" && url.pathname === "/v1/goals") { const input = goalSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", input.botId); json(res, 202, this.store.submitGoal(principalId, key, input, { nodeId: this.options.config.nodeId, ...this.auth.taskSource(identity, input.botId) })); return; }
+    if (req.method === "GET" && url.pathname === "/v1/security/sessions") { json(res, 200, { ...this.auth.listSessions(identity) as Record<string, unknown>, taskSafety: this.store.taskSafetySnapshot(principalId) }); return; }
+    if (req.method === "GET" && url.pathname === "/v1/security/events") { const log = this.auth.securityEvents(identity) as { events: Array<{ time: number }> };
+      json(res, 200, { events: [...log.events, ...this.store.taskSecurityEvents(principalId) as Array<{ time: number }>].sort((a, b) => b.time - a.time).slice(0, 200) }); return; }
     if (req.method === "POST" && url.pathname === "/v1/security/recovery-codes") {
       z.object({}).strict().parse(await body(req));
       json(res, 200, this.auth.rotateRecoveryCodes(identity)); return;
@@ -116,6 +117,31 @@ export class BeeBotServer {
       }
       this.auth.decideDevice(identity, deviceRequest[1], input.expectedVersion, input.thumbprint, grant);
       json(res, 200, { ok: true }); return;
+    }
+    const safetyDevice = /^\/v1\/security\/devices\/([A-Za-z0-9_-]{43})\/block-and-freeze$/.exec(url.pathname);
+    if (req.method === "POST" && safetyDevice?.[1]) {
+      const input = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(await body(req));
+      let frozen = false;
+      try {
+        this.auth.blockDeviceAndFreeze(identity, safetyDevice[1], input.expectedVersion, () => {
+          this.store.freezeTasks(principalId, identity.sessionId, key, "device", safetyDevice[1]!); frozen = true;
+        });
+      } catch (error) {
+        if (frozen) throw new ControlError(503, "device_block_incomplete", "Task quarantine is durable, but the device block record was not confirmed. Refresh security records; do not assume external actions were undone.");
+        throw error;
+      }
+      json(res, 200, { deviceBlocked: true, taskSafety: this.store.taskSafetySnapshot(principalId) }); return;
+    }
+    const safetyBot = /^\/v1\/security\/bots\/([a-f0-9-]{36})\/freeze$/.exec(url.pathname);
+    if (req.method === "POST" && safetyBot?.[1]) {
+      z.object({}).strict().parse(await body(req)); this.auth.requireRecentAdministrator(identity);
+      json(res, 200, this.store.freezeTasks(principalId, identity.sessionId, key, "bot", safetyBot[1])); return;
+    }
+    const release = /^\/v1\/security\/task-freezes\/([a-f0-9-]{36})\/release$/.exec(url.pathname);
+    if (req.method === "POST" && release?.[1]) {
+      const input = z.object({ expectedVersion: z.number().int().positive() }).strict().parse(await body(req));
+      this.auth.requireRecentAdministrator(identity);
+      json(res, 200, this.store.releaseBotFreeze(principalId, identity.sessionId, key, release[1], input.expectedVersion)); return;
     }
     const device = /^\/v1\/security\/devices\/([A-Za-z0-9_-]{43})\/block$/.exec(url.pathname);
     if (req.method === "POST" && device?.[1]) {
@@ -148,8 +174,9 @@ export class BeeBotServer {
         json(res, 200, { goal, task: this.store.task(goal.taskId), transcript: readableTranscript(this.store.transcript(id)) }); return;
       }
       if (req.method === "POST" && action === "cancel") { z.object({}).strict().parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, this.store.cancel(principalId, key, id)); return; }
-      if (req.method === "POST" && action === "accept") { const input = acceptSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, this.store.accept(principalId, key, id, input.expectedVersion)); return; }
-      if (req.method === "POST" && action === "reconcile") { const input = reconcileSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, await this.service.reconcile(principalId, key, id, input.expectedVersion, input.note)); return; }
+      if (req.method === "POST" && action === "accept") { const input = acceptSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); if (this.store.goal(id).securityStop) this.auth.requireRecentAdministrator(identity); json(res, 200, this.store.accept(principalId, key, id, input.expectedVersion)); return; }
+      if (req.method === "POST" && action === "reconcile") { const input = reconcileSchema.parse(await body(req)); const authorize = () => { this.auth.requirePermission(identity, "write", target.botId); if (this.store.goal(id).securityStop) this.auth.requireRecentAdministrator(identity); };
+        authorize(); json(res, 200, await this.service.reconcile(principalId, key, id, input.expectedVersion, input.note, authorize)); return; }
     }
     throw new ControlError(404, "not_found", "Unknown API route.");
   }
@@ -179,7 +206,16 @@ export class BeeBotServer {
         this.auth.assertSession(sessionId!);
         const events = this.store.events(cursor, 257);
         if (events.length > 256) { cursor = this.store.cursor; send({ type: "resync", cursor }); return; }
-        for (const event of events) { cursor = event.seq; if (ownsEvent(event)) send(event); }
+        for (const event of events) {
+          cursor = event.seq;
+          if (event.type.startsWith("security.")) {
+            const data = event.data as { principalId?: string; scope?: string; target?: string };
+            // Invalidate only an authorized projection; never broadcast raw device
+            // fingerprints, administrator sessions or audit data to Bot readers.
+            if (data.principalId === principalId && this.auth.permits({ principalId: principalId!, sessionId: sessionId! },
+              data.scope === "device" ? "admin" : "read", data.scope === "device" ? undefined : data.target)) send({ type: "resync", cursor });
+          } else if (ownsEvent(event)) send(event);
+        }
       } catch { socket.close(4401, "Session expired"); }
     };
     socket.on("message", (raw: Buffer) => {

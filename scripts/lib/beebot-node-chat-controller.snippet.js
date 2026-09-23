@@ -23,6 +23,7 @@
     if(!Array.isArray(snapshot.bots)||!Array.isArray(snapshot.goals))throw failure("invalid_response","服务器返回的会话数据不完整，请重试。","The server returned incomplete conversation data. Try again.");
     const bot=snapshot.bots.find(b=>b&&b.id===c.bot.id&&typeof b.name==="string");
     if(!bot)throw failure("bot_unavailable","此 Bot 已不可用，请刷新列表。","This Bot is unavailable. Refresh the list.");
+    if(bot.securityFrozen!==undefined&&typeof bot.securityFrozen!=="boolean")throw failure("invalid_response","服务器返回的安全状态无效，请刷新。","The server returned an invalid safety state. Refresh before sending.");
     const goals=snapshot.goals.filter(g=>g&&g.botId===bot.id);
     if(goals.some(g=>typeof g.id!=="string"))throw failure("invalid_response","服务器返回的任务数据不完整，请重试。","The server returned incomplete task data. Try again.");
     goals.sort((a,b)=>Number(a.createdAt)-Number(b.createdAt)||a.id.localeCompare(b.id));
@@ -123,6 +124,7 @@
       const c=context;
       if(!c||state.busy||!text.trim())return;
       if(state.server?.status!=="online"||!c.available||state.uncertainGoal){publish({error:t("当前 Bot 暂不能接收消息，请先恢复连接或核查中断的执行。","This Bot cannot receive messages yet. Restore its connection or verify the interrupted execution first.")});return;}
+      if(c.bot.securityFrozen===true){publish({error:t("此 Bot 已被安全冻结。草稿已保留，请管理员核查后解除。","This Bot is safety frozen. Your draft is preserved; an administrator must inspect and release it.")});return;}
       if(state.runningGoal?.status==="cancelling"){publish({error:t("正在确认停止。这条草稿尚未发送，请等待停止结果。","Stop is still being confirmed. This draft was not sent; wait for the outcome.")});return;}
       c.error=null;publish({busy:true,error:null});
       try{

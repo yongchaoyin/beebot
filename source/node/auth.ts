@@ -110,6 +110,7 @@ function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 export class NodeAuth {
   private readonly db: DatabaseSync;
   private readonly enrollment: DeviceEnrollmentStore;
+  private readonly isQuarantined: ((principal: string, jkt: string) => boolean) | undefined;
   private readonly issuer: string;
   private readonly origin: string;
   private readonly cookieName: string;
@@ -125,7 +126,8 @@ export class NodeAuth {
   private nonceSince = Date.now();
   private readonly sessionListeners = new Set<(id: string) => void>();
 
-  constructor({ dataDir, issuer }: { dataDir: string; issuer: string }) {
+  constructor({ dataDir, issuer, isQuarantined }: { dataDir: string; issuer: string; isQuarantined?: (principal: string, jkt: string) => boolean }) {
+    this.isQuarantined = isQuarantined;
     const address = new URL(issuer);
     if (address.username || address.password || address.search || address.hash || (address.pathname !== "/" && address.pathname !== "") ||
       (address.protocol !== "https:" && !(address.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(address.hostname)))) {
@@ -188,7 +190,7 @@ export class NodeAuth {
         this.db.prepare("INSERT INTO auth_security_events(time,principal_id,kind,session_id,subject_id) VALUES (?,?,?,?,?)")
           .run(Date.now(), principal, kind, actor, subject);
         this.db.exec("DELETE FROM auth_security_events WHERE seq <= (SELECT COALESCE(MAX(seq),0)-10000 FROM auth_security_events)");
-      }));
+      }, (principal, jkt) => this.isQuarantined?.(principal, jkt) === true));
     if (!this.owner()) this.setupCode = secret();
   }
 
@@ -305,7 +307,7 @@ export class NodeAuth {
     });
     this.invalidateSessions(affected);
   }
-  private requireRecentAdministrator(identity: Identity): void {
+  requireRecentAdministrator(identity: Identity): void {
     this.requirePermission(identity, "admin");
     if (Date.now() - this.activeSession(identity.sessionId).created_at > 5 * MINUTE) {
       throw new NodeAuthError(428, "reauthentication_required", "Sign in again before changing trusted devices or recovery settings.");
@@ -319,6 +321,24 @@ export class NodeAuth {
   blockDevice(identity: Identity, jkt: string, version: number): void {
     this.requireRecentAdministrator(identity);
     this.invalidateSessions(this.enrollment.block(identity.principalId, identity.sessionId, jkt, version));
+  }
+  taskSource(identity: Identity, botId: string): { deviceJkt: string; sessionId: string } {
+    this.requirePermission(identity, "write", botId);
+    const session = this.activeSession(identity.sessionId);
+    return { deviceJkt: session.dpop_jkt!, sessionId: session.id };
+  }
+  /** The durable task quarantine commits first, after all block authorization checks.
+   * Auth and task ledgers are separate databases: a failed second commit remains
+   * fail-closed through isQuarantined, rather than claiming a cross-db transaction. */
+  blockDeviceAndFreeze(identity: Identity, jkt: string, version: number, freeze: () => void): void {
+    this.requireRecentAdministrator(identity);
+    const device = this.enrollment.device(identity.principalId, jkt);
+    if (!device) throw new NodeAuthError(404, "not_found", "Unknown device key.");
+    if (device.status === "blocked") {
+      if (device.version !== version && device.version !== version + 1) throw new NodeAuthError(409, "stale_device", "Refresh the blocked device before freezing its work.");
+      freeze(); return;
+    }
+    this.invalidateSessions(this.enrollment.block(identity.principalId, identity.sessionId, jkt, version, freeze));
   }
   rotateRecoveryCodes(identity: Identity): { codes: string[] } {
     this.requireRecentAdministrator(identity);
@@ -406,6 +426,7 @@ export class NodeAuth {
     const row = this.db.prepare("SELECT * FROM auth_sessions WHERE id=?").get(id) as Session | undefined;
     if (!row || !row.dpop_jkt || row.revoked_at !== null || row.idle_expires <= Date.now() || row.absolute_expires <= Date.now()) throw invalid("Session expired or revoked");
     this.enrollment.trusted(row.principal_id, row.dpop_jkt);
+    if (this.isQuarantined?.(row.principal_id, row.dpop_jkt)) throw invalid("Device is quarantined by a persistent safety stop.");
     return row;
   }
 

@@ -261,6 +261,15 @@ export class NodeConnectionManager {
   async blockDevice(id: string, thumbprint: string, expectedVersion: number): Promise<void> {
     await this.request(await this.get(id), `/v1/security/devices/${encodeURIComponent(thumbprint)}/block`, "POST", { expectedVersion });
   }
+  async blockDeviceAndFreeze(id: string, thumbprint: string, expectedVersion: number, key: string): Promise<unknown> {
+    return this.request(await this.get(id), `/v1/security/devices/${encodeURIComponent(thumbprint)}/block-and-freeze`, "POST", { expectedVersion }, key);
+  }
+  async freezeBotTasks(id: string, botId: string, key: string): Promise<unknown> {
+    return this.request(await this.get(id), `/v1/security/bots/${encodeURIComponent(botId)}/freeze`, "POST", {}, key);
+  }
+  async releaseBotFreeze(id: string, freezeId: string, expectedVersion: number, key: string): Promise<unknown> {
+    return this.request(await this.get(id), `/v1/security/task-freezes/${encodeURIComponent(freezeId)}/release`, "POST", { expectedVersion }, key);
+  }
   async rotateRecoveryCodes(id: string): Promise<unknown> {
     return this.request(await this.get(id), "/v1/security/recovery-codes", "POST", {});
   }
