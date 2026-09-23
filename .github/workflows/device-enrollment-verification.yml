@@ -1,0 +1,28 @@
+name: device enrollment verification
+on:
+  push:
+    branches: [work/device-enrollment-verification-20260923]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5a3dfa1b13ebab567668d9208c419f49d088d8fa
+          persist-credentials: false
+      - name: Export reviewed sources and exact Git manifest
+        run: |
+          mkdir -p "$RUNNER_TEMP/source-export"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/source-export/tree.txt"
+          git archive HEAD -- . ':!research-archives' | gzip > "$RUNNER_TEMP/source-export/source.tar.gz"
+          cd "$RUNNER_TEMP/source-export"
+          sha256sum source.tar.gz tree.txt > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-security-source
+          path: ${{ runner.temp }}/source-export/
+          retention-days: 3
+          if-no-files-found: error
