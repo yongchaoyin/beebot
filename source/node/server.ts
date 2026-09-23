@@ -96,7 +96,7 @@ export class BeeBotServer {
       json(res, 200, { node: this.node, bots: this.store.bots(principalId).filter(bot => this.auth.permits(identity, "read", bot.id)), goals: this.store.goals(principalId).filter(goal => this.auth.permits(identity, "read", goal.botId)), cursor: this.store.cursor }); return;
     }
     if (req.method === "POST" && url.pathname === "/v1/events/ticket") { await body(req); json(res, 200, this.auth.createEventTicket(identity)); return; }
-    if (req.method === "POST" && url.pathname === "/v1/bots") { this.auth.requirePermission(identity, "admin"); json(res, 201, this.store.createBot(principalId, key, botSchema.parse(await body(req)))); return; }
+    if (req.method === "POST" && url.pathname === "/v1/bots") { const input = botSchema.parse(await body(req)); this.auth.requirePermission(identity, "admin"); json(res, 201, this.store.createBot(principalId, key, input)); return; }
     if (req.method === "POST" && url.pathname === "/v1/goals") { const input = goalSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", input.botId); json(res, 202, this.store.submitGoal(principalId, key, input)); return; }
     if (req.method === "GET" && url.pathname === "/v1/security/sessions") { json(res, 200, this.auth.listSessions(identity)); return; }
     if (req.method === "GET" && url.pathname === "/v1/security/events") { json(res, 200, this.auth.securityEvents(identity)); return; }
@@ -113,6 +113,8 @@ export class BeeBotServer {
       } else { z.object({}).strict().parse(input); this.auth.changeSession(identity, security[1]); }
       json(res, 200, { ok: true }); return;
     }
+    // Body reads yield to revocations/grant changes. Recheck the current grant
+    // immediately before each mutation; never validate the same DPoP proof twice.
     const match = /^\/v1\/goals\/([a-f0-9-]{36})(?:\/(cancel|accept|reconcile))?$/.exec(url.pathname);
     if (match?.[1]) {
       const id = match[1]; const action = match[2];
@@ -122,9 +124,9 @@ export class BeeBotServer {
         const goal = this.store.goal(id, principalId);
         json(res, 200, { goal, task: this.store.task(goal.taskId), transcript: readableTranscript(this.store.transcript(id)) }); return;
       }
-      if (req.method === "POST" && action === "cancel") { z.object({}).strict().parse(await body(req)); json(res, 200, this.store.cancel(principalId, key, id)); return; }
-      if (req.method === "POST" && action === "accept") { const input = acceptSchema.parse(await body(req)); json(res, 200, this.store.accept(principalId, key, id, input.expectedVersion)); return; }
-      if (req.method === "POST" && action === "reconcile") { const input = reconcileSchema.parse(await body(req)); json(res, 200, await this.service.reconcile(principalId, key, id, input.expectedVersion, input.note)); return; }
+      if (req.method === "POST" && action === "cancel") { z.object({}).strict().parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, this.store.cancel(principalId, key, id)); return; }
+      if (req.method === "POST" && action === "accept") { const input = acceptSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, this.store.accept(principalId, key, id, input.expectedVersion)); return; }
+      if (req.method === "POST" && action === "reconcile") { const input = reconcileSchema.parse(await body(req)); this.auth.requirePermission(identity, "write", target.botId); json(res, 200, await this.service.reconcile(principalId, key, id, input.expectedVersion, input.note)); return; }
     }
     throw new ControlError(404, "not_found", "Unknown API route.");
   }

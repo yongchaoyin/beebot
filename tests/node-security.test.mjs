@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
+import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
@@ -238,4 +239,45 @@ test("native Node listener enforces TLS 1.3 and validates the server certificate
   assert.deepEqual(await request({ca:certificate,minVersion:"TLSv1.3",maxVersion:"TLSv1.3"}),{status:200,protocol:"TLSv1.3"});
   await assert.rejects(request({ca:certificate,maxVersion:"TLSv1.2"}));
   await assert.rejects(request({minVersion:"TLSv1.3"}));
+});
+
+
+async function delayedBody(f, session, route, input) {
+  const payload=JSON.stringify(input); let received;
+  const authenticated=new Promise(resolve=>received=resolve);
+  const original=f.server.auth.authenticate.bind(f.server.auth);
+  f.server.auth.authenticate=req=>{const identity=original(req);if(req.url===route) received();return identity;};
+  let finishBody;
+  const result=new Promise((resolve,reject)=>{
+    const req=httpRequest(f.origin+route,{method:"POST",agent:false,headers:{
+      Authorization:`DPoP ${session.tokens.access_token}`,
+      DPoP:session.device.proof(f.origin+route,"POST",session.tokens.access_token,f.server.auth.getDpopNonce()),
+      "Content-Type":"application/json","Content-Length":Buffer.byteLength(payload),"Idempotency-Key":randomUUID(),
+    }},res=>{res.resume();res.on("end",()=>resolve(res.statusCode));});
+    req.on("error",reject);req.setTimeout(5000,()=>req.destroy(Error("slow-body test timeout")));
+    req.write(payload.slice(0,1));finishBody=()=>req.end(payload.slice(1));
+  });
+  await authenticated;
+  f.server.auth.authenticate=original;
+  return {result,finish:()=>finishBody()};
+}
+test("revoking an authenticated session during a delayed body prevents Bot creation",async t=>{
+  const f=await fixture(t),admin=await f.login(),other=await f.login();
+  const target=(await (await other.request("/v1/security/sessions")).json()).currentSessionId;
+  const before=f.server.store.bots().length;
+  const pending=await delayedBody(f,other,"/v1/bots",{name:"Must not be created"});
+  try {assert.equal((await admin.request(`/v1/security/sessions/${target}/revoke`,{})).status,200);} finally {pending.finish();}
+  assert.equal(await pending.result,401);assert.equal(f.server.store.bots().length,before);
+});
+test("permission downgrade during delayed goal action bodies prevents cancel accept and reconcile",async t=>{
+  const f=await fixture(t),admin=await f.login(),other=await f.login();
+  const target=(await (await other.request("/v1/security/sessions")).json()).currentSessionId;
+  const bot=(await (await admin.request("/v1/bots",{name:"Scope race"})).json()).bot;
+  const goal=await (await admin.request("/v1/goals",{botId:bot.id,prompt:"fixture work"})).json();
+  for(const [action,body] of [["cancel",{}],["accept",{expectedVersion:1}],["reconcile",{expectedVersion:1,note:"Controlled test only"}]]) {
+    assert.equal((await admin.request(`/v1/security/sessions/${target}/grant`,{role:"operator",botIds:[bot.id]})).status,200);
+    const pending=await delayedBody(f,other,`/v1/goals/${goal.goalId}/${action}`,body);
+    try {assert.equal((await admin.request(`/v1/security/sessions/${target}/grant`,{role:"viewer",botIds:[bot.id]})).status,200);} finally {pending.finish();}
+    assert.equal(await pending.result,403,action+" must not use the old grant");
+  }
 });

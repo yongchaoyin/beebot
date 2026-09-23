@@ -39,6 +39,8 @@ publish an application or image.
   established WebSockets. The initial event frame requires a ticket-bound key
   proof; this is an explicit BeeBot event profile, not a claim that WebSocket
   frames themselves are RFC 9449 HTTP requests.
+- Delayed request bodies recheck the current session grant immediately before
+  mutations, so a revocation or downgrade during body upload cannot keep old rights.
 - Main-process request generation guards discard late results after sign-out,
   removal or a changed session. They do not resend under a replacement session.
 - Private Node audit events record authorization, revocation and permission
