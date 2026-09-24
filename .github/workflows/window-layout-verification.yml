@@ -2,6 +2,7 @@ name: window layout verification
 on:
   push:
     branches: [work/window-layout-verification-20260924]
+    paths: [.github/workflows/window-layout-verification.yml]
 permissions:
   contents: read
 jobs:
@@ -13,24 +14,20 @@ jobs:
         with:
           ref: 29920ee0543c697a23ee7bcec2a61bbf7f75061f
           persist-credentials: false
-      - name: Verify and materialize exact source candidate
+      - name: Verify exact base patch and source supplement
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import urllib.request,json,base64,hashlib,lzma,pathlib,subprocess,os
-          sha='589dff6e1326d4e74e69958ad478b6190cb3ef03'
-          req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-          payload=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
-          assert hashlib.sha1(b'blob '+str(len(payload)).encode()+b'\0'+payload).hexdigest()==sha
-          assert hashlib.sha256(payload).hexdigest()=='e9918c0b09c013555c2afbe7ed3e06a5dd30a618706dcfe56eccfacd7b9bff45'
           out=pathlib.Path(os.environ['RUNNER_TEMP'])/'window-candidate';out.mkdir()
-          (out/'source.patch').write_bytes(lzma.decompress(payload))
-          subprocess.run(['git','apply','--index',str(out/'source.patch')],check=True)
-          check=pathlib.Path('.github/workflows/check.yml');text=check.read_text();anchor='      - name: Verify native macOS caption geometry and zoom\n'
-          assert text.count(anchor)==1
-          check.write_text(text.replace(anchor,'      - name: Install the locked Electron verification binary\n        run: node node_modules/electron/install.js\n'+anchor))
-          subprocess.run(['git','add','.github/workflows/check.yml'],check=True)
+          for index,(sha,digest) in enumerate([('589dff6e1326d4e74e69958ad478b6190cb3ef03','e9918c0b09c013555c2afbe7ed3e06a5dd30a618706dcfe56eccfacd7b9bff45'),('084544c9279dd03dc656828e614af91f352e4fe3','3b0df070ed48d031d2df9648cd24f4a725411b1cfe7932ce3fe4a0bd325d55c0')]):
+              req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              payload=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
+              assert hashlib.sha1(b'blob '+str(len(payload)).encode()+b'\0'+payload).hexdigest()==sha
+              assert hashlib.sha256(payload).hexdigest()==digest
+              patch=pathlib.Path(os.environ['RUNNER_TEMP'])/('source-part-'+str(index)+'.patch');patch.write_bytes(lzma.decompress(payload))
+              subprocess.run(['git','apply','--index',str(patch)],check=True)
           paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
           assert len(paths)==14
           assert all((p.startswith(('source/','frontend/src/','scripts/','tests/','docs/implementation/')) or p=='.github/workflows/check.yml') and '..' not in p.split('/') for p in paths)
@@ -60,20 +57,18 @@ jobs:
         with:
           name: window-layout-candidate
           path: ${{ runner.temp }}/window-candidate
-      - name: Preserve exact candidate identity for clean export validation
+      - name: Preserve candidate identity for clean export validation
         run: |
           git apply --index "$RUNNER_TEMP/window-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/window-candidate/tree.txt")"
-          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only caption and window layout verification'
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only final caption and window layout verification'
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
       - run: npm ci --no-audit --no-fund
       - run: npm run bootstrap
       - run: npm run icon:generate
-      - name: Prepare exact Electron binary
-        run: node node_modules/electron/install.js
-      - name: Exercise real native buttons geometry, clicks, zoom and fullscreen
+      - name: Exercise real native geometry, clicks, zoom and fullscreen
         run: |
           set -o pipefail
           node scripts/verify-native-window-layout.mjs 2>&1 | tee window-native.log
@@ -114,7 +109,7 @@ jobs:
         with:
           name: window-layout-candidate
           path: ${{ runner.temp }}/window-candidate
-      - name: Publish tested layout source and docs without changing other branches
+      - name: Publish tested source and docs without changing other branches
         run: |
           git apply --index "$RUNNER_TEMP/window-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/window-candidate/tree.txt")"
