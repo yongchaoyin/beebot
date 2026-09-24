@@ -1,6 +1,7 @@
 @import "./tokens.css";
 @import "./avatar-motion.css";
 @import "./window-layout.css";
+@import "./message-colors.css";
 
 /* Explicit semantic selectors only. No hashed upstream classes, transcript
    text rewriting, hidden controls, fixed transcript heights, or global key hooks. */
@@ -12,7 +13,7 @@ html[data-beebot-theme="presence"] :is(button, input, textarea, select) { font-f
 html[data-beebot-theme="presence"] :is(button, a, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid var(--bb-focus); outline-offset: 3px;
 }
-html[data-beebot-theme="presence"] ::selection { background: var(--bb-user); color: var(--bb-text); }
+html[data-beebot-theme="presence"] ::selection { background: var(--bb-accent); color: var(--bb-on-accent); }
 html[data-beebot-theme="presence"] :is(.sand-agents-sidebar, .sand-sidebar) { background: var(--bb-sidebar); }
 html[data-beebot-theme="presence"] .sand-agents-sidebar__header { border-bottom: 0; min-height: 56px; }
 html[data-beebot-theme="presence"] .sand-agents-sidebar__new-actions { display: flex; flex: 1; align-items: center; min-width: 0; }
@@ -69,7 +70,9 @@ html[data-beebot-theme="presence"] .sand-prompt-field { color: var(--bb-text); }
 html[data-beebot-theme="presence"] .sand-prompt-field::placeholder { color: var(--bb-muted); }
 html[data-beebot-theme="presence"] :is(.sand-prompt-send, .beebot-node-conversation .sand-prompt-actions-trailing .sand-prompt-send) {
   width: 32px; height: 32px; border-radius: 9px; background: var(--bb-accent); color: var(--bb-on-accent);
-  transition: background-color var(--bb-fast), transform var(--bb-fast);
+  /* Switch paired ink/fill atomically; interpolating only the fill briefly hides
+     the icon when light/dark changes. Keep the existing press motion. */
+  transition: transform var(--bb-fast);
 }
 /* The empty composer may use a microphone action; never render a blank button. */
 html[data-beebot-theme="presence"] .sand-prompt-send:enabled:hover { background: var(--bb-accent-hover); }

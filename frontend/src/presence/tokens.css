@@ -14,7 +14,10 @@ html[data-beebot-theme="presence"] {
   --bb-on-accent: #FFFFFF;
   --bb-link: #254DAB;
   --bb-focus: #335FC9;
-  --bb-user: #E8EFFC;
+  --bb-user: #DCE7FA;
+  --bb-user-text: #20242B;
+  --bb-mention-bg: #CCDDF7;
+  --bb-mention-text: #20242B;
   --bb-code-bg: #EDF0F5;
   --bb-code-text: #293342;
   --bb-success: #27613F;
@@ -47,6 +50,9 @@ html[data-beebot-theme="presence"][data-theme="cursor-dark"] {
   --bb-link: #B0CBFF;
   --bb-focus: #A5C2FF;
   --bb-user: #273856;
+  --bb-user-text: #F1F3F6;
+  --bb-mention-bg: #354B70;
+  --bb-mention-text: #F1F3F6;
   --bb-code-bg: #171E29;
   --bb-code-text: #DCE5F5;
   --bb-success: #A9DBBF;
