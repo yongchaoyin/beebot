@@ -29,7 +29,7 @@ export function patchPresenceRenderer(source) {
   }
   let result = source.slice(0, start) + `function sd(n){
     const style=Fe(Slt.root,n.style),size="sizeCss" in n?n.sizeCss:n.sizePx;
-    return p.jsxs("span",{"aria-hidden":true,className:re("sand-grok-bot-mark","bb-persona",style.className,n.className),"data-grok-state":n.state??"idle","data-paused":n.paused||undefined,style:{...style.style,width:size,height:size},children:[
+    return p.jsxs("span",{"aria-hidden":true,className:re("bb-bot-mark","bb-persona",style.className,n.className),"data-avatar-state":n.state??"idle","data-paused":n.paused||undefined,style:{...style.style,width:size,height:size},children:[
       p.jsx(RPresenceCharacter(),{color:n.color,shape:n.shape,state:n.state,paused:n.paused,sizePx:n.sizePx,sourceId:n.sourceId,emphasis:n.emphasis,spinSignal:n.spinSignal,ref:n.ref,isFollowingPointer:n.isFollowingPointer,followTarget:n.followTarget,motionPriority:n.motionPriority,avatarIdentity:n.avatarIdentity??n.sourceId}),n.children
     ]});
   }` + source.slice(end);

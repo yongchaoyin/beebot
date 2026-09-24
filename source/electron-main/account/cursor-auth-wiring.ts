@@ -194,7 +194,7 @@ export function createCursorAccountEdgePort(deps: {
     cancelTrial: async () => !await deps.isUsagePageEnabled() ? { ok: false, message: "This isn’t available right now" } : await withService(async (service) => (await service.getStatus()).kind === "logged-in" ? await deps.cancelTrial(tokenReader(service)) : { ok: false, message: "Sign in to Cursor to continue" }),
     invokeDashboardAction: async (raw: unknown) => {
       const request = parseDashboardActionRequest(raw);
-      if (request == null) return { ok: false, message: `This action isn’t supported by this version of ${deps.productDisplayName ?? "Grok Bot"}` };
+      if (request == null) return { ok: false, message: `This action isn’t supported by this version of ${deps.productDisplayName ?? "BeeBot"}` };
       return await withService(async (service) => (await service.getStatus()).kind === "logged-in" ? await deps.invokeDashboardAction(tokenReader(service), request) : { ok: false, message: "Sign in to Cursor to continue" });
     },
   };

@@ -29,11 +29,11 @@ export function compactHeadAndTail(value: string, maxChars: number): string {
 }
 
 export function shellLocationPhrase(surface: string): string {
-  return surface === "host_shell" ? "on your local computer" : "on Grok Bot's computer";
+  return surface === "host_shell" ? "on your local computer" : "on BeeBot's computer";
 }
 
 export function genericSandShellAutoReviewSummary(surface: string): string {
-  return surface === "host_shell" ? "Run a command on your local computer" : "Run a command on Grok Bot's computer";
+  return surface === "host_shell" ? "Run a command on your local computer" : "Run a command on BeeBot's computer";
 }
 
 export function describeSandShellAutoReviewAction(args: {
@@ -239,7 +239,7 @@ export function summarizeSandSubagentAction(args: { readonly action: string; rea
   const instruction = compactHeadAndTail(redactSandAutoReviewInlineSecrets(args.prompt), 240);
   return args.action === "steer"
     ? `Send a follow-up to a running task: \u201C${instruction}\u201D`
-    : `Run a task on Grok Bot's computer: \u201C${instruction}\u201D`;
+    : `Run a task on BeeBot's computer: \u201C${instruction}\u201D`;
 }
 
 export interface SandBrowserSummaryArgs {
@@ -275,7 +275,7 @@ export function summarizeSandBrowserAutoReviewAction(args: SandBrowserSummaryArg
     case "drag": return summarize(`Drag ${target}`);
     case "cdp": return summarize(`Run CDP command ${args.cdpMethod?.slice(0, 120) ?? ""} with ${compactHeadAndTail(redactSandAutoReviewInlineSecrets(args.cdpParams ?? "{}"), 160)}`);
     case "tabs": return summarize(args.tabsAction === "close" ? `Close browser tab${args.tabIndex !== undefined ? ` ${args.tabIndex}` : ""}` : "Open a new browser tab");
-    default: return compact(`Browser ${args.op} on Grok Bot's computer`, 340);
+    default: return compact(`Browser ${args.op} on BeeBot's computer`, 340);
   }
 }
 
@@ -292,5 +292,5 @@ export function summarizeTypedText(text: string): string {
 }
 
 export function summarizeSandComputerTypedText(text: string): string {
-  return `${summarizeTypedText(text)} on Grok Bot's computer`;
+  return `${summarizeTypedText(text)} on BeeBot's computer`;
 }

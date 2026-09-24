@@ -114,7 +114,8 @@ import { commandPaletteLinksFromConversation, createCommandPaletteLinkMetadataPr
 import { commandPaletteUpdateCommand } from "./command-palette-update-command";
 import { commandPaletteRootCommands, type CommandPaletteComputerUpdateAction, type CommandPaletteInfoSection } from "./command-palette-root-commands";
 import { CoordinatorCallError, createCoordinatorClient, type ProductionCoordinatorClient } from "./coordinator-client";
-import { UI_TEXT } from "./evidence";
+import { UI_TEXT } from "./ui-text";
+import { EXTERNAL_FEEDBACK_MESSAGES } from "../../../source/shared/product-access-copy";
 import { movePinnedAgent, partitionSidebarAgents } from "./sidebar-model";
 import { SignOutDialog } from "../recovered/features/account/session/sign-out";
 import { FeedbackDialog, type FeedbackCode } from "../recovered/features/feedback/overlay/view";
@@ -315,8 +316,8 @@ function computerActionResult(value: unknown): { status: string; reason?: string
   };
 }
 
-const COMPUTER_UPDATE_UNTRACKABLE_COPY = "The computer update started, but Grok Bot can't track its progress. Restart Grok Bot after the computer is available again.";
-const COMPUTER_RESET_UNTRACKABLE_COPY = "The computer reset started, but Grok Bot can't track its progress. Restart Grok Bot after the computer is available again.";
+const COMPUTER_UPDATE_UNTRACKABLE_COPY = "The computer update started, but BeeBot can't track its progress. Restart BeeBot after the computer is available again.";
+const COMPUTER_RESET_UNTRACKABLE_COPY = "The computer reset started, but BeeBot can't track its progress. Restart BeeBot after the computer is available again.";
 
 function optimisticAcknowledgementEntries(nonce: string, attachments: readonly { path: string; name: string }[]) {
   return [
@@ -366,17 +367,10 @@ function RootInfoPaneHeader({ children, onClose, closeLabel = "Close details" }:
     </span>
   </header>;
 }
-const FEEDBACK_ERRORS: Record<FeedbackCode, string> = {
-  "access-denied": "Grok Bot isn't available for this account.",
-  "invalid-feedback": "Write between 1 and 10,000 characters.",
-  "not-signed-in": ["Sign in to ", UI_TEXT.title, " before sending feedback."].join(""),
-  "rate-limited": "You've sent several reports. Try again in a few minutes.",
-  "subscription-required": "Upgrade to Ultra before sending feedback.",
-  unavailable: "We couldn't deliver this report. Try again."
-};
+const FEEDBACK_ERRORS: Readonly<Record<FeedbackCode, string>> = EXTERNAL_FEEDBACK_MESSAGES;
 const UPDATE_REQUIRED_LABELS = {
-  descriptionPrefix: "This version of Grok Bot (",
-  descriptionSuffix: ") is no longer supported. Update to keep using Grok Bot — your agents keep running the whole time.",
+  descriptionPrefix: "This version of BeeBot (",
+  descriptionSuffix: ") is no longer supported. Update to keep using BeeBot — your agents keep running the whole time.",
   downloading: "Downloading update…",
   error: "Couldn't download the update. Check your connection and try again.",
   preparing: "Preparing update…",
@@ -395,7 +389,7 @@ const UPDATE_PILL_LABELS = {
 const SETTINGS_COMMANDS: readonly { id: SettingsSectionId; label: string; keywords: readonly string[] }[] = [
   { id: "general", label: "General", keywords: ["account", "model", "notifications", "preferences", "appearance", "theme", "mode", "security", "yubikey", "webauthn"] },
   { id: "servers", label: "Servers", keywords: ["server", "connection", "deployment", "remote", "node"] },
-  { id: "usage", label: "Usage & Billing", keywords: ["usage", "billing", "spend", "limit", "on-demand", "plan", "quota"] },
+  { id: "usage", label: "Usage", keywords: ["usage", "billing", "spend", "limit", "on-demand", "plan", "quota"] },
   { id: "beta", label: "Updates", keywords: ["beta", "updates", "release", "track", "danger"] }
 ];
 const THEME_COMMANDS: readonly { preference: ThemePreference; label: string; keywords: readonly string[] }[] = [
@@ -3374,7 +3368,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     if (readyVersion == null) return;
     void groupMembersRoot.alert.alert({
       title: "Update ready",
-      description: `Restart to finish installing Grok Bot ${readyVersion}. Your agents and work will be right where you left them.`,
+      description: `Restart to finish installing BeeBot ${readyVersion}. Your agents and work will be right where you left them.`,
       confirmLabel: "Restart to update",
       confirmLeadingIcon: "cloud-download",
       pendingLabel: "Restarting…",
@@ -3382,7 +3376,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       perform: async () => {
         const current = await settingsUpdateController.refresh();
         const currentVersion = current?.state.type === "ready" ? current.state.version : null;
-        if (currentVersion !== readyVersion) return `Grok Bot ${readyVersion} is no longer staged. Grok Bot will offer the next build when it is ready.`;
+        if (currentVersion !== readyVersion) return `BeeBot ${readyVersion} is no longer staged. BeeBot will offer the next build when it is ready.`;
         await settingsUpdateController.install();
         return null;
       }

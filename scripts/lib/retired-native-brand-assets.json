@@ -1,0 +1,7 @@
+[
+  {
+    "file": "Assets.car",
+    "sha256": "95de5001cddd503a354f471c772d09fd2501e9c37abfeeb078ad6f33994507ed",
+    "reason": "Pinned upstream icon-only asset catalog, superseded by the owned BeeBot icon.icns. Inventory verified with assetutil in run 36068346119."
+  }
+]

@@ -69,6 +69,11 @@ await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleURLTypes", infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>BeeBot auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
 // Rename matching main/helper identities together; payload invariants are still verified.
 await run("python3", [path.join(repoRoot, "scripts/lib/rebrand-macos.py"), outputApp]);
+// Only the hash-reviewed, now-unselected main icon catalog is obsolete. Native
+// frameworks, code, glyphs and the immutable signed reference stay untouched.
+const nativeArtworkArgs = [path.join(repoRoot, "scripts/lib/retire-native-brand-assets.py"), outputApp,
+  "--expected-icon", path.join(repoRoot, ".build/app-icon/beebot-app-icon.icns")];
+await run("python3", nativeArtworkArgs);
 
 await rm(path.join(outputApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 try {
@@ -90,4 +95,5 @@ const verification = await verifyReconstructedMacPackage({
 });
 
 await run("python3", [path.join(repoRoot, "scripts/lib/rebrand-macos.py"), outputApp, "--verify"]);
+await run("python3", [...nativeArtworkArgs, "--verify"]);
 console.log(`Packaged application: ${outputApp} (${verification.runtime.nodeFileCount} native manifest entries, ${verification.runtime.runtimeFileCount} unpacked runtime files)`);

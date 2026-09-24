@@ -1,0 +1,6 @@
+.bb-product-connections { display: grid; gap: 12px; min-width: 0; color: var(--bb-text, #20242b); font-family: var(--bb-font, system-ui, sans-serif); }
+.bb-product-connections h3 { margin: 0; font-size: 14px; line-height: 1.5; }
+.bb-product-connections__row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; background: var(--bb-surface, #fff); border: 1px solid var(--bb-border, #d6dce5); border-radius: 10px; }
+.bb-product-connections__row p { flex: 1 1 200px; min-width: 0; margin: 0; font-size: 13px; line-height: 1.6; }
+.bb-product-connections__row button { flex: 0 1 auto; max-width: 100%; padding: 8px 12px; border: 1px solid var(--bb-border, #d6dce5); border-radius: 8px; color: var(--bb-text, #20242b); background: var(--bb-hover, #eef1f5); font: inherit; cursor: pointer; -webkit-app-region: no-drag; }
+.bb-product-connections__row button:focus-visible { outline: 2px solid var(--bb-accent, #285dcc); outline-offset: 2px; }

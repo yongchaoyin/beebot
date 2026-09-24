@@ -151,7 +151,7 @@ export class SandMcpAuthWatchLifecycle {
         status: "not-supported",
         serverName: server.name,
         message:
-          "This connector runs on Grok Bot's computer and does not use browser sign-in. Configure credentials via its env settings instead.",
+          "This connector runs on BeeBot's computer and does not use browser sign-in. Configure credentials via its env settings instead.",
       };
     }
     let status: any;

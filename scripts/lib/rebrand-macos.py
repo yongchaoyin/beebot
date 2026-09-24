@@ -40,6 +40,8 @@ def rewrite_bundle(bundle, name, identifier):
         if key.endswith("UsageDescription") and isinstance(value, str):
             data[key] = value.replace(OLD, NEW)
     data.pop("CFBundleIconName", None)
+    if name == NEW:
+        data["CFBundleIconFile"] = "icon.icns"
     info.write_bytes(plistlib.dumps(data, sort_keys=False))
 
 

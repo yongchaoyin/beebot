@@ -232,7 +232,7 @@ export async function pollShellTerminalFile<Context>(
       if (error instanceof SandLocalToolPermissionDeniedError) {
         settle(
           "error",
-          "Grok Bot is no longer allowed to read this command's output on the user's computer, so its completion cannot be observed. The command keeps running; ask the user to approve reading its output file for the result.",
+          "BeeBot is no longer allowed to read this command's output on the user's computer, so its completion cannot be observed. The command keeps running; ask the user to approve reading its output file for the result.",
           outputPath,
         );
         return;

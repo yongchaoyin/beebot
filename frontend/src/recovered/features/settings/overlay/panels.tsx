@@ -1,5 +1,8 @@
+import * as React from "react";
+import { createProductConnections, type ProductConnectionSection } from "../product-connections";
+import "../../../../presence/product-connections.css";
 import { useEffect, useState, type ReactNode } from "react";
-import type { CursorUsageSummary, CursorUsageUpgradeAction, DesktopTimeZoneState } from "../../../contracts/desktop-bridge";
+import type { CursorUsageSummary, DesktopTimeZoneState } from "../../../contracts/desktop-bridge";
 import { egressTunnelStatusDescription, type EgressTunnelStatus, type UpdateStatus, type UpdateTrack } from "./updates";
 // @evidence src/app/dist/renderer/assets/index-BlqerJhg.js#L1
 import { INTERNAL_RELEASE_TRACK_CONFIG_URL, UPDATE_TRACK_LABELS, updateStatusMessage } from "./updates";
@@ -12,12 +15,14 @@ import type { SandIconPlatform } from "../../../ui/sand-icon-registry";
 import { SandSelect } from "../../../ui/sand-floating-primitives";
 import { SandSwitch } from "../../../ui/sand-form-primitives";
 import { OverlayDialog } from "../../../ui/overlay-primitives";
-import { HTTP_ROUTER_PROVIDERS, ROUTER_PROVIDERS, routerProviderById, type HttpRouterProviderId, type RouterProviderId } from "./router";
+import { DEFAULT_ROUTER_PROVIDER, isRouterProviderId, HTTP_ROUTER_PROVIDERS, ROUTER_PROVIDERS, routerProviderById, type HttpRouterProviderId, type RouterProviderId } from "./router";
+
+const ProductConnections = createProductConnections(React);
 
 export type AccountState =
   | { kind: "logged-out"; errorMessage?: string }
   | { kind: "logging-in"; errorMessage?: string }
-  | { kind: "logged-in"; name: string; email?: string; avatarDataUrl?: string };
+  | { kind: "logged-in"; name: string; email?: string; avatarDataUrl?: string; isLocal?: boolean };
 
 export interface GeneralSettingsPanelProps {
   account: AccountState;
@@ -25,6 +30,7 @@ export interface GeneralSettingsPanelProps {
   accountError?: string | null;
   theme: "system" | "light" | "dark";
   onAccountAction(): void;
+  onOpenConnectionSection?(section: ProductConnectionSection): void;
   onThemeChange(theme: "system" | "light" | "dark"): void | Promise<unknown>;
   language?: "en" | "zh";
   languagePending?: boolean;
@@ -92,7 +98,7 @@ export function ThemePreferencePicker({ value, disabled = false, onChange }: The
   />;
 }
 
-export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
+export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onOpenConnectionSection, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
   const [themePending, setThemePending] = useState(false);
   const signedIn = account.kind === "logged-in";
@@ -104,8 +110,8 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
     return () => window.clearTimeout(timeout);
   }, [emailCopied]);
   const title = signedIn ? account.name : account.kind === "logging-in" ? "Signing in" : "Not signed in";
-  const detail = signedIn ? account.email ?? "Signed in to Cursor" : account.kind === "logging-in" ? "Finish signing in from your browser" : "Connect your Cursor account to BeeBot";
-  const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Sign In with Cursor";
+  const detail = signedIn ? account.email ?? "Existing provider session" : account.kind === "logging-in" ? "Finish signing in from your browser" : "No external provider session";
+  const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Disconnected";
   // @evidence recovered/frontend/app/assets/index-BlqerJhg.js#L40-L50
   const copyEmail = async () => {
     if (!signedIn || account.email == null || typeof navigator === "undefined" || navigator.clipboard == null) return;
@@ -127,7 +133,8 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
 
   return (
     <div className="sand-settings-general">
-      <SettingsGroup title="Account">
+      <ProductConnections language={language} onOpenSection={onOpenConnectionSection} />
+      {account.kind !== "logged-out" && !(signedIn && account.isLocal) ? <SettingsGroup title={language === "zh" ? "已有外部服务会话" : "Existing external service session"}>
         <div className="sand-account-card" data-state={account.kind}>
           <span aria-hidden="true" className="sand-account-card__avatar">
             {signedIn && account.avatarDataUrl ? <img alt="" src={account.avatarDataUrl} /> : title.slice(0, 1).toLocaleUpperCase()}
@@ -140,7 +147,7 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
           <SandButton disabled={isAccountPending} onClick={onAccountAction} shape="pill" size="md" variant={signedIn ? "secondary" : "primary"}>{action}</SandButton>
         </div>
         {visibleAccountError ? <p className="sand-account__error">{visibleAccountError}</p> : null}
-      </SettingsGroup>
+      </SettingsGroup> : null}
 
       <SettingsGroup title="Appearance">
         <label>
@@ -298,34 +305,24 @@ export interface UsageActionResult {
 }
 
 export interface UsageSettingsPanelProps {
-  /** Legacy fixture input used by the developer preview. */
-  meters?: readonly UsageMeter[];
-  state?: UsageLoadState;
-  onRetry?(): void;
-  onUpgrade?(action: CursorUsageUpgradeAction): Promise<UsageActionResult>;
-  onCancelTrial?(): Promise<UsageActionResult>;
-  onCancelDialogOpen?(open: boolean): void;
   provider?: RouterProviderId;
 }
 
-const UPGRADE_ERROR = "Couldn’t complete the upgrade action — try again";
-const CANCEL_TRIAL_COPY = "This ends your BeeBot trial now and removes your remaining trial credits. Your card won’t be charged either way — the trial never turns into a paid plan on its own.";
-
-export function UsageSettingsPanel({ meters = [], state, onRetry, onUpgrade, onCancelTrial, onCancelDialogOpen, provider = "cursor" }: UsageSettingsPanelProps) {
-  const [upgradePending, setUpgradePending] = useState(false);
-  const [upgradeNotice, setUpgradeNotice] = useState<{ tone: "info" | "error"; text: string } | null>(null);
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-  const [cancelPending, setCancelPending] = useState(false);
-  const [cancelNotice, setCancelNotice] = useState<string | null>(null);
-  useEffect(() => {
-    onCancelDialogOpen?.(cancelConfirmOpen);
-    return () => {
-      onCancelDialogOpen?.(false);
-    };
-  }, [cancelConfirmOpen, onCancelDialogOpen]);
-
+/** Configured model providers own their billing. Retired product trials and
+ * upgrades are not BeeBot features; this panel never invokes purchase actions. */
+export function UsageSettingsPanel({ provider = DEFAULT_ROUTER_PROVIDER }: UsageSettingsPanelProps) {
+  if (!isRouterProviderId(provider)) return (
+    <div className="sand-usage-section">
+      <SettingsGroup title="Model usage">
+        <div className="sand-provider-usage-card">
+          <strong>Provider is not active</strong>
+          <span>Choose a configured model provider in Router. No BeeBot subscription is required.</span>
+        </div>
+      </SettingsGroup>
+    </div>
+  );
   const selectedProvider = routerProviderById(provider);
-  if (selectedProvider.usageSource === "external") return (
+  return (
     <div className="sand-usage-section">
       <SettingsGroup title={`${selectedProvider.label} usage`}>
         <div className="sand-provider-usage-card">
@@ -333,144 +330,6 @@ export function UsageSettingsPanel({ meters = [], state, onRetry, onUpgrade, onC
           <span>{selectedProvider.usageDescription}</span>
         </div>
       </SettingsGroup>
-    </div>
-  );
-  if (state?.status === "empty" || state?.status === "unavailable") return (
-    <div className="sand-usage-section">
-      <SettingsGroup title={`${selectedProvider.label} usage`}>
-        <div className="sand-provider-usage-card">
-          <strong>{selectedProvider.label}</strong>
-          <span>No usage information is available for this account right now.</span>
-        </div>
-      </SettingsGroup>
-    </div>
-  );
-  const summary = state?.summary ?? null;
-  const loading = state?.status === "loading";
-  const failed = state?.status === "failed";
-  if (state != null && summary == null) {
-    return (
-      <div className="sand-usage-section">
-        <SettingsGroup title={`${selectedProvider.label} usage`}>
-          <div className="sand-usage-state">
-            {failed ? <span style={{ color: "#ef8585" }}>Couldn’t load usage.</span> : <span>Loading usage…</span>}
-            {failed && onRetry ? <SandButton disabled={loading} onClick={onRetry} size="sm" variant="secondary">Retry</SandButton> : null}
-          </div>
-        </SettingsGroup>
-      </div>
-    );
-  }
-
-  const projectedMeters = summary == null || meters.length > 0 ? meters : usageMetersFromSummary(summary);
-  const upgrade = summary?.upgradeCta ?? null;
-  const upgradeSupportingText = summary == null ? null : upgrade == null ? null
-    : !summary.hasNonZeroIncludedLimit && summary.hasAvailableUsage && summary.sandUsagePercent != null && summary.sandUsagePercent < 100
-      ? "Get more BeeBot usage"
-      : summary.isSandTrial
-        ? "You’ve used all of your trial usage"
-        : summary.hasEndedSandTrial
-          ? "Your trial has ended. Upgrade to continue using BeeBot."
-          : null;
-  const canCancelTrial = summary?.isSandTrial === true && summary.canCancelSandTrial && onCancelTrial != null;
-
-  const invokeUpgrade = async () => {
-    if (upgrade == null || onUpgrade == null || upgrade.disabled || upgradePending) return;
-    setUpgradeNotice(null);
-    setUpgradePending(true);
-    try {
-      if (upgrade.action.kind === "open-url") {
-        const result = await onUpgrade(upgrade.action);
-        if (result.ok) setUpgradeNotice(result.message == null ? null : { tone: "info", text: result.message });
-        else setUpgradeNotice({ tone: "error", text: result.message ?? UPGRADE_ERROR });
-      } else {
-        const result = await onUpgrade(upgrade.action);
-        if (result.ok) {
-          const message = result.message ?? upgrade.action.successMessage;
-          setUpgradeNotice(message == null ? null : { tone: "info", text: message });
-        } else setUpgradeNotice({ tone: "error", text: result.message ?? UPGRADE_ERROR });
-      }
-    } catch {
-      setUpgradeNotice({ tone: "error", text: UPGRADE_ERROR });
-    } finally {
-      setUpgradePending(false);
-    }
-  };
-
-  const confirmCancelTrial = async () => {
-    if (onCancelTrial == null || cancelPending) return;
-    setCancelNotice(null);
-    setCancelPending(true);
-    try {
-      const result = await onCancelTrial();
-      if (!result.ok) {
-        setCancelNotice(result.message ?? "Couldn’t cancel the trial. Try again.");
-        return;
-      }
-      setCancelConfirmOpen(false);
-    } catch {
-      setCancelNotice("Couldn’t cancel the trial. Try again.");
-    } finally {
-      setCancelPending(false);
-    }
-  };
-
-  return (
-    <div className="sand-usage-section">
-      <SettingsGroup title={`${selectedProvider.label} usage`}>
-        {projectedMeters.length === 0 ? <span>No included usage available on your plan right now.</span> : projectedMeters.map((meter) => (
-          <div className="sand-usage-meter" key={meter.title}>
-            <div className="sand-usage-meter__header"><strong>{meter.title}</strong>{meter.resetLabel ? <small>{meter.resetLabel}</small> : null}</div>
-            {meter.percent != null ? (
-              <span aria-label={`${meter.title}: ${meter.valueLabel}`} aria-valuemax={100} aria-valuemin={0} aria-valuenow={meter.percent} className="sand-usage-meter__track" role="meter">
-                <span className="sand-usage-meter__fill" style={{ width: `${Math.max(0, Math.min(100, meter.percent))}%` }} />
-              </span>
-            ) : null}
-            <span>{meter.valueLabel}</span>
-          </div>
-        ))}
-        {upgrade != null && upgradeSupportingText != null && onUpgrade ? (
-          <div className="sand-usage-upgrade">
-            <span style={upgradeNotice?.tone === "error" ? { color: "#ef8585" } : undefined}>{upgradeNotice?.text ?? upgradeSupportingText}</span>
-            <div className="sand-usage-actions">
-              {canCancelTrial ? <SandButton disabled={cancelPending} onClick={() => setCancelConfirmOpen(true)} size="sm" variant="secondary">{cancelPending ? "Canceling…" : "Cancel Trial"}</SandButton> : null}
-              <SandButton disabled={upgrade.disabled || upgradePending} onClick={() => void invokeUpgrade()} size="sm" variant="primary">{upgrade.label}</SandButton>
-            </div>
-          </div>
-        ) : canCancelTrial ? (
-          <div className="sand-usage-actions"><SandButton disabled={cancelPending} onClick={() => setCancelConfirmOpen(true)} size="sm" variant="secondary">{cancelPending ? "Canceling…" : "Cancel Trial"}</SandButton></div>
-        ) : null}
-        {failed && summary != null && onRetry ? (
-          <div className="sand-usage-state" style={{ borderTop: 0, borderRadius: "0 0 9px 9px" }}>
-            <span style={{ color: "#ef8585" }}>Couldn’t refresh usage — showing the last known values.</span>
-            <SandButton disabled={loading} onClick={onRetry} size="sm" variant="secondary">Retry</SandButton>
-          </div>
-        ) : null}
-      </SettingsGroup>
-      <OverlayDialog
-        label="Cancel your trial?"
-        onClose={() => {
-          if (!cancelPending) setCancelConfirmOpen(false);
-        }}
-        open={cancelConfirmOpen}
-        panelStyle={{
-          width: "min(400px, calc(100vw - 32px))",
-          padding: 20,
-          color: "var(--cursor-text-primary, #ececec)",
-          background: "var(--cursor-bg-elevated, #202020)",
-          border: "1px solid var(--cursor-border-secondary, #414141)",
-          borderRadius: 10,
-          boxShadow: "0 18px 60px rgba(0, 0, 0, 0.55)"
-        }}
-        role="alertdialog"
-      >
-          <h3>Cancel your trial?</h3>
-          <p>{CANCEL_TRIAL_COPY}</p>
-          {cancelNotice ? <p role="alert" style={{ color: "#ef8585" }}>{cancelNotice}</p> : null}
-          <footer style={{ display: "flex", justifyContent: "flex-end", gap: 8, margin: "18px -20px -20px", padding: "12px 16px", borderTop: "1px solid var(--cursor-border-secondary, #383838)" }}>
-              <SandButton disabled={cancelPending} onClick={() => setCancelConfirmOpen(false)} size="sm" variant="secondary">Keep Trial</SandButton>
-              <SandButton disabled={cancelPending} onClick={() => void confirmCancelTrial()} sentiment="danger" size="sm" variant="primary">{cancelPending ? "Canceling…" : "Cancel Trial"}</SandButton>
-          </footer>
-      </OverlayDialog>
     </div>
   );
 }
@@ -640,23 +499,6 @@ export function RouterSettingsPanel({ provider, pending = false, onChange, http,
       </SettingsGroup>
     </div>
   );
-}
-
-function usageMetersFromSummary(summary: CursorUsageSummary): UsageMeter[] {
-  const meters: UsageMeter[] = [];
-  if (summary.sandUsagePercent != null) meters.push({
-    title: summary.isSandTrial ? "Trial usage" : "Weekly usage",
-    valueLabel: `${Math.max(0, Math.min(100, Math.round(summary.sandUsagePercent)))}%`,
-    percent: Math.max(0, Math.min(100, summary.sandUsagePercent))
-  });
-  if (summary.onDemand != null) meters.push({
-    title: "On-demand usage",
-    valueLabel: summary.onDemand.limitCents == null
-      ? `$${(summary.onDemand.usedCents / 100).toFixed(2)}`
-      : `$${(summary.onDemand.usedCents / 100).toFixed(2)} / $${(summary.onDemand.limitCents / 100).toFixed(2)}`,
-    ...(summary.onDemand.limitCents == null ? {} : { percent: Math.max(0, Math.min(100, summary.onDemand.usedCents / summary.onDemand.limitCents * 100)) })
-  });
-  return meters;
 }
 
 export interface UpdatesSettingsPanelProps {

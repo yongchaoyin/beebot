@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -70,12 +70,17 @@ test("packaging preserves Settings registration when landing and registry share 
   const stageRoot = await mkdtemp(path.join(tmpdir(), "beebot-settings-composition-"));
   try {
     const assets = path.join(stageRoot, "dist/renderer/assets");
-    await mkdir(assets, { recursive: true });
-    for (const name of ["index-UbX-y3il.js", "index-BlqerJhg.js"]) {
-      await copyFile(path.join(repoRoot, "src/app/dist/renderer/assets", name), path.join(assets, name));
-    }
-    await copyFile(path.join(repoRoot, "src/app/dist/renderer/index.html"), path.join(stageRoot, "dist/renderer/index.html"));
+    // The production transform also verifies and retires pinned unused artwork.
+    // Use its complete input tree rather than a two-chunk fixture that omits assets.
+    const originalRenderer = path.join(repoRoot, "src/app/dist/renderer");
+    await cp(originalRenderer, path.join(stageRoot, "dist/renderer"), { recursive: true });
     const result = await applyOriginalRendererRouterPatch({ stageRoot });
+    const policy = JSON.parse(await readFile(path.join(repoRoot, "scripts/lib/retired-brand-assets.json"), "utf8"));
+    assert.deepEqual(result.retiredAssets.map(entry => path.basename(entry.path)), policy.map(entry => entry.file));
+    for (const entry of policy) {
+      await assert.rejects(access(path.join(assets, entry.file)), { code: "ENOENT" });
+      await access(path.join(originalRenderer, "assets", entry.file));
+    }
     const main = await readFile(path.join(assets, "index-UbX-y3il.js"), "utf8");
     const sections = new Function(`${main.match(/const wDn=\[[^;]+?\]/)[0]};return wDn;`)();
     assert.deepEqual(sections.map((section) => section.id), ["general", "servers", "router", "usage", "beta"]);

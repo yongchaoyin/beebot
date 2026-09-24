@@ -16,7 +16,7 @@ export class SandCredentialsWaitingError extends Error {
 }
 
 export const EXPIRY_LEEWAY_MS = 30_000;
-export const SAND_SHORTLIVED_CREDS_WAITING_MESSAGE = "Waiting for an inference credential. Grok Bot's computer renews this automatically (no desktop required); this resolves on its own shortly.";
+export const SAND_SHORTLIVED_CREDS_WAITING_MESSAGE = "Waiting for an inference credential. BeeBot's computer renews this automatically (no desktop required); this resolves on its own shortly.";
 
 export class InferenceCredentialStore {
   private credential: InferenceCredential | undefined;

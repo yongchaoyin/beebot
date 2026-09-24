@@ -3,7 +3,7 @@ export const GATEWAY_WEBAUTHN_RESPONSES_PATH = "/webauthn/responses";
 export const SAND_WEBAUTHN_HEARTBEAT_INTERVAL_MS = 10_000;
 
 export const SAND_NO_WEBAUTHN_MACHINE_MESSAGE =
-  "Your computer isn't connected right now, so the security key can't be reached. Open Grok Bot on the machine your key is plugged into and try again.";
+  "Your computer isn't connected right now, so the security key can't be reached. Open BeeBot on the machine your key is plugged into and try again.";
 
 export const SAND_WEBAUTHN_MACHINE_UNAVAILABLE_MESSAGE =
   "Your computer looks disconnected, so the security key can't be reached. Reconnect it and try again.";

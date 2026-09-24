@@ -160,31 +160,3 @@ export const PRODUCTION_UI_EVIDENCE = {
 export const PRODUCTION_RENDERER_GAPS = {
   broadcast: "The shipped command availability explicitly marks broadcast unavailable because it has no current user path."
 } as const;
-
-export const UI_TEXT = {
-  account: "Account",
-  about: "About",
-  cancel: "Cancel",
-  close: "Close",
-  continueInBrowser: "Continue in your browser",
-  copied: "Copied",
-  copyVersionInfo: "Copy version info",
-  copyright: "Copyright © 2026 SpaceXAI",
-  feedbackIntroduction: "Tell the Grok Bot team what happened or what you want changed. Reports go straight to the team.",
-  feedbackPlaceholder: "What happened? What did you expect?",
-  helpCenter: "Help Center",
-  hiddenBots: "Hidden Bots",
-  includeConversationId: "Include current conversation ID",
-  logOut: "Log out",
-  noChatsYet: "No chats yet",
-  plugins: "Plugins",
-  reopenLink: "Reopen link",
-  sendFeedback: "Send Feedback",
-  settings: "Settings",
-  signIn: "Sign in",
-  signInTagline: "Your team of always-on agents that you can give real work to.",
-  signOut: "Sign out",
-  signOutDescription: "You’ll need to sign in again to use your Cursor account with Grok Bot.",
-  signOutTitle: "Sign out?",
-  title: "Grok Bot"
-} as const;

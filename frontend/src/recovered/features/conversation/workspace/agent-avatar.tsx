@@ -7,7 +7,7 @@ import { avatarStateFromAgent, type AvatarState, type AvatarActivity } from "../
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2302348 (Iee avatar dispatcher; Mac SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182a3dcd717...)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2925837 (Iee avatar dispatcher; Windows SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2921693 (Eee/Cee/QCe/hct/gct/dln persona mappings)
-// @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2755564 (sd sand-grok-bot-mark wrapper)
+// @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2755564 (sd bb-bot-mark wrapper)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2933499 (sand-group-avatar and sand-shared-room-avatar branches)
 // Presence owns the persona drawing; dispatcher semantics remain unchanged.
 // The dispatcher order is artifact data URL -> shared-room -> group -> persona
@@ -62,7 +62,7 @@ function avatarStyle(sizePx: number): CSSProperties {
 
 function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, paused, isFollowingPointer, followTarget, emphasis, spinSignal, motionPriority }: { agentId: string; color: string; shape: string; state: PersonaState; size?: AgentAvatarSize } & Pick<AgentAvatarProps, "isStatic" | "paused" | "isFollowingPointer" | "followTarget" | "emphasis" | "spinSignal" | "motionPriority"> & { sizePx: number }) {
   const source = useId();
-  return <span aria-hidden="true" className="sand-agent-avatar sand-grok-bot-mark" data-avatar-color={color} data-avatar-shape={shape} data-size={typeof size === "string" ? size : undefined} data-emphasis={emphasis || undefined} style={avatarStyle(sizePx)}>
+  return <span aria-hidden="true" className="sand-agent-avatar bb-bot-mark" data-avatar-color={color} data-avatar-shape={shape} data-size={typeof size === "string" ? size : undefined} data-emphasis={emphasis || undefined} style={avatarStyle(sizePx)}>
     <PresenceCharacter
       color={color}
       emphasis={emphasis}

@@ -48,7 +48,7 @@ export function getLocalInferenceCliStatus(): { readonly codex: LocalInferenceCl
   const hasCodexAuthFile = existsSync(codexAuthPath);
   const hasCodexLogin = hasUsableCodexLogin(codexAuthPath);
   return {
-    // Codex inference is a Grok Bot-owned HTTP transport authenticated by the
+    // Codex inference is a BeeBot-owned HTTP transport authenticated by the
     // existing Codex login. The CLI binary is not in the request path.
     codex: { installed: hasCodexAuthFile, authenticated: hasCodexLogin, executablePath: codexPath },
     "claude-code": { installed: claudePath != null, authenticated: existsSync(join(home, ".claude", ".credentials.json")) || (process.env.ANTHROPIC_API_KEY?.length ?? 0) > 0, executablePath: claudePath },

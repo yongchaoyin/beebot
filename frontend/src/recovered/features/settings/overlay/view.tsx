@@ -15,12 +15,12 @@ export interface SettingsSection {
   icon: "settings-gear" | "servers" | "git-branch" | "chart-bars" | "cloud-download";
 }
 
-/** Exact registry recovered from main renderer binding wDn. */
+/** BeeBot sections share the packaged wDn adapter; persisted section IDs stay stable. */
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", icon: "settings-gear" },
   { id: "servers", label: "Servers", icon: "servers" },
   { id: "router", label: "Router", icon: "git-branch" },
-  { id: "usage", label: "Usage & Billing", icon: "chart-bars" },
+  { id: "usage", label: "Usage", icon: "chart-bars" },
   { id: "beta", label: "Updates", icon: "cloud-download" }
 ];
 
@@ -36,9 +36,9 @@ export interface SettingsModalShellProps {
   initialSection?: string;
   isOpen: boolean;
   onClose(): void;
-  renderSection(section: SettingsSectionId): ReactNode;
+  renderSection(section: SettingsSectionId, selectSection: (section: SettingsSectionId) => void): ReactNode;
   sections?: readonly SettingsSection[];
-  /** The shipped renderer hides Usage & Billing when its experiment/account gate is closed. */
+  /** The shipped renderer hides Usage when its experiment/account gate is closed. */
   showUsage?: boolean;
   /** Suspend the parent overlay while a nested Settings dialog owns focus and dismissal. */
   closeOnBackdrop?: boolean;
@@ -113,7 +113,7 @@ export function SettingsModalShell({
         <section aria-labelledby={headingId} className="sand-settings-panel" id={panelId}>
           <SandIconButton aria-label="Close" className="sand-settings-panel__close" icon="close" label="Close" onClick={onClose} size="sm" />
           <h2 id={headingId}>{active.label}</h2>
-          <div className="sand-settings-panel__body">{renderSection(active.id)}</div>
+          <div className="sand-settings-panel__body">{renderSection(active.id, (section) => setActiveSection(resolveSection(section)))}</div>
         </section>
       </div>
     </OverlayDialog>
