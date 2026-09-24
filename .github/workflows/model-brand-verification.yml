@@ -5,33 +5,159 @@ on:
 permissions:
   contents: read
 jobs:
-  reference:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6789c7ee736e612dca11f3a91f7830260eb1313b
+          persist-credentials: false
+      - name: Reassemble and validate the exact source-only candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,base64,hashlib,lzma,pathlib,subprocess,os
+          shas=['e6a0b733eee9ba3cf4383116db698bafbd962b2a','231cec12cec40690eb5c7f43b6e86bd48fdda7e1','f4466904b04800ea6d605d7ba7f784ffe1f2efd8','0fca409a4f66dd9f5570d80bea46e2be4e75b569','d63475ef7afe7aee14a96709deac3f2d7646f62b','b6a5672799772d4d88f3ef09492c75410396d11d']
+          payload=bytearray()
+          for sha in shas:
+              req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              data=json.load(urllib.request.urlopen(req,timeout=30));chunk=base64.b64decode(data['content'])
+              assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
+              payload.extend(chunk)
+          assert hashlib.sha256(payload).hexdigest()=='cd47f846c79dc0e7f03456d15159de8df4c87bcbed8ae99871dd5cd3d788a2e0'
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'model-brand-candidate';out.mkdir()
+          (out/'source.patch').write_bytes(lzma.decompress(payload))
+          subprocess.run(['git','apply','--unidiff-zero','--index',str(out/'source.patch')],check=True)
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
+          assert len(paths)==53
+          assert all(p.startswith(('source/','frontend/src/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
+          (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
+          (out/'tree.txt').write_text(subprocess.check_output(['git','write-tree']).decode())
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          print('Validated',len(paths),'source files; tree:',(out/'tree.txt').read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-brand-candidate
+          path: ${{ runner.temp }}/model-brand-candidate/
+          retention-days: 3
+          if-no-files-found: error
+  linux:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6789c7ee736e612dca11f3a91f7830260eb1313b
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-brand-candidate
+          path: ${{ runner.temp }}/model-brand-candidate
+      - run: |
+          git apply --unidiff-zero --index "$RUNNER_TEMP/model-brand-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/model-brand-candidate/tree.txt")"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck and exercise real model configuration handlers
+        run: |
+          npm run source:typecheck
+          npm run typecheck
+          node --test tests/model-binding.test.mjs tests/model-binding-ui.test.mjs tests/sand-settings-store.test.mjs tests/resolve-inference.test.mjs
+      - name: Verify stale single-file mount and corrected read-only directory publication
+        run: |
+          docker pull node:26.5.0-bookworm-slim
+          BEEBOT_MODEL_DOCKER_TEST=1 BEEBOT_TEST_NODE_IMAGE="$(docker image inspect --format '{{.Id}}' node:26.5.0-bookworm-slim)" BEEBOT_MODEL_DOCKER_REPORT=model-docker-report.json node scripts/verify-model-config-docker.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-docker-evidence
+          path: model-docker-report.json
+          retention-days: 3
+          if-no-files-found: warn
+  macos:
+    needs: source
     runs-on: macos-15
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 6789c7ee736e612dca11f3a91f7830260eb1313b
           lfs: true
           persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-brand-candidate
+          path: ${{ runner.temp }}/model-brand-candidate
+      - name: Materialize exact candidate for clean publication validation
+        run: |
+          git apply --unidiff-zero --index "$RUNNER_TEMP/model-brand-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/model-brand-candidate/tree.txt")"
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only model binding and product branding candidate'
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
       - run: npm ci --no-audit --no-fund
       - run: npm run bootstrap
-      - name: Export pinned renderer and bundle metadata for inspection
+      - run: npm run icon:generate
+      - run: npm run check
+      - run: npm run frontend:build
+      - run: npm run publication:check
+      - name: Build and verify the complete rebranded app
+        run: node scripts/package-macos.mjs
+      - name: Build a new BeeBot installer without upstream Finder artwork
+        run: node scripts/package-dmg.mjs
+      - name: Verify mounted installer and native product names
         run: |
-          mkdir -p "$RUNNER_TEMP/branding-reference"
-          tar -czf "$RUNNER_TEMP/branding-reference/renderer.tar.gz" src/app/dist/renderer
           python3 - <<'PY'
-          import pathlib,plistlib,json,os
-          root=pathlib.Path('.cache/runtime/Grok Bot.app')
-          values={str(p.relative_to(root)):plistlib.loads(p.read_bytes()) for p in root.rglob('Info.plist')}
-          pathlib.Path(os.environ['RUNNER_TEMP'],'branding-reference','bundle-info.json').write_text(json.dumps(values,indent=2,default=str))
+          import pathlib,tempfile,subprocess,json,os,plistlib
+          mount=pathlib.Path(tempfile.mkdtemp(prefix='bb-installer-check-'))
+          attached=False
+          try:
+              subprocess.run(['/usr/bin/hdiutil','attach','-nobrowse','-readonly','-mountpoint',str(mount),'dist/BeeBot.dmg'],check=True);attached=True
+              names=sorted(p.name for p in mount.iterdir() if not p.name.startswith('.'))
+              assert names==['Applications','BeeBot.app'],names
+              assert (mount/'Applications').is_symlink() and os.readlink(mount/'Applications')=='/Applications'
+              app=mount/'BeeBot.app'
+              result=subprocess.check_output(['python3','scripts/lib/rebrand-macos.py',str(app),'--verify'],text=True)
+              subprocess.run(['/usr/bin/codesign','--verify','--deep','--strict',str(app)],check=True)
+              info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
+              pathlib.Path('macos-branding-report.json').write_text(json.dumps({'passed':True,'installerContents':names,'mainExecutable':info['CFBundleExecutable'],'bundleId':info['CFBundleIdentifier'],'bundleValidation':json.loads(result),'deepStrictSignature':True,'signing':'local ad-hoc, not notarized','scope':'build and mounted installer verification; no interactive installed user profile'},indent=2))
+          finally:
+              if attached:subprocess.run(['/usr/bin/hdiutil','detach',str(mount)],check=True)
+              mount.rmdir()
           PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: pinned-branding-reference
-          path: ${{ runner.temp }}/branding-reference/
+          name: macos-branding-evidence
+          path: macos-branding-report.json
           retention-days: 3
-          if-no-files-found: error
+          if-no-files-found: warn
+  candidate:
+    needs: [source,linux,macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6789c7ee736e612dca11f3a91f7830260eb1313b
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-brand-candidate
+          path: ${{ runner.temp }}/model-brand-candidate
+      - name: Publish tested code and docs to a new feature branch only
+        run: |
+          git apply --unidiff-zero --index "$RUNNER_TEMP/model-brand-candidate/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/model-brand-candidate/tree.txt")"
+          test -z "$(git ls-remote --heads origin fix/model-binding-branding-20260924)"
+          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix: synchronize Bot model bindings and finish BeeBot product branding'
+          git push origin HEAD:refs/heads/fix/model-binding-branding-20260924
+          git rev-parse HEAD HEAD^{tree}
