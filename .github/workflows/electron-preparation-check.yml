@@ -1,0 +1,39 @@
+name: electron prerequisite check
+on:
+  push:
+    branches: [work/window-layout-verification-20260924]
+    paths: [.github/workflows/electron-preparation-check.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 29920ee0543c697a23ee7bcec2a61bbf7f75061f
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Inspect package installer and resolve the locked artifact explicitly
+        run: |
+          sed -n '1,180p' node_modules/electron/install.js
+          node --input-type=module <<'JS'
+          import {createRequire} from 'node:module';
+          import {readFile,writeFile} from 'node:fs/promises';
+          import path from 'node:path';
+          const require=createRequire(import.meta.url);
+          const metadata=require('./node_modules/electron/package.json');
+          const {downloadArtifact}=require('@electron/get');
+          const extract=require('extract-zip');
+          const checksums=require('./node_modules/electron/checksums.json');
+          console.log('Locked Electron:',metadata.version,'platform:',process.platform,'arch:',process.arch);
+          const zip=await downloadArtifact({version:metadata.version,artifactName:'electron',checksums,platform:process.platform,arch:process.arch});
+          console.log('Verified artifact acquired');
+          await extract(zip,{dir:path.resolve('node_modules/electron/dist')});
+          await writeFile('node_modules/electron/path.txt','Electron.app/Contents/MacOS/Electron');
+          console.log('Binary ready:',await readFile('node_modules/electron/dist/version','utf8'));
+          JS
