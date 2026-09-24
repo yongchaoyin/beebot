@@ -14,42 +14,44 @@ jobs:
         with:
           ref: a43d61ce98ad7e2ab6e443c6e78622bd1a58c587
           persist-credentials: false
-      - name: Verify and materialize reviewed source and saved-provider supplement
+      - uses: actions/download-artifact@v4
+        with:
+          name: identity-reviewed-candidate
+          run-id: 36068346119
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prior-identity
+      - name: Verify tested predecessor and reviewed native artwork supplement
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import urllib.request,json,base64,hashlib,lzma,pathlib,subprocess,os
-          def blob(sha):
-              req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              chunk=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
-              assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
-              return chunk
-          payload=b''.join(blob(sha) for sha in ['d195af636ece261d8951ffc3a7529bee32176412','5ce9d3ab4c82f58e6fe4a78e7ed8372bc200b817','44399e6ff74aaf8c8ece8628884ebb2ec63fe29e'])
-          assert hashlib.sha256(payload).hexdigest()=='46eebb0b5454ff767b4f96259277a2b6269fc5ac40a24e1b1d783de69d0b87b5'
-          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'identity-candidate';out.mkdir()
-          patch=out/'source.patch';patch.write_bytes(lzma.decompress(payload))
-          subprocess.run(['git','apply','--index',str(patch)],check=True)
-          assert subprocess.check_output(['git','write-tree']).decode().strip()=='e552b9bce5668c8ba7abfdaf3fb09298fc530be0'
-          supplement=blob('3df58f305553c7e8bdf5fdfd5cac17b9e3130b2e')
-          assert hashlib.sha256(supplement).hexdigest()=='543597623f668ccbd094b31b1eed10b572ba1a75f0fb826d1df04d2dac6a6f5a'
-          extra=pathlib.Path(os.environ['RUNNER_TEMP'])/'identity-supplement.patch';extra.write_bytes(supplement)
+          temp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          subprocess.run(['git','apply','--index',str(temp/'prior-identity/source.patch')],check=True)
+          assert subprocess.check_output(['git','write-tree']).decode().strip()=='a3e9977f682c24629105d92fe90db2b3df69c9c3'
+          sha='e6712dd57886cdaa02d258cc7f32c8010e782617'
+          req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          payload=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
+          assert hashlib.sha1(b'blob '+str(len(payload)).encode()+b'\0'+payload).hexdigest()==sha
+          assert hashlib.sha256(payload).hexdigest()=='c50e8f042af8d11a30c49d974486a534298c0d85de2d60d51f77d1340c3fad29'
+          extra=temp/'native-identity.patch';extra.write_bytes(lzma.decompress(payload))
           subprocess.run(['git','apply','--index',str(extra)],check=True)
           paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
-          assert len(paths)==17
+          assert len(paths)==25
           assert all(p.startswith(('source/','frontend/src/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
           subprocess.run(['git','diff','--cached','--check'],check=True)
           tree=subprocess.check_output(['git','write-tree']).decode().strip()
-          assert tree=='a3e9977f682c24629105d92fe90db2b3df69c9c3'
-          patch.write_bytes(subprocess.check_output(['git','diff','--cached','--binary','--full-index']))
+          assert tree=='5ba522b2e4b8e9f1a7c588ad648ff22f29742c05'
+          out=temp/'identity-final';out.mkdir()
+          (out/'source.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary','--full-index']))
           (out/'tree.txt').write_text(tree+'\n')
           (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
           print('Verified source files:',len(paths),'tree:',tree)
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: identity-reviewed-candidate
-          path: ${{ runner.temp }}/identity-candidate/
+          name: identity-final-candidate
+          path: ${{ runner.temp }}/identity-final/
           retention-days: 3
           if-no-files-found: error
   macos:
@@ -64,13 +66,13 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: identity-reviewed-candidate
-          path: ${{ runner.temp }}/identity-candidate
+          name: identity-final-candidate
+          path: ${{ runner.temp }}/identity-final
       - name: Materialize exact candidate for clean-tree validation
         run: |
-          git apply --index "$RUNNER_TEMP/identity-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-candidate/tree.txt")"
-          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only final product identity follow-up verification'
+          git apply --index "$RUNNER_TEMP/identity-final/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-final/tree.txt")"
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only final native and product identity audit'
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
@@ -81,22 +83,20 @@ jobs:
         run: |
           set -o pipefail
           npm run check 2>&1 | tee identity-macos-tests.log
-      - name: Rebuild editable frontend
-        run: npm run frontend:build
+      - run: npm run frontend:build
       - name: Preserve native caption and interaction regression
         run: |
           set -o pipefail
           node scripts/verify-native-window-layout.mjs 2>&1 | tee identity-native.log
-      - name: Audit own product labels and classify retained dependencies
+      - name: Audit product labels and classify retained dependencies
         run: node scripts/audit-product-identity.mjs --json identity-audit.json
       - run: npm run publication:check
       - name: Build and verify complete BeeBot app
         run: |
           set -o pipefail
           node scripts/package-macos.mjs 2>&1 | tee identity-package.log
-      - name: Build clean BeeBot installation image
-        run: node scripts/package-dmg.mjs
-      - name: Validate mounted installer, native identity and retired image removal
+      - run: node scripts/package-dmg.mjs
+      - name: Validate mounted installer and exact retirement of old artwork
         run: |
           python3 - <<'PY'
           import pathlib,tempfile,subprocess,json,os,plistlib,hashlib
@@ -110,19 +110,22 @@ jobs:
               validation=json.loads(subprocess.check_output(['python3','scripts/lib/rebrand-macos.py',str(app),'--verify'],text=True))
               subprocess.run(['/usr/bin/codesign','--verify','--deep','--strict',str(app)],check=True)
               info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
-              assert info['CFBundleExecutable']=='BeeBot'
+              assert info['CFBundleExecutable']=='BeeBot' and info['CFBundleIconFile']=='icon.icns'
               assert 'CFBundleIconName' not in info
-              own_icon=pathlib.Path('.build/app-icon/beebot-app-icon.icns').read_bytes()
-              assert (resources/'icon.icns').read_bytes()==own_icon
+              icon=pathlib.Path('.build/app-icon/beebot-app-icon.icns')
+              artwork=json.loads(subprocess.check_output(['python3','scripts/lib/retire-native-brand-assets.py',str(app),'--expected-icon',str(icon),'--verify'],text=True))
+              native_policy=json.loads(pathlib.Path('scripts/lib/retired-native-brand-assets.json').read_text())
+              source_records=[]
+              for entry in native_policy:
+                  old=pathlib.Path('.cache/runtime/Grok Bot.app/Contents/Resources')/entry['file']
+                  assert hashlib.sha256(old.read_bytes()).hexdigest()==entry['sha256']
+                  assert not (resources/entry['file']).exists()
+                  inventory=json.loads(subprocess.check_output(['/usr/bin/assetutil','--info',str(old)],text=True))
+                  source_records.append({**entry,'bytes':old.stat().st_size,'originalPreserved':True,'sourceInventory':inventory})
               listed=subprocess.check_output(['node','node_modules/@electron/asar/bin/asar.mjs','list',str(resources/'app.asar')],text=True)
               retired=json.loads(pathlib.Path('scripts/lib/retired-brand-assets.json').read_text())
-              for entry in retired:
-                  assert entry['file'] not in listed,entry['file']
-              catalogs=[]
-              for p in resources.glob('*.car'):
-                  r=subprocess.run(['/usr/bin/assetutil','--info',str(p)],capture_output=True,text=True)
-                  catalogs.append({'file':p.name,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'inspectionExit':r.returncode,'info':json.loads(r.stdout) if r.returncode==0 else r.stderr})
-              report={'passed':True,'installerContents':names,'nativeIdentity':validation,'customIconMatches':True,'retiredImagesAbsentFromAsar':len(retired),'retainedNativeCatalogs':catalogs,'signature':'ad-hoc deep strict verification passed; not Developer ID / notarized','scope':'actual build and mounted installer, not interactive migration of a user profile'}
+              for entry in retired:assert entry['file'] not in listed,entry['file']
+              report={'passed':True,'installerContents':names,'nativeIdentity':validation,'nativeArtwork':artwork,'retiredNativeCatalogs':source_records,'retiredImagesAbsentFromAsar':len(retired),'signature':'ad-hoc deep strict verification passed; not Developer ID / notarized','scope':'actual app build and mounted installer; not a user-profile upgrade or live provider authentication'}
               pathlib.Path('identity-installer-report.json').write_text(json.dumps(report,indent=2))
           finally:
               if attached:subprocess.run(['/usr/bin/hdiutil','detach',str(mount)],check=True)
@@ -131,7 +134,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: identity-macos-evidence
+          name: identity-final-macos-evidence
           include-hidden-files: true
           path: |
             identity-macos-tests.log
@@ -154,13 +157,13 @@ jobs:
           ref: a43d61ce98ad7e2ab6e443c6e78622bd1a58c587
       - uses: actions/download-artifact@v4
         with:
-          name: identity-reviewed-candidate
-          path: ${{ runner.temp }}/identity-candidate
+          name: identity-final-candidate
+          path: ${{ runner.temp }}/identity-final
       - name: Preserve tested source on a new review branch only
         run: |
-          git apply --index "$RUNNER_TEMP/identity-candidate/source.patch"
-          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-candidate/tree.txt")"
-          test -z "$(git ls-remote --heads origin work/identity-final-reviewed-20260925)"
-          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix: remove inherited upsell UI and close product identity audit gaps'
-          git push origin HEAD:refs/heads/work/identity-final-reviewed-20260925
+          git apply --index "$RUNNER_TEMP/identity-final/source.patch"
+          test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-final/tree.txt")"
+          test -z "$(git ls-remote --heads origin work/identity-assets-reviewed-20260925)"
+          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix: retire inherited branding, paid UI and obsolete native artwork'
+          git push origin HEAD:refs/heads/work/identity-assets-reviewed-20260925
           git rev-parse HEAD HEAD^{tree}
