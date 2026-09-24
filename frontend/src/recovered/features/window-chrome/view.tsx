@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { installNativeWindowLayout } from "../../../presence/window-layout";
+import { useEffect, useLayoutEffect } from "react";
 import type { DesktopBridge } from "../../contracts/desktop-bridge";
 import { setWindowChromeVariables, WINDOW_CHROME_METRICS } from "./model";
 import "./view.css";
@@ -33,6 +34,7 @@ export interface WindowChromeProps {
 }
 
 export function WindowChrome({ bridge, isFullscreen, isMaximized, isOverlayTone = false }: WindowChromeProps) {
+  useLayoutEffect(() => installNativeWindowLayout(document, bridge.platform, isFullscreen), [bridge.platform, isFullscreen]);
   useEffect(() => setWindowChromeVariables(bridge.platform, isFullscreen), [bridge.platform, isFullscreen]);
 
   useEffect(() => {

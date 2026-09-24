@@ -1,5 +1,6 @@
 @import "./tokens.css";
 @import "./avatar-motion.css";
+@import "./window-layout.css";
 
 /* Explicit semantic selectors only. No hashed upstream classes, transcript
    text rewriting, hidden controls, fixed transcript heights, or global key hooks. */

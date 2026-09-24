@@ -9,7 +9,7 @@ export interface WorkspaceIndicatorProps {
 
 export function WorkspaceIndicator({ isFullscreen, label }: WorkspaceIndicatorProps) {
   if (isFullscreen || label == null || label.length === 0) return null;
-  return <div aria-label={label} aria-level={1} className="sand-chat-header__title" role="heading">
+  return <div aria-label={label} aria-level={1} className="bb-window-workspace-label" role="heading">
     <span className="sand-chat-header__name" title={label}>{label}</span>
   </div>;
 }

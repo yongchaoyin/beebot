@@ -22,3 +22,5 @@ export { createPresenceMotionSetting } from "./motion-setting";
 export { avatarStateFromAgent } from "./avatar-state";
 export { COLORS as avatarColors, AVATAR_PALETTE as avatarPalette, characterVariant, AVATAR_SHAPES as avatarShapes } from "./avatar-art";
 export { mountAvatarPicker } from "./avatar-picker";
+
+export { installNativeWindowLayout } from "./window-layout";
