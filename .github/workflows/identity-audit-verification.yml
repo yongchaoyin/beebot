@@ -14,29 +14,34 @@ jobs:
         with:
           ref: a43d61ce98ad7e2ab6e443c6e78622bd1a58c587
           persist-credentials: false
-      - name: Verify and materialize reviewed source only
+      - name: Verify and materialize reviewed source and saved-provider supplement
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import urllib.request,json,base64,hashlib,lzma,pathlib,subprocess,os
-          shas=['d195af636ece261d8951ffc3a7529bee32176412','5ce9d3ab4c82f58e6fe4a78e7ed8372bc200b817','44399e6ff74aaf8c8ece8628884ebb2ec63fe29e']
-          payload=bytearray()
-          for sha in shas:
+          def blob(sha):
               req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
               chunk=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
               assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
-              payload.extend(chunk)
+              return chunk
+          payload=b''.join(blob(sha) for sha in ['d195af636ece261d8951ffc3a7529bee32176412','5ce9d3ab4c82f58e6fe4a78e7ed8372bc200b817','44399e6ff74aaf8c8ece8628884ebb2ec63fe29e'])
           assert hashlib.sha256(payload).hexdigest()=='46eebb0b5454ff767b4f96259277a2b6269fc5ac40a24e1b1d783de69d0b87b5'
           out=pathlib.Path(os.environ['RUNNER_TEMP'])/'identity-candidate';out.mkdir()
-          (out/'source.patch').write_bytes(lzma.decompress(payload))
-          subprocess.run(['git','apply','--index',str(out/'source.patch')],check=True)
+          patch=out/'source.patch';patch.write_bytes(lzma.decompress(payload))
+          subprocess.run(['git','apply','--index',str(patch)],check=True)
+          assert subprocess.check_output(['git','write-tree']).decode().strip()=='e552b9bce5668c8ba7abfdaf3fb09298fc530be0'
+          supplement=blob('3df58f305553c7e8bdf5fdfd5cac17b9e3130b2e')
+          assert hashlib.sha256(supplement).hexdigest()=='543597623f668ccbd094b31b1eed10b572ba1a75f0fb826d1df04d2dac6a6f5a'
+          extra=pathlib.Path(os.environ['RUNNER_TEMP'])/'identity-supplement.patch';extra.write_bytes(supplement)
+          subprocess.run(['git','apply','--index',str(extra)],check=True)
           paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
           assert len(paths)==17
           assert all(p.startswith(('source/','frontend/src/','scripts/','tests/','docs/implementation/')) and '..' not in p.split('/') for p in paths)
           subprocess.run(['git','diff','--cached','--check'],check=True)
           tree=subprocess.check_output(['git','write-tree']).decode().strip()
-          assert tree=='e552b9bce5668c8ba7abfdaf3fb09298fc530be0'
+          assert tree=='a3e9977f682c24629105d92fe90db2b3df69c9c3'
+          patch.write_bytes(subprocess.check_output(['git','diff','--cached','--binary','--full-index']))
           (out/'tree.txt').write_text(tree+'\n')
           (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
           print('Verified source files:',len(paths),'tree:',tree)
@@ -65,7 +70,7 @@ jobs:
         run: |
           git apply --index "$RUNNER_TEMP/identity-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-candidate/tree.txt")"
-          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only product identity follow-up verification'
+          git -c user.name='BeeBot verification' -c user.email='verification@localhost' commit -m 'Local-only final product identity follow-up verification'
       - uses: actions/setup-node@v4
         with:
           node-version: 26.5.0
@@ -109,7 +114,7 @@ jobs:
               assert 'CFBundleIconName' not in info
               own_icon=pathlib.Path('.build/app-icon/beebot-app-icon.icns').read_bytes()
               assert (resources/'icon.icns').read_bytes()==own_icon
-              listed=subprocess.check_output(['node','node_modules/@electron/asar/bin/asar.js','list',str(resources/'app.asar')],text=True)
+              listed=subprocess.check_output(['node','node_modules/@electron/asar/bin/asar.mjs','list',str(resources/'app.asar')],text=True)
               retired=json.loads(pathlib.Path('scripts/lib/retired-brand-assets.json').read_text())
               for entry in retired:
                   assert entry['file'] not in listed,entry['file']
@@ -155,7 +160,7 @@ jobs:
         run: |
           git apply --index "$RUNNER_TEMP/identity-candidate/source.patch"
           test "$(git write-tree)" = "$(cat "$RUNNER_TEMP/identity-candidate/tree.txt")"
-          test -z "$(git ls-remote --heads origin work/identity-reviewed-20260925)"
+          test -z "$(git ls-remote --heads origin work/identity-final-reviewed-20260925)"
           git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix: remove inherited upsell UI and close product identity audit gaps'
-          git push origin HEAD:refs/heads/work/identity-reviewed-20260925
+          git push origin HEAD:refs/heads/work/identity-final-reviewed-20260925
           git rev-parse HEAD HEAD^{tree}
