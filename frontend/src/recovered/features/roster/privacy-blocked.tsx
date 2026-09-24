@@ -1,3 +1,4 @@
+import { EXTERNAL_SERVICE_MESSAGES } from "../../../../../source/shared/product-access-copy";
 import { useEffect, useRef, useState } from "react";
 import type { CursorAuthStatus, DesktopBridge } from "../../contracts/desktop-bridge";
 import { SandButton } from "../../ui/sand-kit-primitives";
@@ -10,7 +11,7 @@ export const PRIVACY_SETTINGS_URL = "https://cursor.com/dashboard/settings?openP
 
 export const PRIVACY_BLOCK_LABELS = {
   title: "Update Privacy Mode",
-  description: "Privacy Mode (Legacy) isn’t compatible with BeeBot. Switch to Privacy Mode to start using BeeBot — data still isn’t used for training.",
+  description: EXTERNAL_SERVICE_MESSAGES.privacyBlocked,
   support: "This setting is shared with Cursor. Leaving Legacy can’t be undone.",
   signOut: "Sign out",
   openSettings: "Open Privacy Settings"
