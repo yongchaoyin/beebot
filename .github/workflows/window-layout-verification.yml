@@ -27,10 +27,15 @@ jobs:
           out=pathlib.Path(os.environ['RUNNER_TEMP'])/'window-candidate';out.mkdir()
           (out/'source.patch').write_bytes(lzma.decompress(payload))
           subprocess.run(['git','apply','--index',str(out/'source.patch')],check=True)
+          check=pathlib.Path('.github/workflows/check.yml');text=check.read_text();anchor='      - name: Verify native macOS caption geometry and zoom\n'
+          assert text.count(anchor)==1
+          check.write_text(text.replace(anchor,'      - name: Install the locked Electron verification binary\n        run: node node_modules/electron/install.js\n'+anchor))
+          subprocess.run(['git','add','.github/workflows/check.yml'],check=True)
           paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().split('\0')[:-1]
           assert len(paths)==14
           assert all((p.startswith(('source/','frontend/src/','scripts/','tests/','docs/implementation/')) or p=='.github/workflows/check.yml') and '..' not in p.split('/') for p in paths)
           subprocess.run(['git','diff','--cached','--check'],check=True)
+          (out/'source.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary','--full-index']))
           (out/'source-sha256.json').write_text(json.dumps({p:hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths},indent=2))
           (out/'tree.txt').write_text(subprocess.check_output(['git','write-tree']).decode())
           print('Verified source files:',len(paths),'tree:',(out/'tree.txt').read_text())
@@ -66,6 +71,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run bootstrap
       - run: npm run icon:generate
+      - name: Prepare exact Electron binary
+        run: node node_modules/electron/install.js
       - name: Exercise real native buttons geometry, clicks, zoom and fullscreen
         run: |
           set -o pipefail
