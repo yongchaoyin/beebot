@@ -1,0 +1,31 @@
+name: product identity verification
+on:
+  push:
+    branches: [work/identity-audit-verification-20260925]
+    paths: [.github/workflows/identity-audit-verification.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a43d61ce98ad7e2ab6e443c6e78622bd1a58c587
+          persist-credentials: false
+      - name: Export source with exact Git identity (no credentials or runtime cache)
+        run: |
+          mkdir -p "$RUNNER_TEMP/identity-source"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/identity-source/source.tar.gz"
+          git cat-file commit HEAD > "$RUNNER_TEMP/identity-source/commit.txt"
+          git ls-tree -rz HEAD > "$RUNNER_TEMP/identity-source/tree.manifest"
+          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/identity-source/identity.txt"
+          cd "$RUNNER_TEMP/identity-source"
+          sha256sum source.tar.gz commit.txt tree.manifest identity.txt > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: identity-source-a43d61c
+          path: ${{ runner.temp }}/identity-source/
+          retention-days: 3
+          if-no-files-found: error
