@@ -5,26 +5,33 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+  reference:
+    runs-on: macos-15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 6789c7ee736e612dca11f3a91f7830260eb1313b
-          fetch-depth: 0
+          lfs: true
           persist-credentials: false
-      - name: Export exact baseline delta and file manifest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm run bootstrap
+      - name: Export pinned renderer and bundle metadata for inspection
         run: |
-          mkdir -p "$RUNNER_TEMP/model-brand-source"
-          git diff --binary --full-index 7fab604ebbc926150e64964c0d79aeb2d3860acf HEAD > "$RUNNER_TEMP/model-brand-source/develop.patch"
-          git ls-tree -rz HEAD > "$RUNNER_TEMP/model-brand-source/tree.manifest"
-          git rev-parse HEAD HEAD^{tree} > "$RUNNER_TEMP/model-brand-source/identity.txt"
-          cd "$RUNNER_TEMP/model-brand-source"
-          sha256sum develop.patch tree.manifest identity.txt > SHA256SUMS
+          mkdir -p "$RUNNER_TEMP/branding-reference"
+          tar -czf "$RUNNER_TEMP/branding-reference/renderer.tar.gz" src/app/dist/renderer
+          python3 - <<'PY'
+          import pathlib,plistlib,json,os
+          root=pathlib.Path('.cache/runtime/Grok Bot.app')
+          values={str(p.relative_to(root)):plistlib.loads(p.read_bytes()) for p in root.rglob('Info.plist')}
+          pathlib.Path(os.environ['RUNNER_TEMP'],'branding-reference','bundle-info.json').write_text(json.dumps(values,indent=2,default=str))
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: develop-model-brand-source
-          path: ${{ runner.temp }}/model-brand-source/
+          name: pinned-branding-reference
+          path: ${{ runner.temp }}/branding-reference/
           retention-days: 3
           if-no-files-found: error
