@@ -124,9 +124,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(mainEdge, /setBoxRuntime", mode === "local-docker" \? "remote" : "local-docker"/);
   assert.match(localDocker, /public\.ecr\.aws\/k0i0n2g5\/cursorenvironments\/universal:sand-box-latest/);
   assert.match(localDocker, /"127\.0\.0\.1:1340:1340"/);
-  assert.match(localDocker, /LOCAL_DOCKER_SCHEMA_VERSION = "7"/);
-  assert.match(localDocker, /dst=\/home\/box\/sand-data\/settings.json/);
-  assert.match(localDocker, /dst=\/home\/box\/sand-data\/box-secrets.json/);
+  assert.match(localDocker, /LOCAL_DOCKER_SCHEMA_VERSION = "8"/);
+  assert.match(localDocker, /LOCAL_INFERENCE_SNAPSHOT_ENV/);
+  assert.match(localDocker, /dst=\$\{LOCAL_INFERENCE_MOUNT\},readonly/);
+  assert.doesNotMatch(localDocker, /dst=\/home\/box\/sand-data\/settings.json/);
+  assert.doesNotMatch(localDocker, /dst=\/home\/box\/sand-data\/box-secrets.json/);
   assert.match(localDocker, /SAND_BOX_AUTO_UPDATE=0/);
   assert.match(localDocker, /dst=\/home\/box\/sand-host\/host-main\.cjs,readonly/);
   assert.match(localDocker, /\.getBoxRuntime\(\) === "local-docker" \? await localConnect\(\) : await remote\.connect\(\)/);

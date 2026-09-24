@@ -106,7 +106,7 @@ export async function createSandDesktopMcpManager(options: DesktopMcpManagerOpti
       executeTool: async (args: { readonly name: string }) => new McpResult({
         result: {
           case: "error",
-          value: new McpError({ error: `MCP tools run on Grok Bot's computer, not the desktop app (tool "${args.name}").` }),
+          value: new McpError({ error: `MCP tools run on BeeBot's computer, not the desktop app (tool "${args.name}").` }),
         },
       }),
     },

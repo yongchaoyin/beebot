@@ -165,7 +165,7 @@ export function openDevControlsWindow(options: { readonly electron: DevControlsW
   const devServerUrl = options.devServerUrl; if (devServerUrl == null || devServerUrl.length === 0) return;
   if (devControlsWindow != null && !devControlsWindow.isDestroyed()) { devControlsWindow.focus(); return; }
   const width = 780; const height = 600; const margin = 16; const { workArea } = options.electron.screen.getPrimaryDisplay();
-  const window = options.electron.createBrowserWindow({ width, height, minWidth: 660, minHeight: 460, x: workArea.x + workArea.width - width - margin, y: workArea.y + margin, title: "Grok Bot Dev Controls", resizable: true, minimizable: true, maximizable: true, fullscreenable: false, backgroundColor: "#0f1117", autoHideMenuBar: true, webPreferences: { contextIsolation: true, nodeIntegration: false, preload: options.preloadPath, sandbox: false } });
+  const window = options.electron.createBrowserWindow({ width, height, minWidth: 660, minHeight: 460, x: workArea.x + workArea.width - width - margin, y: workArea.y + margin, title: "BeeBot Dev Controls", resizable: true, minimizable: true, maximizable: true, fullscreenable: false, backgroundColor: "#0f1117", autoHideMenuBar: true, webPreferences: { contextIsolation: true, nodeIntegration: false, preload: options.preloadPath, sandbox: false } });
   window.setMenuBarVisibility(false); devControlsWindow = window; window.on("closed", () => { devControlsWindow = undefined; });
   const target = new URL("src/electron-dev-controls/page/dev-controls.html", devServerUrl.endsWith("/") ? devServerUrl : `${devServerUrl}/`).href; void window.loadURL(target);
 }

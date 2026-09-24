@@ -1,3 +1,4 @@
+import { brandRendererAssets } from "./product-branding.mjs";
 import { buildPresence } from "./build-presence.mjs";
 import { patchPresenceRenderer } from "./presence-renderer-patch.mjs";
 import { createHash } from "node:crypto";
@@ -150,7 +151,7 @@ export function patchOriginalLanding(source) {
   // Bind the editor to the actual settings component's agent prop. Do not infer
   // ownership from a selected sidebar row or a late asynchronous DOM lookup.
   patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");
-  patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
+  patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{"data-beebot-settings-owner":n.agent.isGroup||n.agent.remoteRoomId?void 0:n.agent.id,children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
   patched = patchQuotedReplies(patched);
   return patchPresenceRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_PREFLIGHT_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`);
 }
@@ -219,7 +220,9 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     sha256: sha256(await readFile(output.path)),
   })));
   const presence = await buildPresence({ rendererRoot: path.join(stageRoot, "dist", "renderer") });
+  const branding = await brandRendererAssets(assetsRoot);
   const record = {
+    branding,
     schemaVersion: 1,
     mode: "original-renderer-settings-extension",
     chunks: changes,

@@ -64,7 +64,7 @@ test("reading notification config does not overwrite a corrupt settings.json", a
     writeFileSync(settingsPath, "{not-json");
     const store = new loaded.module.SandSettingsStore(settingsPath);
     store.getNotificationConfig();
-    store.setUserTimeZone("Asia/Shanghai");
+    assert.throws(() => store.setUserTimeZone("Asia/Shanghai"), /no configuration was overwritten/);
     assert.equal(await readFile(settingsPath, "utf8"), "{not-json");
   } finally {
     await loaded.dispose();
@@ -90,7 +90,7 @@ test("reading notification config does not drop saved model APIs", async () => {
   }
 });
 
-test("empty model APIs are restored from leftover vendor secrets", async () => {
+test("orphaned keys do not invent model metadata or endpoints", async () => {
   const loaded = await loadStore();
   const dir = await mkdtemp(path.join(os.tmpdir(), "beebot-settings-recover-"));
   try {
@@ -113,13 +113,10 @@ test("empty model APIs are restored from leftover vendor secrets", async () => {
     })}\n`);
     const store = new loaded.module.SandSettingsStore(settingsPath);
     const vendors = store.getInferenceVendors();
-    assert.equal(vendors.length, 1);
-    assert.equal(vendors[0].id, "vmu1dwcwa");
-    assert.equal(vendors[0].provider, "deepseek");
+    assert.equal(vendors.length, 0);
     const saved = JSON.parse(await readFile(settingsPath, "utf8"));
-    assert.equal(saved.inferenceVendors[0].id, "vmu1dwcwa");
-    assert.equal(saved.localAccountActive, true);
-    assert.equal(existsSync(path.join(dir, "settings.json.bak")), true);
+    assert.equal(saved.inferenceVendors, undefined);
+    assert.equal(saved.localAccountActive, undefined);
   } finally {
     await loaded.dispose();
     await rm(dir, { recursive: true, force: true });

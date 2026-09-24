@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { readLocalInferenceSnapshot } from "../local-inference-snapshot.js";
 import { writeFileReplaceSync } from "../atomic-write.js";
-import { readPersistedVendorSecrets } from "../vendor-secrets.js";
 
 import { DEFAULT_SAND_THEME_PREFERENCE, isSandThemePreference, type SandThemePreference } from "../../desktop.js";
 import { DEFAULT_UI_LANGUAGE, isUiLanguage, type UiLanguage } from "../../ui-language.js";
@@ -14,7 +14,7 @@ import { SidebarSections, type SidebarSection } from "../../sidebar-sections.js"
 import { coerceToEnabledTrack, isSandUpdateTrack, type SandUpdateTrack } from "../../update-track.js";
 import { isSandAgentModelSelection, type SandAgentModelSelection } from "../../agents/sand-agent-model.js";
 import { emptySandInferenceRouterUsage, isSandInferenceProvider, type SandInferenceProvider, type SandInferenceRouterUsage } from "../../inference-router.js";
-import { isHttpInferenceVendor, parseInferenceHttpConfig, parseInferenceVendorAccounts, recoverInferenceVendorsFromSecrets, vendorPreset, type InferenceHttpConfig, type InferenceVendorAccount } from "../../inference-vendor.js";
+import { isHttpInferenceVendor, parseInferenceHttpConfig, parseInferenceVendorAccounts, vendorPreset, type InferenceHttpConfig, type InferenceVendorAccount } from "../../inference-vendor.js";
 import { DEFAULT_SAND_BOX_RUNTIME, isSandBoxRuntime, type SandBoxRuntime } from "../../box-runtime.js";
 
 export const SETTINGS_VERSION = 1;
@@ -79,7 +79,7 @@ function parseSettings(value: unknown): SandStoredSettings | null {
   if (isSandLocalToolPermission(raw.localToolPermissionCeiling)) result.localToolPermissionCeiling = raw.localToolPermissionCeiling;
   if (isSandInferenceProvider(raw.inferenceProvider)) result.inferenceProvider = raw.inferenceProvider;
   const vendors = parseInferenceVendorAccounts(raw.inferenceVendors);
-  if (vendors.length > 0) result.inferenceVendors = vendors;
+  if (Array.isArray(raw.inferenceVendors)) result.inferenceVendors = vendors;
   if (typeof raw.defaultInferenceVendorId === "string" && raw.defaultInferenceVendorId.trim().length > 0) result.defaultInferenceVendorId = raw.defaultInferenceVendorId.trim();
   const inferenceHttp = parseInferenceHttpConfig(raw.inferenceHttp);
   if (inferenceHttp != null) result.inferenceHttp = inferenceHttp;
@@ -117,11 +117,6 @@ export class SandSettingsStore {
         try { this.persist(backup); } catch {}
         return this.hydrate(backup);
       }
-      const recovered = this.withRecoveredVendors(emptySettings());
-      if ((recovered.inferenceVendors ?? []).length > 0) {
-        this.diskState = "ok";
-        return this.applyPendingMigrations(recovered);
-      }
       this.diskState = "invalid";
       return emptySettings();
     }
@@ -145,22 +140,7 @@ export class SandSettingsStore {
     catch { return null; }
   }
   private hydrate(settings: SandStoredSettings): SandStoredSettings {
-    return this.applyPendingMigrations(this.withRecoveredVendors(settings));
-  }
-  private withRecoveredVendors(settings: SandStoredSettings): SandStoredSettings {
-    if ((settings.inferenceVendors ?? []).length > 0) return settings;
-    const recovered = recoverInferenceVendorsFromSecrets(readPersistedVendorSecrets(join(dirname(this.settingsPath), "box-secrets.json")));
-    const first = recovered[0];
-    if (first == null) return settings;
-    return {
-      ...settings,
-      inferenceVendors: recovered,
-      defaultInferenceVendorId: first.id,
-      inferenceProvider: first.provider,
-      inferenceHttp: { baseUrl: first.baseUrl, modelId: first.modelId },
-      localAccountActive: true,
-      boxRuntime: settings.boxRuntime ?? "local-docker",
-    };
+    return this.applyPendingMigrations(settings);
   }
   private applyPendingMigrations(settings: SandStoredSettings): SandStoredSettings {
     let next = settings;
@@ -178,13 +158,12 @@ export class SandSettingsStore {
   }
   persist(settings: SandStoredSettings): void {
     if (this.diskState === "invalid") {
-      console.error(`[sand] refusing to overwrite unreadable settings file: ${this.settingsPath}`);
-      return;
+      throw new Error("Settings could not be read. Restore a verified backup before saving; no configuration was overwritten.");
     }
     const payload = `${JSON.stringify(settings, null, 2)}\n`;
     writeFileReplaceSync(this.settingsPath, payload);
     this.diskState = "ok";
-    if ((settings.inferenceVendors ?? []).length > 0) {
+    if (settings.inferenceVendors !== undefined) {
       try { writeFileReplaceSync(`${this.settingsPath}.bak`, payload); } catch { /* backup is best-effort */ }
     }
   }
@@ -255,13 +234,15 @@ export class SandSettingsStore {
   }
   getLocalToolPermissionCeiling(): SandLocalToolPermission | undefined { return this.load().localToolPermissionCeiling; }
   setLocalToolPermission(value: SandLocalToolPermission): void { this.update((s) => ({ ...s, localToolPermission: value })); }
-  getInferenceProvider(): SandInferenceProvider { return this.load().inferenceProvider ?? "cursor"; }
+  getInferenceProvider(): SandInferenceProvider { return readLocalInferenceSnapshot()?.provider ?? this.load().inferenceProvider ?? "cursor"; }
   setInferenceProvider(value: SandInferenceProvider): void { this.update((s) => ({ ...s, inferenceProvider: value })); }
-  getInferenceHttp(): InferenceHttpConfig | undefined { return this.load().inferenceHttp; }
+  getInferenceHttp(): InferenceHttpConfig | undefined { const snapshot = readLocalInferenceSnapshot(); return snapshot ? snapshot.http ?? undefined : this.load().inferenceHttp; }
   setInferenceHttp(value: InferenceHttpConfig | undefined): void { this.update((s) => { const { inferenceHttp: _old, ...rest } = s; return value == null ? rest : { ...rest, inferenceHttp: { baseUrl: value.baseUrl, modelId: value.modelId } }; }); }
   getInferenceVendors(): InferenceVendorAccount[] {
+    const snapshot = readLocalInferenceSnapshot();
+    if (snapshot) return snapshot.vendors;
     const loaded = this.load();
-    if ((loaded.inferenceVendors ?? []).length > 0) return loaded.inferenceVendors ?? [];
+    if (loaded.inferenceVendors !== undefined) return loaded.inferenceVendors;
     const provider = loaded.inferenceProvider;
     if (!isHttpInferenceVendor(provider)) return [];
     const http = loaded.inferenceHttp;
@@ -281,7 +262,8 @@ export class SandSettingsStore {
   }
   getDefaultInferenceVendorId(): string | undefined {
     const vendors = this.getInferenceVendors();
-    const loaded = this.load().defaultInferenceVendorId;
+    const snapshot = readLocalInferenceSnapshot();
+    const loaded = snapshot ? snapshot.defaultVendorId : this.load().defaultInferenceVendorId;
     if (loaded != null && vendors.some((item) => item.id === loaded)) return loaded;
     return vendors[0]?.id;
   }
@@ -293,7 +275,7 @@ export class SandSettingsStore {
     }
     return this.getInferenceVendors().find((item) => item.id === id);
   }
-  getLocalAccountActive(): boolean { return this.load().localAccountActive === true; }
+  getLocalAccountActive(): boolean { return readLocalInferenceSnapshot()?.localAccountActive ?? (this.load().localAccountActive === true); }
   setLocalAccountActive(value: boolean): void { this.update((s) => { const { localAccountActive: _old, ...rest } = s; return value ? { ...rest, localAccountActive: true } : rest; }); }
   getInferenceRouterUsage(): SandInferenceRouterUsage { return this.load().inferenceRouterUsage ?? emptySandInferenceRouterUsage(); }
   recordInferenceUsage(provider: SandInferenceProvider, usage: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number }): void {

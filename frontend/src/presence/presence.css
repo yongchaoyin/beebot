@@ -70,7 +70,7 @@ html[data-beebot-theme="presence"] :is(.sand-prompt-send, .beebot-node-conversat
   width: 32px; height: 32px; border-radius: 9px; background: var(--bb-accent); color: var(--bb-on-accent);
   transition: background-color var(--bb-fast), transform var(--bb-fast);
 }
-html[data-beebot-theme="presence"] .sand-prompt-send [data-icon-name="mic"] { display: none; }
+/* The empty composer may use a microphone action; never render a blank button. */
 html[data-beebot-theme="presence"] .sand-prompt-send:enabled:hover { background: var(--bb-accent-hover); }
 html[data-beebot-theme="presence"] .sand-prompt-send:enabled:active { transform: scale(.94); }
 html[data-beebot-theme="presence"] .sand-prompt-send:disabled { cursor: not-allowed; opacity: .45; }

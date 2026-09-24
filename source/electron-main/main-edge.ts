@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isSandAgentModelSelection, resolveComputerUseModelSelection } from "../shared/agents/sand-agent-model.js";
 import { normalizeSandAutoReviewInstructions } from "../shared/sand-auto-review-instructions.js";
 import { isSandLocalToolAction, normalizeSandLocalToolPermission } from "../shared/local-tool-permission.js";
@@ -14,6 +15,7 @@ import { getLocalInferenceCliStatus } from "../shared/node/inference-router-loca
 import { isSandBoxRuntime } from "../shared/box-runtime.js";
 import { getLocalDockerStatus, startLocalDockerBox, stopLocalDockerBox } from "./box/local-docker-host-connector.js";
 import { requestApplicationMenuRebuild } from "./application-menu.js";
+import { publishLocalInferenceSnapshot } from "../shared/node/local-inference-snapshot.js";
 import { dirname, join } from "node:path";
 
 export const MAIN_EDGE_UNSERVED = "main/unserved-method";
@@ -129,14 +131,15 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const defaultVendorId = invoke(deps.settingsStore, "getDefaultInferenceVendorId");
       return { vendors, defaultVendorId: typeof defaultVendorId === "string" ? defaultVendorId : vendors[0]?.id ?? null };
     },
-    upsertInferenceVendor: (raw) => {
+    upsertInferenceVendor: async (raw) => {
       const request = req(raw);
       const provider = request.provider;
       invariant(isHttpInferenceVendor(provider), "Unknown inference vendor.");
-      const id = typeof request.id === "string" && request.id.trim().length > 0 ? request.id.trim() : `v${Date.now().toString(36)}`;
+      const id = typeof request.id === "string" && request.id.trim().length > 0 ? request.id.trim() : `v${randomUUID().replaceAll("-", "").slice(0, 23)}`;
       const http = resolveVendorHttpConfig(provider, { baseUrl: typeof request.baseUrl === "string" ? request.baseUrl : "", modelId: typeof request.modelId === "string" ? request.modelId : "" });
       const preset = vendorPreset(provider);
-      const secretKey = typeof request.secretKey === "string" && request.secretKey.trim().length > 0 ? request.secretKey.trim() : vendorAccountSecretKey(id);
+      const previousAccount = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors")).find(item => item.id === id);
+      const secretKey = previousAccount?.secretKey ?? vendorAccountSecretKey(id);
       const account = parseInferenceVendorAccount({
         id,
         label: typeof request.label === "string" ? request.label : preset.label,
@@ -151,7 +154,7 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       const secretsPath = join(dirname(settingsPath), "box-secrets.json");
       const apiKey = typeof request.apiKey === "string" ? request.apiKey.trim() : "";
       if (apiKey.length > 0) persistVendorSecret(secretsPath, account.secretKey, apiKey);
-      else if ((readPersistedVendorSecrets(secretsPath)[account.secretKey] ?? "").length === 0 && (readPersistedVendorSecrets(secretsPath)[preset.secretKey] ?? "").length === 0) {
+      else if ((readPersistedVendorSecrets(secretsPath)[account.secretKey] ?? "").length === 0) {
         throw new Error(`${account.label} needs an API key.`);
       }
       const vendors = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors"));
@@ -159,28 +162,33 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
       if (index >= 0) vendors[index] = account; else vendors.push(account);
       invoke(deps.settingsStore, "setInferenceVendors", vendors);
       if (request.makeDefault === true || invoke(deps.settingsStore, "getDefaultInferenceVendorId") == null) invoke(deps.settingsStore, "setDefaultInferenceVendorId", account.id);
-      invoke(deps.settingsStore, "setInferenceProvider", account.provider);
-      invoke(deps.settingsStore, "setInferenceHttp", { baseUrl: account.baseUrl, modelId: account.modelId });
+      const defaultAccount = vendors.find(item => item.id === invoke(deps.settingsStore, "getDefaultInferenceVendorId"))!;
+      invoke(deps.settingsStore, "setInferenceProvider", defaultAccount.provider);
+      invoke(deps.settingsStore, "setInferenceHttp", { baseUrl: defaultAccount.baseUrl, modelId: defaultAccount.modelId });
       invoke(deps.settingsStore, "setLocalAccountActive", true);
       invoke(deps.settingsStore, "setHasSeenOnboarding", true);
       invoke(deps.settingsStore, "setLocalToolPermission", "always");
       invoke(deps.settingsStore, "setAutoReviewInstructions", { isEnabled: false, allowInstructions: [], blockInstructions: [] });
       if (invoke(deps.settingsStore, "getBoxRuntime") !== "local-docker") invoke(deps.settingsStore, "setBoxRuntime", "local-docker");
       void Promise.resolve(invoke(deps.onboardingSeen, "apply", true));
-      void deps.syncHostSettingsToBox({
-        inferenceProvider: account.provider,
-        inferenceHttp: { baseUrl: account.baseUrl, modelId: account.modelId },
+      publishLocalInferenceSnapshot(settingsPath);
+      const synchronized = await deps.syncHostSettingsToBox({
+        inferenceProvider: defaultAccount.provider,
+        inferenceHttp: { baseUrl: defaultAccount.baseUrl, modelId: defaultAccount.modelId },
         inferenceVendors: vendors,
         defaultInferenceVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId"),
         localAccountActive: true,
       }).catch(() => null);
-      return { vendors, defaultVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId") };
+      return { vendors, defaultVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId"), synced: synchronized != null };
     },
-    deleteInferenceVendor: (raw) => {
+    deleteInferenceVendor: async (raw) => {
       const id = String(req(raw).id ?? "");
       const vendors = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors")).filter((item) => item.id !== id);
       invoke(deps.settingsStore, "setInferenceVendors", vendors);
-      return { vendors, defaultVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId") };
+      publishLocalInferenceSnapshot(String(Reflect.get(deps.settingsStore, "settingsPath")));
+      const synchronized = await deps.syncHostSettingsToBox({ inferenceVendors: vendors,
+        defaultInferenceVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId") ?? null }).catch(() => null);
+      return { vendors, defaultVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId"), synced: synchronized != null };
     },
     getInferenceRouter: async () => { const settings = await deps.readHostSettingsFromBox().catch(() => ({} as UnknownRecord)); const provider = invoke(deps.settingsStore, "getInferenceProvider"); const http = invoke(deps.settingsStore, "getInferenceHttp"); return { provider: isSandInferenceProvider(provider) ? provider : "cursor", usage: settings.inferenceRouterUsage ?? invoke(deps.settingsStore, "getInferenceRouterUsage") ?? null, local: getLocalInferenceCliStatus(), http: http ?? null }; },
     setInferenceRouter: async (raw) => {
@@ -194,21 +202,26 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         const http = resolveVendorHttpConfig(provider, { baseUrl: typeof request.baseUrl === "string" ? request.baseUrl : "", modelId: typeof request.modelId === "string" ? request.modelId : "" });
         if (http.baseUrl.length === 0 || http.modelId.length === 0) throw new Error("This vendor needs a Base URL and model ID.");
         const secretKey = vendorPreset(provider).secretKey;
+        const matching = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors")).find(item => item.provider === provider && item.baseUrl === http.baseUrl && item.modelId === http.modelId);
+        const currentKey = matching ? readPersistedVendorSecrets(secretsPath)[matching.secretKey] || (matching.id === "legacy" ? process.env[secretKey] : undefined) : undefined;
         if (apiKey.length > 0) persistVendorSecret(secretsPath, secretKey, apiKey);
-        else if ((readPersistedVendorSecrets(secretsPath)[secretKey] ?? "").length === 0 && (process.env[secretKey] ?? "").trim().length === 0) {
+        else if (!(currentKey ?? "").trim()) {
           throw new Error(`${vendorPreset(provider).label} needs ${secretKey}. Add it in Settings.`);
         }
         invoke(deps.settingsStore, "setInferenceHttp", http);
         const vendors = parseInferenceVendorAccounts(invoke(deps.settingsStore, "getInferenceVendors"));
         const existing = vendors.find((item) => item.provider === provider && item.baseUrl === http.baseUrl && item.modelId === http.modelId);
         if (existing == null) {
-          const id = `v${Date.now().toString(36)}`;
+          const id = `v${randomUUID().replaceAll("-", "").slice(0, 23)}`;
           const preset = vendorPreset(provider);
           const accountKey = vendorAccountSecretKey(id);
-          if (apiKey.length > 0) persistVendorSecret(secretsPath, accountKey, apiKey);
+          persistVendorSecret(secretsPath, accountKey, apiKey || currentKey?.trim() || "");
           vendors.push({ id, label: preset.label, provider, baseUrl: http.baseUrl, modelId: http.modelId, secretKey: accountKey });
           invoke(deps.settingsStore, "setInferenceVendors", vendors);
           invoke(deps.settingsStore, "setDefaultInferenceVendorId", id);
+        } else {
+          if (apiKey.length > 0) persistVendorSecret(secretsPath, existing.secretKey, apiKey);
+          invoke(deps.settingsStore, "setDefaultInferenceVendorId", existing.id);
         }
       }
       invoke(deps.settingsStore, "setInferenceProvider", provider);
@@ -221,8 +234,11 @@ export function createMainEdgeHandlers(deps: MainEdgeDeps): HandlerMap {
         void Promise.resolve(invoke(deps.onboardingSeen, "apply", true));
         if (typeof Reflect.get(deps.cursorAccount, "syncPresentedAuth") === "function") await invoke(deps.cursorAccount, "syncPresentedAuth");
       }
+      publishLocalInferenceSnapshot(settingsPath);
       const settings = await deps.syncHostSettingsToBox({
         inferenceProvider: provider,
+        inferenceVendors: invoke(deps.settingsStore, "getInferenceVendors"),
+        defaultInferenceVendorId: invoke(deps.settingsStore, "getDefaultInferenceVendorId") ?? null,
         inferenceHttp: invoke(deps.settingsStore, "getInferenceHttp") ?? null,
         localAccountActive: invoke(deps.settingsStore, "getLocalAccountActive") === true,
       }).catch(() => null);

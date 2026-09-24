@@ -418,39 +418,55 @@ if(!window.__sandPlusMenuBound){window.__sandPlusMenuBound=!0;document.addEventL
   menu.append(bot,group);localize();window.addEventListener("sand-ui-language-changed",localize);
   RInsertSidebarSection(menu);
 },true)}
+function RSyncVendorChoices(sel,vendors,current){
+  if(sel.dataset.pending==="true") return;
+  const signature=JSON.stringify(vendors.map(v=>[v.id,v.label,v.modelId]));
+  if(sel.dataset.catalog!==signature||!Array.from(sel.options).some(o=>o.value===current)){
+    sel.replaceChildren();
+    if(!vendors.some(v=>v.id===current)){
+      const missing=document.createElement("option");missing.value=current;missing.disabled=true;
+      missing.textContent=RCreateText("原模型不可用，请选择现有 API","Original model unavailable — choose an API");sel.append(missing);
+    }
+    for(const v of vendors){const o=document.createElement("option");o.value=v.id;o.textContent=v.label+(v.modelId?" · "+v.modelId:"");sel.append(o)}
+    sel.dataset.catalog=signature;
+  }
+  sel.value=current;sel.disabled=vendors.length===0;
+}
 if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(async()=>{
   const pane=document.querySelector(".sand-agent-settings");
-  if(!pane) return;
-  const agentId=document.querySelector("[data-agent-id][data-active='true'], [data-agent-id][aria-current='true']")?.getAttribute("data-agent-id");
-  if(!agentId) return;
-  let listed; try{listed=await window.desktop.agent.getInferenceVendors()}catch{return}
+  const owner=pane?.closest("[data-beebot-settings-owner]");
+  const agentId=owner?.getAttribute("data-beebot-settings-owner");
+  if(!pane||!agentId) return;
+  let listed;try{listed=await window.desktop.agent.getInferenceVendors()}catch{return}
+  if(!pane.isConnected||owner.getAttribute("data-beebot-settings-owner")!==agentId)return;
   const vendors=Array.isArray(listed?.vendors)?listed.vendors:[];
-  if(vendors.length===0) return;
   const current=RAgentVendorId(agentId)||listed?.defaultVendorId||vendors[0]?.id||"";
-  const existing=pane.querySelector("#sand-agent-vendor");
-  if(existing&&existing.getAttribute("data-agent-id")!==agentId) existing.remove();
   const present=pane.querySelector("#sand-agent-vendor");
-  if(present){
-    const sel=present.querySelector("select");
-    if(sel&&current&&sel.value!==current) sel.value=current;
-    return;
-  }
-  const wrap=document.createElement("label"); wrap.id="sand-agent-vendor"; wrap.setAttribute("data-agent-id",agentId);
-  wrap.style.cssText="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:16px 0 0;padding:13px;border:1px solid var(--cursor-border-secondary,#393939);border-radius:9px;background:var(--cursor-bg-secondary,#292929)";
-  const copy=(window.__sandUiLanguage||"en")==="zh"?{title:"这个 Bot 使用的 API",hint:"每个 Bot 可以走不同的厂商和模型。"}:{title:"API for this Bot",hint:"Each bot can use a different vendor and model."};
-  const text=document.createElement("span"); text.style.cssText="display:grid;gap:4px;min-width:0";
-  const title=document.createElement("strong"); title.textContent=copy.title; title.style.cssText="font-size:13px;color:var(--cursor-text-primary,#ececec);font-weight:500";
-  const hint=document.createElement("small"); hint.textContent=copy.hint; hint.style.cssText="color:var(--cursor-text-secondary,#aaa);font-size:11px";
-  text.append(title,hint);
-  const sel=document.createElement("select"); sel.style.cssText="height:34px;min-width:160px;border-radius:6px;border:1px solid var(--cursor-stroke-tertiary,#494949);background:var(--cursor-button-secondary-background,#292929);color:var(--cursor-text-primary,#ececec);padding:0 10px;font:inherit;appearance:none";
-  for(const v of vendors){const o=document.createElement("option"); o.value=v.id; o.textContent=v.label+(v.modelId?" · "+v.modelId:""); if(v.id===current) o.selected=true; sel.append(o)}
+  if(present){RSyncVendorChoices(present.querySelector("select"),vendors,current);return}
+  const wrap=document.createElement("label");wrap.id="sand-agent-vendor";wrap.setAttribute("data-agent-id",agentId);
+  wrap.style.cssText="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin:16px 0 0;padding:13px;border:1px solid var(--cursor-border-secondary);border-radius:9px;background:var(--cursor-bg-secondary)";
+  const text=document.createElement("span");text.style.cssText="display:grid;gap:4px;min-width:0";
+  const title=document.createElement("strong");title.textContent=RCreateText("这个 Bot 使用的 API","API for this Bot");title.style.cssText="font-size:13px;color:var(--cursor-text-primary);font-weight:500";
+  const hint=document.createElement("small");hint.textContent=RCreateText("使用已配置的模型，不会自动切换到其他 API。","Uses the selected model. No automatic fallback to another API.");hint.setAttribute("role","status");hint.style.cssText="color:var(--cursor-text-secondary);font-size:12px";text.append(title,hint);
+  const sel=document.createElement("select");sel.setAttribute("aria-label",title.textContent);sel.style.cssText="height:34px;min-width:160px;max-width:100%;border-radius:6px;border:1px solid var(--cursor-stroke-tertiary);background:var(--cursor-button-secondary-background);color:var(--cursor-text-primary);padding:0 10px;font:inherit";
+  RSyncVendorChoices(sel,vendors,current);
   sel.onchange=()=>{
-    window.__sandAgentVendors=window.__sandAgentVendors||{};
-    window.__sandAgentVendors[agentId]=sel.value;
-    const name=(pane.querySelector("input")?.value||document.querySelector("[data-agent-id][data-active='true']")?.textContent||"Bot").trim().split("\n")[0];
-    window.__sandUpdateAgent?.(agentId,{name,inferenceVendorId:sel.value});
+    const choice=sel.value,previous=RAgentVendorId(agentId)||current;
+    if(sel.dataset.pending==="true")return;
+    sel.dataset.pending="true";sel.disabled=true;
+    hint.textContent=RCreateText("正在保存模型选择…","Saving model selection…");
+    const name=(pane.querySelector("input")?.value||"Bot").trim().split("\n")[0];
+    Promise.resolve().then(()=>{
+      if(typeof window.__sandUpdateAgent!=="function")throw new Error("Bot settings unavailable");
+      if(!pane.isConnected||owner.getAttribute("data-beebot-settings-owner")!==agentId)throw new Error("Bot settings changed");
+      return window.__sandUpdateAgent(agentId,{name,inferenceVendorId:choice});
+    }).then(()=>{
+      window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[agentId]=choice;
+      hint.textContent=RCreateText("已保存，下次发送时使用该模型。","Saved. The next message will use this model.");
+    },()=>{sel.value=previous;hint.textContent=RCreateText("保存失败，原模型未更改。请检查连接后重试。","Save failed; original model unchanged. Check the connection and try again.");
+    }).finally(()=>{delete sel.dataset.pending;sel.disabled=false;});
   };
-  wrap.append(text,sel); pane.append(wrap);
+  wrap.append(text,sel);pane.append(wrap);
 },1200)}
 function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversationStatus(n);const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
   const {deploymentServerId,connectionId,key,...local}={...r,origin:"user",...i};

@@ -93,9 +93,12 @@ test("create overlay remembers the vendor chosen for a new bot", async () => {
 
 test("changing a bot vendor does not blank its description", async () => {
   const overlay = await readFile(path.join(repoRoot, "scripts/lib/sand-create-overlay.snippet.js"), "utf8");
-  assert.match(overlay, /inferenceVendorId:sel\.value/);
   const vendorUpdate = overlay.match(/sel\.onchange=\(\)=>\{([\s\S]*?)\n  \};/);
   assert.ok(vendorUpdate, "the existing Bot vendor update handler must exist");
+  // Capture before awaiting the dispatcher: later UI edits must not alter this save.
+  // Executable selector regressions in model-binding-ui.test.mjs cover success/failure.
+  assert.match(vendorUpdate[1], /const choice=sel\.value/);
+  assert.match(vendorUpdate[1], /__sandUpdateAgent\(agentId,\{name,inferenceVendorId:choice\}\)/);
   assert.doesNotMatch(vendorUpdate[1], /description\s*:/);
   const lifecycle = await readFile(path.join(repoRoot, "source/host/extensions/transcript/agent-lifecycle.ts"), "utf8");
   assert.match(lifecycle, /typeof profile\.description === "string"/);

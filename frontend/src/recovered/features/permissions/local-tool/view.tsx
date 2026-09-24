@@ -63,10 +63,10 @@ function ceilingBlocksAlways(ceiling: LocalToolPermissionCeilingSnapshot): boole
 }
 
 function outcomeText(status: LocalToolPermissionAskStatus): string {
-  if (status === "always") return "Grok Bot can run commands on your computer.";
-  if (status === "never") return "Grok Bot cannot run commands on your computer.";
-  if (status === "denied" || status === "expired") return "Grok Bot was not allowed to run commands on your computer.";
-  return "Grok Bot can run commands on your computer this time.";
+  if (status === "always") return "BeeBot can run commands on your computer.";
+  if (status === "never") return "BeeBot cannot run commands on your computer.";
+  if (status === "denied" || status === "expired") return "BeeBot was not allowed to run commands on your computer.";
+  return "BeeBot can run commands on your computer this time.";
 }
 
 function isFormTarget(target: EventTarget | null): boolean {
@@ -152,8 +152,8 @@ export function LocalToolPermissionPrompt({ entryId, ask, agentId, store, resolv
   const disabled = !canAct;
   return (
     <div aria-label="Local tool permission" className="sand-78zum5 sand-167g77z sand-h8yej3 sand-euugli" data-state={actionState} ref={promptRef} style={{ maxWidth: 560, gap: 8, padding: "14px 16px", color: "var(--cursor-text-primary, #ececec)", background: "var(--cursor-bg-elevated, #202020)", border: "1px solid var(--cursor-border-secondary, #414141)", borderRadius: 10, boxShadow: "0 12px 28px rgba(0, 0, 0, .25)", font: "13px/1.4 Inter, ui-sans-serif, system-ui, sans-serif" }}>
-      <strong>Allow Grok Bot and all agents to run commands on your local computer?</strong>
-      <span>This applies to Grok Bot and every agent. It can always be changed in Settings.</span>
+      <strong>Allow BeeBot and all agents to run commands on your local computer?</strong>
+      <span>This applies to BeeBot and every agent. It can always be changed in Settings.</span>
       {actionState === "failed" ? <span style={{ color: "#f87171" }}>Your answer didn&apos;t go through. Check your connection and try again.</span> : null}
       <div role="group" style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
         <button disabled={disabled || alwaysBlocked} onClick={() => submit("always")} style={{ padding: "6px 9px", color: "#161616", background: "#c5f467", border: "1px solid #c5f467", borderRadius: 6, font: "inherit", cursor: disabled || alwaysBlocked ? "default" : "pointer", opacity: disabled || alwaysBlocked ? .5 : 1 }} title={alwaysTooltip} type="button">Always allow</button>

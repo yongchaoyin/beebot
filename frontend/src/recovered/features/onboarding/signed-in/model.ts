@@ -43,7 +43,7 @@ export const ONBOARDING_JOB_BUBBLE_Y_OFFSET = 50;
 export const ONBOARDING_BOX_PROBE_MS = 2_500;
 export const ONBOARDING_BOX_WAIT_TIMEOUT_MS = 60_000;
 
-export const MEET_WELCOME_TEXT = "Welcome to Grok Bot";
+export const MEET_WELCOME_TEXT = "Welcome to BeeBot";
 export const MEET_TYPED_TEXT = "Hand off any task to your team of agents";
 
 export const COMPUTER_DEMO_FRAMES = [
@@ -273,7 +273,7 @@ export function onboardingCreateErrorMessage(reason: unknown): string {
 
 export function handOffStatus(input: { isComputerReady: boolean; pullPercent: number | null; computerState: string | null }): string {
   if (input.isComputerReady) return "Getting your team ready…";
-  if (input.pullPercent != null) return `Setting up your Grok Bot… ${Math.round(input.pullPercent)}%`;
+  if (input.pullPercent != null) return `Setting up your BeeBot… ${Math.round(input.pullPercent)}%`;
   if (input.computerState === "hibernated") return "Waking your computer…";
-  return "Setting up your Grok Bot…";
+  return "Setting up your BeeBot…";
 }

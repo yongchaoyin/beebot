@@ -12,6 +12,7 @@ import { isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset, type Http
 import { resolveHttpToolParameters, withSyntheticSendMessage } from "../../../shared/http-tool-parameters.js";
 import { resolveClaudeCodeCliPath } from "../../../shared/node/inference-router-local.js";
 import { getSandRootDir } from "../../host-paths.js";
+import { readLocalInferenceSnapshot, snapshotHttpSession } from "../../../shared/node/local-inference-snapshot.js";
 import { SandSettingsStore } from "../../../shared/node/settings/sand-settings-store.js";
 import { getBoxSecretsStorePath } from "../secrets/secrets-service.js";
 import { streamCodexDirectResponses, type CodexDirectTool } from "./codex-direct-responses.js";
@@ -48,6 +49,8 @@ function persistedSecrets(): Record<string, string> {
 }
 
 function httpVendorSession(provider: HttpInferenceVendor, vendor?: InferenceVendorAccount): { readonly apiKey: string; readonly baseUrl: string; readonly modelId: string } {
+  const snapshot = readLocalInferenceSnapshot();
+  if (snapshot) return snapshotHttpSession(snapshot, provider, vendor);
   const preset = vendorPreset(provider);
   const settings = new SandSettingsStore(join(getSandRootDir(), "settings.json"));
   const account = vendor ?? settings.getInferenceVendor(undefined);
@@ -56,7 +59,7 @@ function httpVendorSession(provider: HttpInferenceVendor, vendor?: InferenceVend
     : resolveVendorHttpConfig(provider, settings.getInferenceHttp());
   const secretKey = account?.secretKey ?? preset.secretKey;
   const envOverride = provider === "openrouter" ? process.env.SAND_OPENROUTER_MODEL?.trim() : undefined;
-  const apiKey = process.env[secretKey]?.trim() || persistedSecrets()[secretKey]?.trim() || persistedSecrets()[preset.secretKey]?.trim();
+  const apiKey = process.env[secretKey]?.trim() || persistedSecrets()[secretKey]?.trim();
   if (apiKey == null || apiKey.length === 0) throw new Error(`${account?.label ?? preset.label} needs an API key. Add it in Settings.`);
   if (http.baseUrl.length === 0 || (envOverride == null || envOverride.length === 0) && http.modelId.length === 0) {
     throw new Error(`${account?.label ?? preset.label} needs a Base URL and model ID.`);
@@ -69,7 +72,7 @@ function providerPrompt(messages: readonly ProviderMessage[]): string {
     const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content);
     return `${message.role.toUpperCase()}: ${content}`;
   }).join("\n\n");
-  return `${GROK_ROUTER_SYSTEM_PROMPT}\n\nContinue this Grok Bot conversation.\n\n${rendered}`;
+  return `${GROK_ROUTER_SYSTEM_PROMPT}\n\nContinue this BeeBot conversation.\n\n${rendered}`;
 }
 
 function deferred<T>() { return Promise.withResolvers<T>(); }
@@ -90,7 +93,7 @@ function codexCredentials(): CodexCredentials {
   const idToken = parsed?.tokens?.id_token;
   const accountId = parsed?.tokens?.account_id;
   if (parsed?.auth_mode !== "chatgpt" || typeof accessToken !== "string" || accessToken.length === 0 || typeof refreshToken !== "string" || refreshToken.length === 0 || typeof idToken !== "string" || idToken.length === 0 || typeof accountId !== "string" || accountId.length === 0) {
-    throw new Error("Codex is not signed in with ChatGPT. Run `codex login`, then reopen Grok Bot.");
+    throw new Error("Codex is not signed in with ChatGPT. Run `codex login`, then reopen BeeBot.");
   }
   return { accessToken, refreshToken, idToken, accountId, path, document: parsed };
 }
@@ -218,7 +221,7 @@ function codexExecutor(messages: readonly ProviderMessage[], invocationId: strin
 
 function claudeExecutor(messages: readonly ProviderMessage[], invocationId: string, onUsage?: (usage: UsageRecord) => void, mcpServerUrl?: string) {
   const executable = resolveClaudeCodeCliPath();
-  if (executable == null) throw new Error("Claude Code is not installed. Install and sign in to Claude Code, then reopen Grok Bot.");
+  if (executable == null) throw new Error("Claude Code is not installed. Install and sign in to Claude Code, then reopen BeeBot.");
   const usage = deferred<{ promptTokens: number; completionTokens: number; totalTokens: number }>();
   const extendedUsage = deferred<{ inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; maxTokens: number }>();
   const resultResponse = deferred<ReturnType<typeof response>>();

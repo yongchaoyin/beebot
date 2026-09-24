@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdir, open, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
@@ -12,17 +12,13 @@ function isReplaceBusy(error: unknown): boolean {
   return code === "EBUSY" || code === "EXDEV";
 }
 
-/** Write `targetPath` without renaming over it when it already exists.
- *  Docker bind-mounted files (settings.json, box-secrets.json) break if renamed. */
+/** Replace a complete document atomically. Mutable configuration must not be
+ * single-file bind-mounted; current local VMs use a read-only directory snapshot. */
 export function writeFileReplaceSync(targetPath: string, data: string, options: { readonly mode?: number } = {}): void {
   mkdirSync(dirname(targetPath), { recursive: true });
   const temporaryPath = temporaryBeside(targetPath);
-  writeFileSync(temporaryPath, data, { encoding: "utf8", mode: options.mode });
+  writeFileSync(temporaryPath, data, { encoding: "utf8", mode: options.mode ?? 0o600, flag: "wx" });
   try {
-    if (existsSync(targetPath)) {
-      writeFileSync(targetPath, data, { encoding: "utf8", mode: options.mode });
-      return;
-    }
     renameSync(temporaryPath, targetPath);
   } catch (error) {
     if (!isReplaceBusy(error)) throw error;

@@ -67,9 +67,8 @@ try {
 // `grokbot`; the original bundle remains untouched and remains reference-only.
 await run(SYSTEM_TOOLS.plutil, ["-remove", "CFBundleURLTypes", infoPlist]);
 await run(SYSTEM_TOOLS.plutil, ["-insert", "CFBundleURLTypes", "-xml", "<array><dict><key>CFBundleTypeRole</key><string>Viewer</string><key>CFBundleURLName</key><string>BeeBot auth callback</string><key>CFBundleURLSchemes</key><array><string>sand</string></array></dict></array>", infoPlist]);
-// Keep CFBundleName/CFBundleExecutable as "Grok Bot": Electron derives the
-// expected nested helper names from it, and this build intentionally reuses the
-// exact ABI-matched 0.18 runtime. CFBundleDisplayName provides the BeeBot name.
+// Rename matching main/helper identities together; payload invariants are still verified.
+await run("python3", [path.join(repoRoot, "scripts/lib/rebrand-macos.py"), outputApp]);
 
 await rm(path.join(outputApp, "Contents", "_CodeSignature"), { recursive: true, force: true });
 try {
@@ -84,9 +83,11 @@ try {
 await run(SYSTEM_TOOLS.codesign, ["--verify", "--deep", "--strict", outputApp]);
 const verification = await verifyReconstructedMacPackage({
   officialApp: runtimeApp,
+  reconstructedExecutable: "BeeBot",
   reconstructedApp: outputApp,
   sourceUnpackedRoot: builtAsarUnpacked,
   packagedUnpackedRoot: packagedUnpacked,
 });
 
+await run("python3", [path.join(repoRoot, "scripts/lib/rebrand-macos.py"), outputApp, "--verify"]);
 console.log(`Packaged application: ${outputApp} (${verification.runtime.nodeFileCount} native manifest entries, ${verification.runtime.runtimeFileCount} unpacked runtime files)`);

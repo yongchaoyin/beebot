@@ -104,7 +104,7 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
     return () => window.clearTimeout(timeout);
   }, [emailCopied]);
   const title = signedIn ? account.name : account.kind === "logging-in" ? "Signing in" : "Not signed in";
-  const detail = signedIn ? account.email ?? "Signed in to Cursor" : account.kind === "logging-in" ? "Finish signing in from your browser" : "Connect your Cursor account to Grok Bot";
+  const detail = signedIn ? account.email ?? "Signed in to Cursor" : account.kind === "logging-in" ? "Finish signing in from your browser" : "Connect your Cursor account to BeeBot";
   const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Sign In with Cursor";
   // @evidence recovered/frontend/app/assets/index-BlqerJhg.js#L40-L50
   const copyEmail = async () => {
@@ -186,8 +186,8 @@ export function SecurityKeySettingsGroup({ enabled, platform, onChange }: Securi
   const isPending = action.isPending;
   const supported = SECURITY_KEY_PLATFORMS.includes(platform);
   const description = supported
-    ? "Allow Grok Bot to use a security key (such as a YubiKey) connected to your computer. You’ll be asked to approve each use."
-    : "Security keys from Grok Bot's computer aren't supported on this platform yet.";
+    ? "Allow BeeBot to use a security key (such as a YubiKey) connected to your computer. You’ll be asked to approve each use."
+    : "Security keys from BeeBot's computer aren't supported on this platform yet.";
   const handleChange = () => {
     if (!supported || isPending) return;
     action.dispatch(!enabled);
@@ -309,7 +309,7 @@ export interface UsageSettingsPanelProps {
 }
 
 const UPGRADE_ERROR = "Couldn’t complete the upgrade action — try again";
-const CANCEL_TRIAL_COPY = "This ends your Grok Bot trial now and removes your remaining trial credits. Your card won’t be charged either way — the trial never turns into a paid plan on its own.";
+const CANCEL_TRIAL_COPY = "This ends your BeeBot trial now and removes your remaining trial credits. Your card won’t be charged either way — the trial never turns into a paid plan on its own.";
 
 export function UsageSettingsPanel({ meters = [], state, onRetry, onUpgrade, onCancelTrial, onCancelDialogOpen, provider = "cursor" }: UsageSettingsPanelProps) {
   const [upgradePending, setUpgradePending] = useState(false);
@@ -365,11 +365,11 @@ export function UsageSettingsPanel({ meters = [], state, onRetry, onUpgrade, onC
   const upgrade = summary?.upgradeCta ?? null;
   const upgradeSupportingText = summary == null ? null : upgrade == null ? null
     : !summary.hasNonZeroIncludedLimit && summary.hasAvailableUsage && summary.sandUsagePercent != null && summary.sandUsagePercent < 100
-      ? "Get more Grok Bot usage"
+      ? "Get more BeeBot usage"
       : summary.isSandTrial
         ? "You’ve used all of your trial usage"
         : summary.hasEndedSandTrial
-          ? "Your trial has ended. Upgrade to continue using Grok Bot."
+          ? "Your trial has ended. Upgrade to continue using BeeBot."
           : null;
   const canCancelTrial = summary?.isSandTrial === true && summary.canCancelSandTrial && onCancelTrial != null;
 
@@ -702,7 +702,7 @@ export function UpdatesSettingsPanel({
       <div className="sand-settings-beta-stack">
         <SettingsGroup title="Updates">
           <div className="sand-settings-beta__status" role="status">
-            <span>Grok Bot couldn&apos;t load update status. Check again to retry.</span>
+            <span>BeeBot couldn&apos;t load update status. Check again to retry.</span>
             <SandButton disabled={checkPending} onClick={() => runPendingAction(onCheck, setCheckPending)} size="md" variant="secondary">{checkPending ? "Checking…" : "Check for Updates"}</SandButton>
           </div>
         </SettingsGroup>
@@ -711,8 +711,8 @@ export function UpdatesSettingsPanel({
           description={egressTunnel.enabled
             ? egressTunnelStatusDescription(egressTunnel.status)
             : egressTunnel.available
-              ? "Route web traffic from Grok Bot's computer out through this desktop instead of the cloud. Applies to new connections."
-              : "Grok Bot's computer wasn't provisioned with the egress tunnel — start a new one to use this."}
+              ? "Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections."
+              : "BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this."}
           enabled={egressTunnel.enabled}
           onChange={egressTunnel.onChange}
         /> : null}
@@ -737,8 +737,8 @@ export function UpdatesSettingsPanel({
   const egressDescription = egressTunnel?.enabled === true
     ? egressTunnelStatusDescription(egressTunnel.status)
     : egressAvailable
-      ? "Route web traffic from Grok Bot's computer out through this desktop instead of the cloud. Applies to new connections."
-      : "Grok Bot's computer wasn't provisioned with the egress tunnel — start a new one to use this.";
+      ? "Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections."
+      : "BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this.";
   return (
     <div className="sand-settings-beta-stack">
       <SettingsGroup title="Updates">
@@ -755,7 +755,7 @@ export function UpdatesSettingsPanel({
           />
         </div> : null}
         <div className="sand-settings-row">
-          <span className="sand-settings-copy"><strong>Grok Bot {status.currentVersion}</strong><small>Updates follow the {UPDATE_TRACK_LABELS[status.currentTrack]} track</small></span>
+          <span className="sand-settings-copy"><strong>BeeBot {status.currentVersion}</strong><small>Updates follow the {UPDATE_TRACK_LABELS[status.currentTrack]} track</small></span>
           {status.state.type === "ready" ? (
             <SandButton disabled={installPending || onInstall == null} onClick={() => onInstall == null ? undefined : runPendingAction(onInstall, setInstallPending)} size="md" variant="primary">Restart to Update</SandButton>
           ) : (

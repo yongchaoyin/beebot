@@ -10,11 +10,11 @@ import "./root-shell-state.css";
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#L132095-L132097
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#L131933
 
-const SETUP_LABEL = "Setting up Grok Bot's computer";
+const SETUP_LABEL = "Setting up BeeBot's computer";
 const EMPTY_WORKSPACE_LABEL = "New chat";
 const EMPTY_WORKSPACE_COPY = "No chats yet";
 const ROOT_ERROR_TITLE = "Something went wrong";
-const ROOT_ERROR_DETAIL = "Grok Bot hit an unexpected error while rendering. Reloading usually fixes it.";
+const ROOT_ERROR_DETAIL = "BeeBot hit an unexpected error while rendering. Reloading usually fixes it.";
 const ROOT_ERROR_RELOAD = "Reload";
 const ROOT_ERROR_COPY = "Copy error";
 const ROOT_ERROR_COPIED = "Copied";

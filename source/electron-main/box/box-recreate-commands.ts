@@ -6,6 +6,6 @@ export function createSandRecreateCommands<TArgs>(deps: { readonly connector: { 
   const noteIfStarted = (result: RecreateResult) => { if (result.status === "started") deps.noteRecreateAccepted(result.operationId); else if (result.status === "started-untrackable") deps.noteRecreateAccepted(null); };
   return {
     async recreateComputer(args: TArgs): Promise<RecreateResult> { if (deps.connector.recreate == null) return { status: "dev-fallback" }; const result = await deps.connector.recreate(args); noteIfStarted(result); return result; },
-    async forceRecreateComputer(): Promise<RecreateResult> { if (deps.connector.forceRecreate == null) return { status: "rejected", reason: "Reset Grok Bot's Computer is unavailable without a backend connection." }; const result = await deps.connector.forceRecreate(); noteIfStarted(result); return result; },
+    async forceRecreateComputer(): Promise<RecreateResult> { if (deps.connector.forceRecreate == null) return { status: "rejected", reason: "Reset BeeBot's Computer is unavailable without a backend connection." }; const result = await deps.connector.forceRecreate(); noteIfStarted(result); return result; },
   };
 }

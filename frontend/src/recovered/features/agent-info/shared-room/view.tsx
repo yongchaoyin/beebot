@@ -78,7 +78,7 @@ export function SharedRoomDialog({ provider, roomId, agentId, accountGeneration,
     {snapshot.isHost ? <section>
       <p>Invite people</p>
       {snapshot.invite?.status === "ok" ? <InviteLink result={snapshot.invite} /> : snapshot.invite?.status === "error" ? <p role="alert">{snapshot.invite.message}</p> : <button disabled={snapshot.pendingAction === "invite"} onClick={() => { void provider.createRoomInvite(); }} type="button">Copy link</button>}
-      <p>They paste this link into Grok Bot via Cmd-K, then "Join shared room". Each request waits for your approval.</p>
+      <p>They paste this link into BeeBot via Cmd-K, then "Join shared room". Each request waits for your approval.</p>
     </section> : null}
     {snapshot.requests.length > 0 ? <section>
       <h3>Pending requests</h3>

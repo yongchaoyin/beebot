@@ -18,7 +18,7 @@ export function AccessCover({ access, bridge, isVisible }: AccessCoverProps) {
   return (
     <div className="sand-access-cover">
       <div className="sand-onboarding__landing">
-        <h1 id="sand-access-cover-heading">Grok Bot</h1>
+        <h1 id="sand-access-cover-heading">BeeBot</h1>
         <p>Your team of always-on agents that finish the work.</p>
         <div>
           <div>

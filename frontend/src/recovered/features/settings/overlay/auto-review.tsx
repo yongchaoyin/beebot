@@ -79,7 +79,7 @@ export function AutoReviewRulesPanel({ disabled = false, settings, onChange }: A
       <SandSwitch
         checked={settings.isEnabled}
         disabled={isDisabled}
-        label={<span><strong>Auto-review</strong><small>Grok Bot checks each action before it runs and asks you first when needed. Add rules to customize what it can do automatically.</small></span>}
+        label={<span><strong>Auto-review</strong><small>BeeBot checks each action before it runs and asks you first when needed. Add rules to customize what it can do automatically.</small></span>}
         onCheckedChange={(checked) => commitSettings({ ...settings, isEnabled: checked })}
       />
 

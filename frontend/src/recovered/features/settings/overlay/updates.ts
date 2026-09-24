@@ -57,7 +57,7 @@ export function disabledUpdateMessage(status: UpdateStatus): string {
     case "not-packaged":
       return "Updates are disabled in dev builds";
     case "lab-build":
-      return "Grok Bot Lab is a one-off test build and never auto-updates";
+      return "BeeBot Lab is a one-off test build and never auto-updates";
     case "unsupported-platform":
       return "Updates aren't available on this platform";
     case "disabled-by-env":
@@ -73,17 +73,17 @@ export function updateStatusMessage(status: UpdateStatus): UpdateStatusMessage {
     case "checking":
       return { text: "Checking for updates…", tone: "default" };
     case "available":
-      return { text: `Grok Bot ${state.version} is available`, tone: "default" };
+      return { text: `BeeBot ${state.version} is available`, tone: "default" };
     case "downloading": {
       const progress = state.progress != null ? ` (${Math.round(state.progress * 100)}%)` : "";
-      return { text: `Downloading Grok Bot ${state.version}…${progress}`, tone: "default" };
+      return { text: `Downloading BeeBot ${state.version}…${progress}`, tone: "default" };
     }
     case "staging":
-      return { text: `Preparing Grok Bot ${state.version}…`, tone: "default" };
+      return { text: `Preparing BeeBot ${state.version}…`, tone: "default" };
     case "ready":
       return state.lastCheck?.result === "error"
-        ? { text: `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}. Grok Bot ${state.version} is still ready. Restart to apply.`, tone: "error" }
-        : { text: `Grok Bot ${state.version} is ready. Restart to apply.`, tone: "ready" };
+        ? { text: `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}. BeeBot ${state.version} is still ready. Restart to apply.`, tone: "error" }
+        : { text: `BeeBot ${state.version} is ready. Restart to apply.`, tone: "ready" };
     case "idle":
       return state.lastCheck == null
         ? { text: "", tone: "default" }
@@ -103,10 +103,10 @@ export function egressTunnelStatusDescription(status: EgressTunnelStatus): strin
     case "connected":
       return status.activeStreams > 0
         ? `Connected — routing ${status.activeStreams} connection${status.activeStreams === 1 ? "" : "s"} (${status.relayedStreams} total this session).`
-        : `Connected — this desktop is ready to route web traffic from Grok Bot's computer (${status.relayedStreams} routed this session).`;
+        : `Connected — this desktop is ready to route web traffic from BeeBot's computer (${status.relayedStreams} routed this session).`;
     case "connecting":
-      return "Connecting to Grok Bot's computer…";
+      return "Connecting to BeeBot's computer…";
     case "off":
-      return "Enabled, but not routing yet — waiting for Grok Bot's computer to connect with egress enabled.";
+      return "Enabled, but not routing yet — waiting for BeeBot's computer to connect with egress enabled.";
   }
 }

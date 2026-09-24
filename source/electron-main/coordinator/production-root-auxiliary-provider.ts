@@ -39,6 +39,7 @@ export interface ProductionCoordinatorAuxiliaryPorts {
     | "getLocalToolPermission"
     | "getWebauthnProxyEnabled"
     | "getFeatureFlagOverrides"
+    | "getInferenceSettings"
     | "pushBoxSecrets"
     | "onHostSettingsTransportConnected"
     | "onHostSettingsTransportDown"
@@ -126,6 +127,7 @@ export function createProductionCoordinatorAuxiliaryPorts(
       getLocalToolPermission: () => settings.getLocalToolPermission(),
       getWebauthnProxyEnabled: () => settings.getWebauthnProxyEnabled(),
       getFeatureFlagOverrides: () => context.requireExperiments().getFeatureFlagOverridesRecord(),
+      getInferenceSettings: () => ({ inferenceProvider: settings.getInferenceProvider(), inferenceHttp: settings.getInferenceHttp() ?? null, inferenceVendors: settings.getInferenceVendors(), defaultInferenceVendorId: settings.getDefaultInferenceVendorId() ?? null, localAccountActive: settings.getLocalAccountActive() }),
       pushBoxSecrets: () => context.secretsStores.pushBoxSecrets.push("resync"),
       onHostSettingsTransportConnected: () => context.hostSettingsFields.onTransportConnected(),
       onHostSettingsTransportDown: () => context.hostSettingsFields.setBoxStreamLive(false),

@@ -59,7 +59,7 @@ export type ComputerUpdateConfirmationResult =
   | { readonly kind: "cancelled" }
   | { readonly kind: "stale" };
 
-const UPDATE_UNTRACKABLE_COPY = "The computer update started, but Grok Bot can't track its progress. Restart Grok Bot after the computer is available again.";
+const UPDATE_UNTRACKABLE_COPY = "The computer update started, but BeeBot can't track its progress. Restart BeeBot after the computer is available again.";
 
 function formatOtherAgents(count: number): string {
   return `${count} other ${count === 1 ? "agent" : "agents"}`;
@@ -77,7 +77,7 @@ function formatWorkingAgents(names: readonly string[]): string {
 
 function workingDescription(names: readonly string[]): string {
   if (names.length > 1) {
-    return `${formatWorkingAgents(names)} are working on Grok Bot's computer right now. Updating recreates the computer and interrupts their current turns. Files and logins are kept.`;
+    return `${formatWorkingAgents(names)} are working on BeeBot's computer right now. Updating recreates the computer and interrupts their current turns. Files and logins are kept.`;
   }
   const name = (names[0] ?? "").trim();
   return `${name.length > 0 ? `${name} is` : "An agent is"} working right now. Waiting lets its current turn finish. Updating now recreates the computer and interrupts it. Files and logins are kept either way.`;
@@ -91,9 +91,9 @@ export function projectComputerUpdateConfirmationContent(
   if (action == null) return null;
   if (action === "ready") {
     return {
-      title: "Update Grok Bot's Computer?",
+      title: "Update BeeBot's Computer?",
       description: "This updates the shared computer all your agents run on to the latest version. Their files and logins are kept.",
-      confirmLabel: "Update Grok Bot's Computer",
+      confirmLabel: "Update BeeBot's Computer",
       cancelLabel: "Not now",
       width: "wide"
     };

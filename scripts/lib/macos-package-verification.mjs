@@ -344,12 +344,13 @@ export async function verifyUnpackedRuntimeManifest({ sourceUnpackedRoot, packag
   return { platform, arch, nodeFileCount: manifest.nodeFiles.length, runtimeFileCount: source.size, manifestSha256: sha256(sourceManifestBytes) };
 }
 
-export async function verifyReconstructedMacPackage({ officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot } = {}) {
+export async function verifyReconstructedMacPackage({ officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot, reconstructedExecutable = "Grok Bot" } = {}) {
   if ([officialApp, reconstructedApp, sourceUnpackedRoot, packagedUnpackedRoot].some(value => typeof value !== "string" || value.length === 0)) {
     throw new TypeError("Explicit officialApp, reconstructedApp, sourceUnpackedRoot, and packagedUnpackedRoot paths are required");
   }
   const officialShellPath = path.join(officialApp, "Contents", "MacOS", "Grok Bot");
-  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", "Grok Bot");
+  if (!["Grok Bot", "BeeBot"].includes(reconstructedExecutable)) throw new Error("Unexpected reconstructed executable identity");
+  const reconstructedShellPath = path.join(reconstructedApp, "Contents", "MacOS", reconstructedExecutable);
   const officialAsarPath = path.join(officialApp, "Contents", "Resources", "app.asar");
   const reconstructedAsarPath = path.join(reconstructedApp, "Contents", "Resources", "app.asar");
   const [officialShell, reconstructedShell, officialAsar, reconstructedAsar] = await Promise.all([

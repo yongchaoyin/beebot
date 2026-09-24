@@ -1,3 +1,4 @@
+import { SAND_PRODUCT_DISPLAY_NAME } from "../shared/product-name.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ApplicationMenuElectronPort, ApplicationMenuItem } from "./application-menu.js";
@@ -144,7 +145,7 @@ export function resolveElectronProductionResources(args: {
   const isAttachProdBox = !args.app.isPackaged && resolveAttachProdBoxPreferred(args.env, args.attachProdBoxPreferencePath);
   return {
     metadata: args.metadata,
-    appName: args.app.getName(),
+    appName: SAND_PRODUCT_DISPLAY_NAME,
     preloadPath: join(args.moduleDir, "..", "electron-preload", preloadName),
     rendererHtmlPath: join(args.moduleDir, "..", "renderer", "index.html"),
     ...(args.env.SAND_DEV_APP_ICON == null ? {} : { devAppIcon: args.env.SAND_DEV_APP_ICON }),
@@ -153,7 +154,7 @@ export function resolveElectronProductionResources(args: {
 }
 
 export function createElectronMenuAdapter(native: ElectronProductionNativeBindings): ApplicationMenuElectronPort {
-  return { appName: native.app.getName(), buildFromTemplate: (template) => native.Menu.buildFromTemplate(template), setApplicationMenu: (menu) => native.Menu.setApplicationMenu(menu), openExternal: (url) => native.shell.openExternal(url) };
+  return { appName: SAND_PRODUCT_DISPLAY_NAME, buildFromTemplate: (template) => native.Menu.buildFromTemplate(template), setApplicationMenu: (menu) => native.Menu.setApplicationMenu(menu), openExternal: (url) => native.shell.openExternal(url) };
 }
 
 export interface ProductionDisposable { dispose(): void | Promise<void> }

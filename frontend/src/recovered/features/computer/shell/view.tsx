@@ -28,8 +28,8 @@ import "./view.css";
 
 const DETAILS_ID = "sand-conversation-details";
 const COMPUTER_HEADER_LABELS = {
-  active: "Grok Bot's Computer, in use",
-  idle: "Grok Bot's Computer"
+  active: "BeeBot's Computer, in use",
+  idle: "BeeBot's Computer"
 };
 const KIT_BUTTON_BASE = "sand-kit-button sand-3nfvp2 sand-6s0dn4 sand-l56j7k sand-1jnr06f sand-2lah0s sand-9f619 sand-c342km sand-ng3xce sand-jb2p0i sand-uxw1ft sand-1ypdohk sand-tgyt42 sand-s2xxs2 sand-gdialr sand-9lcvmn sand-1k57tk5 sand-784prv sand-1t137rt sand-9v5kkp sand-4sht9k sand-1y3gkto";
 const KIT_BUTTON_SM = `${KIT_BUTTON_BASE} sand-fifm61 sand-1d3mw78 sand-12oo3zp sand-1iorvi4 sand-1ug7bdz sand-jkvuk6 sand-11iknt3 sand-1kogg8i`;

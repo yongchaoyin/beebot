@@ -9,7 +9,7 @@ import { getSandRootDir } from "../../host-paths.js";
 export class MissingInferenceVendorError extends Error {
   readonly vendorId: string;
   constructor(vendorId: string) {
-    super("This bot's model API is missing. Open Settings → Router → Model APIs and add it again.");
+    super("This Bot references a model API that is not available on its computer. Reconnect the computer, or select an existing API for this Bot. Manage APIs in Settings → Router → Model APIs. No other model was used.");
     this.name = "MissingInferenceVendorError";
     this.vendorId = vendorId;
   }

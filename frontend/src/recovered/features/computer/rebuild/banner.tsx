@@ -5,9 +5,9 @@ import type { BoxMigrationPhase } from "../../access/cover/computer-rebuild-migr
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#sha256=ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa#byteOffset=4782586-4793980
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#sha256=80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5#byteOffset=6005302-6020060
 
-const UPDATE_STEPS = ["Getting ready", "Backing up your data", "Recreating Grok Bot's computer", "Starting Grok Bot's computer", "Cleaning up", "Reconnecting"] as const;
-const RESET_STEPS = ["Getting ready", "Wiping your data", "Creating Grok Bot's computer", "Starting Grok Bot's computer", "Cleaning up", "Reconnecting"] as const;
-const RECOVER_STEPS = ["Getting ready", "Recreating Grok Bot's computer", "Starting Grok Bot's computer", "Reconnecting"] as const;
+const UPDATE_STEPS = ["Getting ready", "Backing up your data", "Recreating BeeBot's computer", "Starting BeeBot's computer", "Cleaning up", "Reconnecting"] as const;
+const RESET_STEPS = ["Getting ready", "Wiping your data", "Creating BeeBot's computer", "Starting BeeBot's computer", "Cleaning up", "Reconnecting"] as const;
+const RECOVER_STEPS = ["Getting ready", "Recreating BeeBot's computer", "Starting BeeBot's computer", "Reconnecting"] as const;
 const RECONNECTING_STAGES = new Set(["downloading", "starting"]);
 const PROGRESS_CIRCLE = 22;
 const PROGRESS_RADIUS = PROGRESS_CIRCLE * 3 / 8;
@@ -110,7 +110,7 @@ export function projectComputerRebuildProgress(input: ComputerRebuildBannerInput
 export function projectComputerReconnect(input: Pick<ComputerRebuildBannerInput, "kind" | "stage"> & { readonly transport: "connected" | "down" }): ComputerReconnectProjection | null {
   if (input.kind !== "reconnecting") return null;
   if (typeof input.stage === "string" && RECONNECTING_STAGES.has(input.stage)) {
-    return { variant: "restarting", title: "Grok Bot's computer restarting", subtitle: "Starting Grok Bot's computer" };
+    return { variant: "restarting", title: "BeeBot's computer restarting", subtitle: "Starting BeeBot's computer" };
   }
   if (input.transport === "down") return { variant: "network", title: "Reconnecting" };
   return { variant: "checking", title: "Checking connection", subtitle: "Reconnecting" };
@@ -140,9 +140,9 @@ function ProgressBanner({ title, subtitle, value }: { readonly title: string; re
 export function ComputerRebuildProgressBanner({ input, onRestore }: { readonly input: ComputerRebuildBannerInput; readonly onRestore: () => void }) {
   const projection = projectComputerRebuildProgress(input);
   if (projection == null || typeof document === "undefined" || document.body == null) return null;
-  const title = input.kind === "reset" ? "Resetting Grok Bot's Computer" : input.kind === "recover" ? "Recovering Grok Bot's Computer" : "Updating Grok Bot's Computer";
+  const title = input.kind === "reset" ? "Resetting BeeBot's Computer" : input.kind === "recover" ? "Recovering BeeBot's Computer" : "Updating BeeBot's Computer";
   const subtitle = projection.steps[projection.activeIndex]?.label;
-  const button = <button aria-label="View Grok Bot's Computer progress" className="sand-computer-rebuild-banner__restore sand-67bb7w sand-3nfvp2 sand-1717udv sand-c342km sand-jbqb8w sand-1q4ynmn sand-1ypdohk" onClick={onRestore} type="button"><ProgressBanner subtitle={subtitle} title={title} value={projection.progress} /></button>;
+  const button = <button aria-label="View BeeBot's Computer progress" className="sand-computer-rebuild-banner__restore sand-67bb7w sand-3nfvp2 sand-1717udv sand-c342km sand-jbqb8w sand-1q4ynmn sand-1ypdohk" onClick={onRestore} type="button"><ProgressBanner subtitle={subtitle} title={title} value={projection.progress} /></button>;
   return createPortal(<div className="sand-computer-rebuild-banner sand-ixxii4 sand-1tk7jg1 sand-u96u03 sand-3m8u43 sand-78zum5 sand-l56j7k sand-47corl" data-kind={input.kind} data-stage={String(input.stage ?? "")} style={{ zIndex: "calc(var(--ui-portal-layer-z-index-modal, 3000) + 100)" }}>{button}</div>, document.body);
 }
 

@@ -59,20 +59,21 @@ export function buildApplicationMenuTemplate(
   electron: Pick<ApplicationMenuElectronPort, "appName" | "openExternal">,
 ): ApplicationMenuItem[] {
   const isMac = (options.platform ?? process.platform) === "darwin";
+  const zh = parseUiLanguage(options.uiLanguage) === "zh";
   const template: ApplicationMenuItem[] = [];
   if (isMac) {
     template.push({
       label: electron.appName,
       submenu: [
-        { label: `About ${electron.appName}`, click: () => options.emitOpenAbout() },
+        { label: zh ? `关于 ${electron.appName}` : `About ${electron.appName}`, click: () => options.emitOpenAbout() },
         { type: "separator" },
         { role: "services" },
         { type: "separator" },
-        { role: "hide" },
+        { role: "hide", label: zh ? `隐藏 ${electron.appName}` : `Hide ${electron.appName}` },
         { role: "hideOthers" },
         { role: "unhide" },
         { type: "separator" },
-        { role: "quit" },
+        { role: "quit", label: zh ? `退出 ${electron.appName}` : `Quit ${electron.appName}` },
       ],
     });
   }
