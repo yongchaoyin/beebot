@@ -50,7 +50,7 @@
 .sand-agent-item__avatar, .sand-chat-header__avatar { display: grid; place-items: center; color: var(--cursor-base); background: transparent; border-radius: var(--cursor-radius-lg); }
 .sand-agent-item__avatar { width: 34px; height: 34px; }
 .sand-agent-item__avatar .sand-agent-avatar, .sand-chat-header__avatar .sand-agent-avatar { display: block; width: 100%; height: 100%; object-fit: cover; }
-.sand-grok-bot-mark { position: relative; display: block; overflow: visible; color: var(--fg, var(--cursor-text-primary)); flex: 0 0 auto; }
+.bb-bot-mark { position: relative; display: block; overflow: visible; color: var(--fg, var(--cursor-text-primary)); flex: 0 0 auto; }
 .sand-shared-room-avatar { display: grid; place-items: center; color: var(--cursor-text-secondary); background: var(--cursor-bg-secondary); border-radius: var(--cursor-radius-full); }
 .sand-group-avatar { position: relative; display: block; overflow: hidden; border-radius: var(--cursor-radius-lg); }
 .sand-agent-item__body { display: grid; gap: 4px; min-width: 0; }

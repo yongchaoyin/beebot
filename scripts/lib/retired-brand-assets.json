@@ -1,0 +1,47 @@
+[
+  {
+    "file": "app-icon-C7NKj2u7.png",
+    "sha256": "79e6a73e634ce7ad8d1982739e9064bcc9c9ec5106bdd7281d7514ee68169ad2",
+    "reason": "Replaced by BeeBot icon"
+  },
+  {
+    "file": "ada-CkPKuPfQ.svg",
+    "sha256": "90c5267037022bf65c88fe252ed2c19db7a972937a7f4cb85a07e9c4cce4d664",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "cerf-qgTXAGxR.svg",
+    "sha256": "0179f332c4399f02d1f9823b1994e21dd848a3b5359880c21d980c2150042143",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "dijkstra-ByucqRsn.svg",
+    "sha256": "370ae9f491a91cf0b03b9890944ee52a36516ac404d9ff324629e6366889fd85",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "liskov-Dv8NTl2H.svg",
+    "sha256": "d66cb18ee29eacc66e8fc4b5c2ee2811e595aa70800fc85e51a0b9a4b31e5510",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "matsumoto-BhfXuVQX.svg",
+    "sha256": "d94fa1c6d59b93058e48397c5b208eb38aea1ce813d4bdb324f1326b6076c228",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "blue-B2n6EVGi.svg",
+    "sha256": "e14e278d9838241a72c3e0d77374fa8b25784a0bf348ff06638653cccf87a6b5",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "green-CPliirpZ.svg",
+    "sha256": "69199aee35489eaec1c6e0e27154efdc93608cbddbe5d02493a49935ecc0aafb",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  },
+  {
+    "file": "red-DBxWh2u2.svg",
+    "sha256": "102898b27a89751348999310c2b7a63a5a2168dd5739182e74eddbceeaff4700",
+    "reason": "Unreferenced legacy avatar preset; Presence owns Bot artwork"
+  }
+]

@@ -1,0 +1,28 @@
+/** Live product copy; reconstruction evidence is not a runtime catalog. */
+export const UI_TEXT = {
+  account: "Account",
+  about: "About",
+  cancel: "Cancel",
+  close: "Close",
+  continueInBrowser: "Continue in your browser",
+  copied: "Copied",
+  copyVersionInfo: "Copy version info",
+  copyright: "BeeBot · Third-party notices are preserved in NOTICE.md",
+  feedbackIntroduction: "Tell the BeeBot team what happened or what you want changed. Review the report before sending.",
+  feedbackPlaceholder: "What happened? What did you expect?",
+  helpCenter: "Help Center",
+  hiddenBots: "Hidden Bots",
+  includeConversationId: "Include current conversation ID",
+  logOut: "Log out",
+  noChatsYet: "No chats yet",
+  plugins: "Plugins",
+  reopenLink: "Reopen link",
+  sendFeedback: "Send Feedback",
+  settings: "Settings",
+  signIn: "Sign in",
+  signInTagline: "Your team of always-on agents that you can give real work to.",
+  signOut: "Sign out",
+  signOutDescription: "This disconnects the external provider session. It does not delete your Bots or revoke separately authorized server devices.",
+  signOutTitle: "Sign out?",
+  title: "BeeBot"
+} as const;

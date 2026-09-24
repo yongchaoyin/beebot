@@ -194,9 +194,10 @@ export function DevShell({ upstreamBoot }: DevShellProps) {
             initialSection="general"
             isOpen
             onClose={() => setSourcePreview(null)}
-            renderSection={(section: SettingsSectionId) => {
+            renderSection={(section: SettingsSectionId, selectSection) => {
               if (section === "general") {
                 return <GeneralSettingsPanel
+                  onOpenConnectionSection={selectSection}
                   account={{ kind: "logged-in", name: "Recovered Developer", email: "source@example.test" }}
                   autoReview={{ settings: previewAutoReview, onChange: (settings) => {
                     setPreviewAutoReview(settings);

@@ -36,7 +36,7 @@ export interface SettingsModalShellProps {
   initialSection?: string;
   isOpen: boolean;
   onClose(): void;
-  renderSection(section: SettingsSectionId): ReactNode;
+  renderSection(section: SettingsSectionId, selectSection: (section: SettingsSectionId) => void): ReactNode;
   sections?: readonly SettingsSection[];
   /** The shipped renderer hides Usage & Billing when its experiment/account gate is closed. */
   showUsage?: boolean;
@@ -113,7 +113,7 @@ export function SettingsModalShell({
         <section aria-labelledby={headingId} className="sand-settings-panel" id={panelId}>
           <SandIconButton aria-label="Close" className="sand-settings-panel__close" icon="close" label="Close" onClick={onClose} size="sm" />
           <h2 id={headingId}>{active.label}</h2>
-          <div className="sand-settings-panel__body">{renderSection(active.id)}</div>
+          <div className="sand-settings-panel__body">{renderSection(active.id, (section) => setActiveSection(resolveSection(section)))}</div>
         </section>
       </div>
     </OverlayDialog>

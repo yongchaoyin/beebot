@@ -64,7 +64,7 @@ export const automationsExtension = defineHostExtension({
       getTimeZone: () => deps.settings.getUserTimeZone(),
       inspectLocalDefinitions: (agentId: string) => inspectAgentAutomationDefinitions(join(getSandAgentsRootDir(), agentId)),
       reportShadowPrune: (report: Record<string, unknown>) => deps.telemetry.logs.reportAutomationShadowPrune({ ...report, boxUptimeMs: getBoxUptimeMs() }),
-      onFailure: ({ agentId }) => { if (agentId == null || routineSyncFailureTrayIds.has(agentId)) return; const tray = deps.trays.pushError({ agentId, title: "Routine Sync Failed", detail: "Grok Bot couldn't sync this agent's routines. Event routines keep running locally when safe, but scheduled routines may be delayed while Grok Bot retries." }); routineSyncFailureTrayIds.set(agentId, tray.id); },
+      onFailure: ({ agentId }) => { if (agentId == null || routineSyncFailureTrayIds.has(agentId)) return; const tray = deps.trays.pushError({ agentId, title: "Routine Sync Failed", detail: "BeeBot couldn't sync this agent's routines. Event routines keep running locally when safe, but scheduled routines may be delayed while BeeBot retries." }); routineSyncFailureTrayIds.set(agentId, tray.id); },
       onRecovery: (agentId) => { const id = routineSyncFailureTrayIds.get(agentId); if (id == null) return; deps.trays.dismiss({ id }); routineSyncFailureTrayIds.delete(agentId); },
       onSchedulingAuthorityChanged: () => notifySchedulingAuthorityChanged()
     };

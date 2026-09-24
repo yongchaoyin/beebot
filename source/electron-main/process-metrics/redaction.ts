@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const HELPER_NAME = /^Grok Bot(?: Lab)? Helper(?: \((?:GPU|Plugin|Renderer)\))?$/;
+const HELPER_NAME = /^(?:BeeBot(?: Dev)?|Grok Bot(?: Lab)?) Helper(?: \((?:GPU|Plugin|Renderer)\))?$/;
 
 export function hashProcessName(name: string): string {
   return createHash("sha256").update(name, "utf8").digest("hex");

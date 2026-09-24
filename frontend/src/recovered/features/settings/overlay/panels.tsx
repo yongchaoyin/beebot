@@ -1,3 +1,6 @@
+import * as React from "react";
+import { createProductConnections, type ProductConnectionSection } from "../product-connections";
+import "../../../../presence/product-connections.css";
 import { useEffect, useState, type ReactNode } from "react";
 import type { CursorUsageSummary, CursorUsageUpgradeAction, DesktopTimeZoneState } from "../../../contracts/desktop-bridge";
 import { egressTunnelStatusDescription, type EgressTunnelStatus, type UpdateStatus, type UpdateTrack } from "./updates";
@@ -14,10 +17,12 @@ import { SandSwitch } from "../../../ui/sand-form-primitives";
 import { OverlayDialog } from "../../../ui/overlay-primitives";
 import { HTTP_ROUTER_PROVIDERS, ROUTER_PROVIDERS, routerProviderById, type HttpRouterProviderId, type RouterProviderId } from "./router";
 
+const ProductConnections = createProductConnections(React);
+
 export type AccountState =
   | { kind: "logged-out"; errorMessage?: string }
   | { kind: "logging-in"; errorMessage?: string }
-  | { kind: "logged-in"; name: string; email?: string; avatarDataUrl?: string };
+  | { kind: "logged-in"; name: string; email?: string; avatarDataUrl?: string; isLocal?: boolean };
 
 export interface GeneralSettingsPanelProps {
   account: AccountState;
@@ -25,6 +30,7 @@ export interface GeneralSettingsPanelProps {
   accountError?: string | null;
   theme: "system" | "light" | "dark";
   onAccountAction(): void;
+  onOpenConnectionSection?(section: ProductConnectionSection): void;
   onThemeChange(theme: "system" | "light" | "dark"): void | Promise<unknown>;
   language?: "en" | "zh";
   languagePending?: boolean;
@@ -92,7 +98,7 @@ export function ThemePreferencePicker({ value, disabled = false, onChange }: The
   />;
 }
 
-export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
+export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onOpenConnectionSection, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
   const [emailCopied, setEmailCopied] = useState(false);
   const [themePending, setThemePending] = useState(false);
   const signedIn = account.kind === "logged-in";
@@ -104,8 +110,8 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
     return () => window.clearTimeout(timeout);
   }, [emailCopied]);
   const title = signedIn ? account.name : account.kind === "logging-in" ? "Signing in" : "Not signed in";
-  const detail = signedIn ? account.email ?? "Signed in to Cursor" : account.kind === "logging-in" ? "Finish signing in from your browser" : "Connect your Cursor account to BeeBot";
-  const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Sign In with Cursor";
+  const detail = signedIn ? account.email ?? "Existing provider session" : account.kind === "logging-in" ? "Finish signing in from your browser" : "No external provider session";
+  const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Disconnected";
   // @evidence recovered/frontend/app/assets/index-BlqerJhg.js#L40-L50
   const copyEmail = async () => {
     if (!signedIn || account.email == null || typeof navigator === "undefined" || navigator.clipboard == null) return;
@@ -127,7 +133,8 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
 
   return (
     <div className="sand-settings-general">
-      <SettingsGroup title="Account">
+      <ProductConnections language={language} onOpenSection={onOpenConnectionSection} />
+      {account.kind !== "logged-out" && !(signedIn && account.isLocal) ? <SettingsGroup title={language === "zh" ? "已有外部服务会话" : "Existing external service session"}>
         <div className="sand-account-card" data-state={account.kind}>
           <span aria-hidden="true" className="sand-account-card__avatar">
             {signedIn && account.avatarDataUrl ? <img alt="" src={account.avatarDataUrl} /> : title.slice(0, 1).toLocaleUpperCase()}
@@ -140,7 +147,7 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
           <SandButton disabled={isAccountPending} onClick={onAccountAction} shape="pill" size="md" variant={signedIn ? "secondary" : "primary"}>{action}</SandButton>
         </div>
         {visibleAccountError ? <p className="sand-account__error">{visibleAccountError}</p> : null}
-      </SettingsGroup>
+      </SettingsGroup> : null}
 
       <SettingsGroup title="Appearance">
         <label>

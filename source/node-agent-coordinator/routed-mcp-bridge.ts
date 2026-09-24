@@ -72,7 +72,7 @@ export async function createRoutedMcpBridge(deps: {
       }
       if (message.method === "tools/call") {
         const name = record(message.params)?.name, selected = typeof name === "string" ? tools.get(name) : undefined;
-        if (selected == null) { reply({ isError: true, content: [{ type: "text", text: `Unknown Grok Bot plugin tool: ${String(name)}` }] }); return; }
+        if (selected == null) { reply({ isError: true, content: [{ type: "text", text: `Unknown BeeBot plugin tool: ${String(name)}` }] }); return; }
         reply(mcpResult(await deps.callTool({ ...selected, args: record(message.params)?.arguments ?? {}, toolCallId: randomUUID() })));
         return;
       }

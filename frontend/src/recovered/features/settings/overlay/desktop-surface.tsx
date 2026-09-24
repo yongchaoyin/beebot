@@ -226,7 +226,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
       initialSection={initialSection}
       isOpen={isOpen}
       onClose={onClose}
-      renderSection={(section: SettingsSectionId) => {
+      renderSection={(section: SettingsSectionId, selectSection) => {
         if (section === "servers") return <ServersSettingsPanel onOpenBot={onClose} />;
         if (snapshot == null) return (
           <div aria-live="polite" role={error == null ? "status" : "alert"}>
@@ -238,6 +238,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
         );
         if (section === "general") return (
           <GeneralSettingsPanel
+            onOpenConnectionSection={selectSection}
             account={snapshot.account}
             autoReview={{
               settings: snapshot.autoReview,

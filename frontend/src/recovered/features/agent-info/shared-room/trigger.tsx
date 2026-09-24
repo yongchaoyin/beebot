@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { SharedJoinRequest } from "./model";
-import { CursorIcon } from "../../conversation/workspace/cursor-icon";
+import { WorkspaceIcon } from "../../conversation/workspace/workspace-icon";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4871665 (OTn shared-room header trigger; UTF-8; SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182aee5bde31f876fa)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=6117799 (OTn shared-room header trigger; UTF-8; SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
@@ -22,7 +22,7 @@ export function SharedRoomHeaderTrigger({ roomId, pendingJoinRequests, isEnabled
     ? "Manage shared room"
     : `Manage shared room, ${pendingCount} pending join ${pendingCount === 1 ? "request" : "requests"}`;
   return <button aria-label={label} disabled={disabled} onClick={onOpen} title={label} type="button">
-    <CursorIcon name="people" />
+    <WorkspaceIcon name="people" />
     {pendingCount > 0 ? <span aria-hidden="true">•</span> : null}
   </button>;
 }

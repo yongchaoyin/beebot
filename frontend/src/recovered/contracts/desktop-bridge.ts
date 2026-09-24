@@ -532,6 +532,6 @@ export function hasDesktopBridge(value: unknown): value is DesktopBridge {
 }
 
 export function requireDesktopBridge(value: unknown): DesktopBridge {
-  if (!hasDesktopBridge(value)) throw new Error("The Grok Bot desktop preload bridge is unavailable.");
+  if (!hasDesktopBridge(value)) throw new Error("The BeeBot desktop preload bridge is unavailable.");
   return value;
 }

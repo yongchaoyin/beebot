@@ -65,7 +65,7 @@ export function commandPaletteRootCommands(input: CommandPaletteRootCommandInput
     const action = input.computerUpdateAction;
     commands.push({
       id: "update:computer",
-      label: "Update Grok Bot's Computer",
+      label: "Update BeeBot's Computer",
       icon: "device-desktop",
       keywords: ["box", "image", "machine", "recreate", "latest", "shared"],
       detail: "Updates",

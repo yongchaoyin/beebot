@@ -418,13 +418,13 @@ export function createMcpToolsDiscovery(
         await ensureBoxServersPushed();
       } catch (error) {
         return resultFactory.error(
-          `Could not load MCP servers onto Grok Bot's computer: ${errorMessage(error)}`,
+          `Could not load MCP servers onto BeeBot's computer: ${errorMessage(error)}`,
         );
       }
       return boxMcpExec.executeTool(args);
     }
     return resultFactory.error(
-      `MCP server "${args.providerIdentifier}" is not available here. HTTP/SSE servers execute on the backend and stdio servers run on Grok Bot's computer; this server is neither reachable nor supported in this context.`,
+      `MCP server "${args.providerIdentifier}" is not available here. HTTP/SSE servers execute on the backend and stdio servers run on BeeBot's computer; this server is neither reachable nor supported in this context.`,
     );
   }
 

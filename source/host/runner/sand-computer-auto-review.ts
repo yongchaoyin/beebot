@@ -80,7 +80,7 @@ export function buildSandComputerClassifierRiskTarget(args: { canonicalTarget: R
 }
 export function summarizeBlockedAction(target: ReturnType<typeof buildSandComputerAutoReviewCanonicalTarget>, fingerprint: string, reason: string) {
   const action = target.exactAction, purpose = target.description == null ? "" : ` to ${target.description.slice(0, 160)}`;
-  const summary = action.action === "click" ? `Click at (${action.x}, ${action.y}) on Grok Bot's computer${purpose}` : action.action === "drag" ? `Drag from (${action.x}, ${action.y}) to (${action.x2}, ${action.y2}) on Grok Bot's computer${purpose}` : action.action === "type" ? summarizeSandComputerTypedText(action.text ?? "") : `Press ${action.key?.slice(0, 80) ?? "a key"} on Grok Bot's computer`;
+  const summary = action.action === "click" ? `Click at (${action.x}, ${action.y}) on BeeBot's computer${purpose}` : action.action === "drag" ? `Drag from (${action.x}, ${action.y}) to (${action.x2}, ${action.y2}) on BeeBot's computer${purpose}` : action.action === "type" ? summarizeSandComputerTypedText(action.text ?? "") : `Press ${action.key?.slice(0, 80) ?? "a key"} on BeeBot's computer`;
   return { surface: "computer", fingerprint, reason, summary };
 }
 
