@@ -6,6 +6,9 @@ import { simple } from "acorn-walk";
 import path from "node:path";
 
 const marker = /cursor|grok(?:[ _-]*bot)?/ig;
+const retiredDisplayName = /\bgrok\s+bot\b/i;
+const retiredHelpUrl = /https:\/\/cursor\.com\/bot\/onboarding(?=[/?#\s"'<>]|$)/i;
+const isRetiredDisplay = value => retiredDisplayName.test(value) || retiredHelpUrl.test(value);
 const profileFile = "source/electron-main/startup/windows-user-data-migration.ts";
 
 /** Inventory categories are explanations, not a claim that integrations are dead.
@@ -21,17 +24,20 @@ export function classifyIdentityReference(file, text) {
 }
 
 export async function inspectProductAliases(file, content) {
-  if (!file.startsWith("source/") && !file.startsWith("frontend/src/")) return [];
+  if (!file.startsWith("source/") && !file.startsWith("frontend/src/") && file !== "frontend/index.html") return [];
   if (/\/generated\/|\/evidence\.|\.gen\.ts$/.test(file) || file === profileFile) return [];
-  if (!/\.(?:ts|tsx|js|mjs)$/.test(file) || !/Grok Bot/.test(content)) return [];
+  if (file === "frontend/index.html") {
+    return isRetiredDisplay(content) ? [{ file, text: "Retired product identity or onboarding link in application entry HTML" }] : [];
+  }
+  if (!/\.(?:ts|tsx|js|mjs)$/.test(file) || !isRetiredDisplay(content)) return [];
   const { code } = await transform(content, { loader: file.endsWith("tsx") ? "tsx" : "ts", format: "esm", legalComments: "none" });
   const findings = [];
   simple(parse(code, { ecmaVersion: "latest", sourceType: "module" }), {
     Literal(node) {
-      if (typeof node.value === "string" && /Grok Bot/.test(node.value) && !/copyright|licensed|all rights reserved/i.test(node.value)) findings.push({ file, text: node.value.slice(0, 240) });
+      if (typeof node.value === "string" && isRetiredDisplay(node.value) && !/copyright|licensed|all rights reserved/i.test(node.value)) findings.push({ file, text: node.value.slice(0, 240) });
     },
     TemplateElement(node) {
-      if (/Grok Bot/.test(node.value.raw) && !/copyright|licensed|all rights reserved/i.test(node.value.raw)) findings.push({ file, text: node.value.raw.slice(0, 240) });
+      if (isRetiredDisplay(node.value.raw) && !/copyright|licensed|all rights reserved/i.test(node.value.raw)) findings.push({ file, text: node.value.raw.slice(0, 240) });
     },
   });
   return findings;

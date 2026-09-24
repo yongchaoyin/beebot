@@ -212,10 +212,7 @@ export function DevShell({ upstreamBoot }: DevShellProps) {
                 />;
               }
               if (section === "usage") {
-                return <UsageSettingsPanel meters={[
-                  { title: "Included usage", valueLabel: "42% used", percent: 42, resetLabel: "Resets in 4 days" },
-                  { title: "On-demand usage", valueLabel: "$3.20/$20", percent: 16 }
-                ]} />;
+                return <UsageSettingsPanel provider="openrouter" />;
               }
               return <UpdatesSettingsPanel
                 autoUpdateWhenIdle={previewAutoUpdate}

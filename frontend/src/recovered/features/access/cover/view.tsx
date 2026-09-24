@@ -20,12 +20,11 @@ export function AccessCover({ access, bridge, isVisible }: AccessCoverProps) {
       <div className="sand-onboarding__landing">
         <h1 id="sand-access-cover-heading">BeeBot</h1>
         <p>Your team of always-on agents that finish the work.</p>
-        <div>
-          <div>
-            <div><span>{copy.title}</span><span>{copy.body}</span></div>
-            {copy.action === null ? null : <button onClick={() => void openAccessOnboarding(bridge)} type="button">{copy.action}</button>}
-          </div>
-        </div>
+        <section className="bb-external-access" aria-labelledby="bb-external-access-title">
+          <h2 id="bb-external-access-title">{copy.title}</h2>
+          <p>{copy.body}</p>
+          {copy.action === null ? null : <button onClick={() => void openAccessOnboarding(bridge)} type="button">{copy.action}</button>}
+        </section>
       </div>
     </div>
   );

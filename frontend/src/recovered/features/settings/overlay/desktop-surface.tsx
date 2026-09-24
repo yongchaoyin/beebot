@@ -8,12 +8,8 @@ import {
   cursorAuthErrorMessage,
   installUpdate,
   loadSettingsDesktopSnapshot,
-  loadUsageState,
-  cancelUsageTrial,
   checkForUpdatesWithRecovery,
   runAccountAction,
-  runUsageUpgradeAction,
-  runUsageUpgradeActionAndRefresh,
   saveAutoReviewSettings,
   setLocalToolPermission,
   setSecurityKeyEnabled,
@@ -25,7 +21,6 @@ import {
   normalizeEgressTunnelStatus,
   shouldShowUsageSettings,
   usagePageFeatureGateEnabled,
-  usageMetersFromSummary,
   type SettingsDesktopSnapshot
 } from "./desktop";
 import { GeneralSettingsPanel, RouterSettingsPanel, UpdatesSettingsPanel, UsageSettingsPanel } from "./panels";
@@ -74,7 +69,6 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [surfaceNotice, setSurfaceNotice] = useState<SettingsNotice | null>(null);
-  const [cancelTrialDialogOpen, setCancelTrialDialogOpen] = useState(false);
   const [routerProvider, setRouterProvider] = useState<RouterProviderId>(DEFAULT_ROUTER_PROVIDER);
   const [routerPending, setRouterPending] = useState(false);
   const [routerHttp, setRouterHttp] = useState({ apiKey: "", baseUrl: "", modelId: "" });
@@ -82,7 +76,6 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   const [vendorAccounts, setVendorAccounts] = useState<{ vendors: { id: string; label: string; provider: string; baseUrl: string; modelId: string }[]; defaultVendorId: string | null }>({ vendors: [], defaultVendorId: null });
   const [vendorAccountsPending, setVendorAccountsPending] = useState(false);
   const [vendorAccountsError, setVendorAccountsError] = useState<string | null>(null);
-  const handleCancelTrialDialogOpen = useCallback((open: boolean) => setCancelTrialDialogOpen(open), []);
   const handleNotice = useCallback((event: SettingsNoticeEvent) => {
     setSurfaceNotice(settingsNoticeFromEvent(event));
     onNotice?.(event);
@@ -208,16 +201,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   });
   const updateSecurityKey = (securityKeyEnabled: boolean) => setSnapshot((current) => current == null ? current : { ...current, securityKeyEnabled });
   const updateAutoReview = (autoReview: AutoReviewSettings) => setSnapshot((current) => current == null ? current : { ...current, autoReview });
-  const refreshUsage = async () => {
-    const previous = snapshot?.usage;
-    setSnapshot((current) => current == null ? current : {
-      ...current,
-      usage: { status: "loading", summary: current.usage.summary },
-      usageSummary: current.usage.summary
-    });
-    const usage = await loadUsageState(bridge, previous);
-    setSnapshot((current) => current == null ? current : { ...current, usage, usageSummary: usage.summary });
-  };
+
 
   return (
     <>
@@ -287,17 +271,7 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
           />
         );
         if (section === "usage") return (
-          <UsageSettingsPanel
-            meters={usageMetersFromSummary(snapshot.usageSummary)}
-            onCancelDialogOpen={handleCancelTrialDialogOpen}
-            onCancelTrial={() => mutate(() => cancelUsageTrial(bridge), "settings-usage-cancel-trial", (usage) => {
-              if (usage.ok) refreshUsage();
-            })}
-            onRetry={refreshUsage}
-            onUpgrade={(action) => runUsageUpgradeActionAndRefresh(bridge, action, refreshUsage)}
-            state={snapshot.usage}
-            provider={routerProvider}
-          />
+          <UsageSettingsPanel provider={routerProvider} />
         );
         if (section === "router") return (
           <RouterSettingsPanel
@@ -441,9 +415,6 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
       }}
       showUsage={snapshot != null && (routerProvider !== "cursor" || shouldShowUsageSettings(snapshot.usagePageFeatureGateEnabled, snapshot.usage))}
       iconPlatform={bridge.platform === "win32" ? "windows" : "mac"}
-      closeOnBackdrop={!cancelTrialDialogOpen}
-      closeOnEscape={!cancelTrialDialogOpen}
-      trapFocus={!cancelTrialDialogOpen}
       />
     </>
   );

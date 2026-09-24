@@ -1,3 +1,4 @@
+import { EXTERNAL_ACCESS_BY_REASON, EXTERNAL_ACCESS_BY_STATE, EXTERNAL_ACCESS_UNKNOWN } from "../../source/shared/product-access-copy.ts";
 import { buildSync } from "esbuild";
 import { parse } from "acorn";
 import { simple } from "acorn-walk";
@@ -43,4 +44,29 @@ export function patchProductAccountMenu(source) {
     const item=(id,label,action)=>p.jsx(It.Item,{onSelect:()=>{setOpen(false);action()},children:label},id);
     return p.jsxs(It,{open,onOpenChange:setOpen,placement:"top-start",children:[p.jsx(It.Trigger,{children}),p.jsx(It.Content,{"aria-label":copy.settings,minWidth:228,size:"md",children:p.jsxs(It.Section,{children:[item("settings",copy.settings,onOpenSettings),item("router",copy.configureAi,()=>ROpenSettings("router")),item("about",copy.about,ROpenAbout),item("docs",copy.documentation,()=>ROpenExternal(RAccountDocs(),copy.openFailed)),item("feedback",copy.feedback,()=>ROpenExternal(RAccountFeedback(),copy.openFailed))]})})]})
   }`);
+}
+
+/** Replace only the reviewed display tables. State/reason values and the denial
+ * gate remain provider facts; no user gains access or gets silently rerouted. */
+export function patchProductAccessCopy(source) {
+  const replacements = {
+    Yvn: { hash: "a78e9141eb3ae3857a576ffce2cf5d79dc2c24a4612e3adc3dbe1cbb6a73c403", copy: EXTERNAL_ACCESS_BY_REASON },
+    Zvn: { hash: "a0ddd04a4f9a8de012a068347646e5b687b112ca24a9261beb694c74b6af053a", copy: EXTERNAL_ACCESS_BY_STATE },
+  };
+  const edits = [];
+  simple(parse(source, { ecmaVersion: "latest", sourceType: "module" }), {
+    VariableDeclarator(node) {
+      if (!Object.hasOwn(replacements, node.id?.name)) return;
+      const expected = replacements[node.id.name], value = node.init;
+      if (!value || createHash("sha256").update(source.slice(value.start, value.end)).digest("hex") !== expected.hash) {
+        throw new Error(`Product access table ${node.id.name} differs from the reviewed renderer`);
+      }
+      edits.push({ start: value.start, end: value.end, value: JSON.stringify(expected.copy) });
+    },
+  });
+  if (edits.length !== 2) throw new Error("Product access copy tables are missing or ambiguous");
+  let result = source;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) result = result.slice(0, edit.start) + edit.value + result.slice(edit.end);
+  return replaceProductComponent(result, "dzn", "e059291e70b0599735d15c98c4f68e8ee280c1b1ce802946e67f326e9cbaa49b",
+    `function dzn(n){return T1t(n)??${JSON.stringify(EXTERNAL_ACCESS_UNKNOWN)}}`);
 }
