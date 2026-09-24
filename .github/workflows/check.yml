@@ -31,5 +31,18 @@ jobs:
         run: npm run check
       - name: Build the editable frontend
         run: npm run frontend:build
+      - name: Verify native macOS caption geometry and zoom
+        run: node scripts/verify-native-window-layout.mjs
+      - name: Preserve native window regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-window-layout
+          include-hidden-files: true
+          path: |
+            .build/window-verification/native-window-report.json
+            .build/window-verification/native-content-windowed.png
+          if-no-files-found: warn
+          retention-days: 3
       - name: Verify a fresh clean-history export is lossless
         run: npm run publication:check

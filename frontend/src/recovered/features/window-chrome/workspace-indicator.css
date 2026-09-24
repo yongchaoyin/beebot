@@ -1,18 +1,5 @@
-/* @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#L120322 */
-.sand-chat-header__title {
-  position: fixed;
-  z-index: 4999;
-  top: 0;
-  left: 16px;
-  display: flex;
-  align-items: center;
-  height: var(--sand-titlebar-block, 52px);
-  max-width: min(42vw, 360px);
-  pointer-events: none;
-  -webkit-app-region: drag;
-  app-region: drag;
-}
-
+/* Caption positioning lives in shared Presence window-layout.css.
+ * Never apply it to the conversation header's identically named span. */
 .sand-chat-header__name {
   overflow: hidden;
   max-width: 100%;

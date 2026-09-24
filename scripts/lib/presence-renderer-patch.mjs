@@ -59,6 +59,12 @@ export function patchPresenceRenderer(source) {
 
   result = once(result, 'new URL("app-icon-C7NKj2u7.png",import.meta.url)', 'new URL("beebot-app-icon.svg",import.meta.url)', "neutral welcome application icon");
 
+  // Use the real native window state (also present on onboarding/computer
+  // surfaces). Keep hooks unconditional and native controls themselves intact.
+  result = once(result,
+    'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse(),r=bNe(),',
+    'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse();S.useLayoutEffect(()=>RPresenceUI.installNativeWindowLayout(document,s,e),[s,e]);const r=bNe(),',
+    "native caption safe-area lifecycle");
   result = patchPresenceCreatePicker(result);
   return `${presenceSharedModule()}\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
 }

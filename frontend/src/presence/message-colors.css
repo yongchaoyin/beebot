@@ -1,0 +1,44 @@
+/* Treat a message surface and its ink as one theme contract. The pinned
+ * renderer's StyleX user rule has ID specificity and uses inverted text.
+ * A narrowly scoped !important is necessary here; changing the global invert
+ * token would also recolor primary controls, badges and media overlays.
+ * Do not apply color to every descendant: links, code, errors and avatars
+ * have their own foreground/background pairs. */
+html[data-beebot-theme="presence"] .sand-message:is([data-role="user"], .sand-message--user) {
+  color: var(--bb-user-text) !important;
+}
+html[data-beebot-theme="presence"] .sand-message:is([data-role="user"], .sand-message--user) :is(.sand-message-content, .sand-message-prose) {
+  color: var(--bb-user-text) !important;
+}
+
+/* Read-only mentions and reference chips used a translucent currentColor
+ * fill designed for white-on-dark bubbles. Give them an explicit paired
+ * surface in both renderers. Composer suggestions and avatar SVG fills are
+ * deliberately outside this rule. */
+html[data-beebot-theme="presence"] .sand-message :is(.sand-inserted-chip, .sand-mention, .sand-workflow-chip, [data-type="mention"], [data-type="workflow-reference"], [data-type="pr-reference"]) {
+  background-color: var(--bb-mention-bg) !important;
+  color: var(--bb-mention-text) !important;
+}
+
+/* Plain packaged messages use .sand-message-content, not .sand-message-prose. */
+html[data-beebot-theme="presence"] .sand-message :is(.sand-message-content, .sand-message-prose) a {
+  color: var(--bb-link) !important;
+  text-decoration-line: underline !important;
+  text-underline-offset: 3px;
+}
+
+@media (forced-colors: active) {
+  html[data-beebot-theme="presence"] .sand-message:is([data-role="user"], .sand-message--user),
+  html[data-beebot-theme="presence"] .sand-message:is([data-role="user"], .sand-message--user) :is(.sand-message-content, .sand-message-prose) {
+    color: CanvasText !important;
+    background-color: Canvas !important;
+  }
+  html[data-beebot-theme="presence"] .sand-message :is(.sand-inserted-chip, .sand-mention, .sand-workflow-chip, [data-type="mention"], [data-type="workflow-reference"], [data-type="pr-reference"]) {
+    background-color: Canvas !important;
+    color: CanvasText !important;
+    outline: 1px solid CanvasText;
+  }
+  html[data-beebot-theme="presence"] .sand-message :is(.sand-message-content, .sand-message-prose) a {
+    color: LinkText !important;
+  }
+}

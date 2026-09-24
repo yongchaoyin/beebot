@@ -10,8 +10,9 @@ test("full repository checks hydrate preserved runtime inputs instead of suppres
   const commands = [...workflow.matchAll(/^\s+run: (.+)$/gm)].map(match => match[1]);
   assert.deepEqual(commands, [
     "npm ci --no-audit --no-fund", "npm run bootstrap", "npm run icon:generate", "npm run check",
-    "npm run frontend:build", "npm run publication:check",
+    "npm run frontend:build", "node scripts/verify-native-window-layout.mjs", "npm run publication:check",
   ]);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true|\|\|\s*true/);
+  assert.match(workflow, /name: native-window-layout\n\s+include-hidden-files: true/);
   assert.match(workflow, /permissions:\n\s+contents: read/);
 });

@@ -1,3 +1,6 @@
+import { MAC_TRAFFIC_LIGHT_POSITION } from "../shared/window-layout.js";
+export { MAC_TRAFFIC_LIGHT_POSITION } from "../shared/window-layout.js";
+
 export interface Rectangle {
   readonly x: number;
   readonly y: number;
@@ -11,7 +14,7 @@ export interface WindowsTitleBarOverlay {
   readonly symbolColor: string;
 }
 
-export const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 15 } as const;
+
 export const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT_PX = 51;
 export const WINDOWS_COMPUTER_TITLE_BAR_OVERLAY_HEIGHT_PX = 43;
 export const SAND_MIN_WINDOW_SIZE = { width: 512, height: 520 } as const;
