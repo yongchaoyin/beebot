@@ -1,0 +1,76 @@
+name: reviewed product identity source
+on:
+  push:
+    branches: [work/product-identity-publish-20260925]
+    paths: [.github/workflows/product-identity-publish.yml]
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b761d7620854a867b7b7b1f2eb77ff71a0a20cb3
+      - name: Reconstruct only reviewed source changes and verify every file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import urllib.request,json,base64,hashlib,lzma,pathlib,subprocess,os
+          shas=['5a5ed22497b588aecf7067ee2bbf9985d8496349','91bf3accce99fe2f51ecd078744a34a6d1b28e7e','d69bf6692bf0e5672b1105cbeac42b9951e59faa','04f512654909b44d6216a7d3f1f40de609358c7e']
+          payload=bytearray()
+          for sha in shas:
+              req=urllib.request.Request('https://api.github.com/repos/yongchaoyin/beebot/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              chunk=base64.b64decode(json.load(urllib.request.urlopen(req,timeout=30))['content'])
+              assert hashlib.sha1(b'blob '+str(len(chunk)).encode()+b'\0'+chunk).hexdigest()==sha
+              payload.extend(chunk)
+          assert hashlib.sha256(payload).hexdigest()=='49f224d28448717e538407c44f75770aae75a30e0f9099c5e0b537d96c7c7fb7'
+          recipe=json.loads(lzma.decompress(payload))
+          assert recipe['base']==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert recipe['tree']=='657920e1cfdbead7821af3e3b2c3841d009207c9'
+          rows=recipe['files'];assert len(rows)==64
+          paths=[];manifest={}
+          for row in rows:
+              name=row['path'];p=pathlib.Path(name)
+              assert not p.is_absolute() and '..' not in p.parts and name.startswith(('source/','frontend/','scripts/','tests/','docs/implementation/'))
+              assert name not in paths and not p.is_symlink()
+              old=p.read_bytes() if p.exists() else None
+              assert (hashlib.sha256(old).hexdigest() if old is not None else None)==row['before'],name
+              if row.get('delete'):
+                  assert row['after'] is None;p.unlink()
+              else:
+                  if 'content' in row: new=row['content']
+                  else:
+                      new=old.decode('utf8');limit=len(new)
+                      for start,end,value in reversed(row['edits']):
+                          assert 0<=start<=end<=limit,name
+                          new=new[:start]+value+new[end:];limit=start
+                  data=new.encode('utf8');assert hashlib.sha256(data).hexdigest()==row['after'],name
+                  p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(data)
+              paths.append(name);manifest[name]=row['after']
+          subprocess.run(['git','add','--',*paths],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          tree=subprocess.check_output(['git','write-tree'],text=True).strip()
+          assert tree==recipe['tree'],tree
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'identity-delivery';out.mkdir()
+          (out/'source.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary','--full-index']))
+          (out/'source-sha256.json').write_text(json.dumps(manifest,indent=2))
+          (out/'tree.txt').write_text(tree+'\n')
+          print('Reviewed paths:',len(paths),'tree:',tree)
+          PY
+      - name: Commit code and docs to a new feature branch only
+        run: |
+          test -z "$(git ls-remote --heads origin chore/product-identity-cleanup-20260925)"
+          git -c user.name='yongchaoyin' -c user.email='151381126+yongchaoyin@users.noreply.github.com' commit -m 'fix: retire obsolete product branding and vendor-gated guidance'
+          git push origin HEAD:refs/heads/chore/product-identity-cleanup-20260925
+          git rev-parse HEAD HEAD^{tree} | tee "$RUNNER_TEMP/identity-delivery/commit.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-identity-source-manifest
+          path: ${{ runner.temp }}/identity-delivery/
+          retention-days: 3
+          if-no-files-found: error
