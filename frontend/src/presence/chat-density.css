@@ -1,0 +1,106 @@
+/* Shared compact chat rhythm. Native virtual rows keep their positions and
+   ResizeObserver: spacing is inside the measured box, never negative margins,
+   scale transforms, hidden messages, or replacement row heights. */
+html[data-beebot-theme="presence"] .sand-agent-item {
+  min-height: 60px !important;
+  padding-block: 7px !important;
+}
+html[data-beebot-theme="presence"] .sand-chat-header {
+  box-sizing: border-box !important;
+  height: auto !important;
+  min-height: 52px !important;
+  padding-block: 6px !important;
+  gap: 10px;
+}
+html[data-beebot-theme="presence"] .sand-virtual-transcript:not(:has(.sand-virtual-transcript__inner)) {
+  padding: 16px clamp(12px, 2vw, 24px) !important;
+}
+html[data-beebot-theme="presence"] .sand-transcript-row:not(.sand-virtual-transcript__row) {
+  margin-block: 0 12px !important;
+}
+html[data-beebot-theme="presence"] .sand-virtual-transcript__row {
+  margin-block: 0 !important;
+  padding-block: 5px !important;
+}
+html[data-beebot-theme="presence"] .sand-message {
+  margin-block: 0 !important;
+  padding: 6px 12px !important;
+  border-radius: 14px !important;
+}
+html[data-beebot-theme="presence"] :is(.sand-message-content, .sand-message-prose, .sand-message__text) {
+  font-size: 14px !important;
+  line-height: 22px !important;
+}
+html[data-beebot-theme="presence"] .sand-message-author { margin-bottom: 3px !important; }
+html[data-beebot-theme="presence"] :is([data-bb-delivery], .beebot-message-footer) {
+  margin-block: 3px 2px !important;
+  font-size: 12px;
+  line-height: 18px;
+}
+html[data-beebot-theme="presence"] .sand-transcript-time-separator {
+  margin-block: 8px 12px !important;
+  font-size: 12px;
+}
+html[data-beebot-theme="presence"] .bb-delivery-notice {
+  align-self: stretch;
+  padding: 4px 8px !important;
+  color: var(--bb-muted);
+  font: 12px/20px var(--bb-font);
+  text-align: start;
+}
+html[data-beebot-theme="presence"] .bb-delivery-notice summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  -webkit-app-region: no-drag;
+}
+html[data-beebot-theme="presence"] .bb-delivery-notice__detail {
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--bb-border);
+  color: var(--bb-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+html[data-beebot-theme="presence"] .sand-info-pane__top {
+  min-height: 38px !important;
+  padding-inline: 12px !important;
+}
+html[data-beebot-theme="presence"] .sand-group-member-open {
+  min-height: 34px !important;
+  padding-block: 3px !important;
+}
+html[data-beebot-theme="presence"] .sand-group-member-row { padding-block: 1px !important; }
+html[data-beebot-theme="presence"] .sand-group-members-footer { margin-top: 6px !important; font: 12px/18px var(--bb-font); }
+html[data-beebot-theme="presence"] .sand-group-members-footer > div { padding-block: 0 !important; }
+html[data-beebot-theme="presence"] .sand-group-members-list { gap: 2px !important; }
+/* Only the routines empty-state branch. Preserve editors and non-empty lists. */
+html[data-beebot-theme="presence"] .sand-info-pane__section-content :has(> .sand-routine__empty),
+html[data-beebot-theme="presence"] .sand-info-pane__section-content :has(> div > .sand-routine__empty) {
+  flex: 0 0 auto !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+html[data-beebot-theme="presence"] .sand-info-pane .sand-routine__empty {
+  margin-block: 8px !important;
+  padding: 0 !important;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: start !important;
+}
+html[data-beebot-theme="presence"] .sand-tray-stack {
+  max-height: min(240px, 32dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+html[data-beebot-theme="presence"] .sand-tray {
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  gap: 8px !important;
+}
+html[data-beebot-theme="presence"] .sand-tray__title { font-size: 13px !important; line-height: 20px !important; }
+html[data-beebot-theme="presence"] .sand-tray__detail { font-size: 12px !important; line-height: 19px !important; }
+@media (forced-colors: active) {
+  html[data-beebot-theme="presence"] .bb-delivery-notice,
+  html[data-beebot-theme="presence"] .bb-delivery-notice__detail { color: CanvasText; }
+}

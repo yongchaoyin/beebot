@@ -66,5 +66,5 @@ export function patchPresenceRenderer(source) {
     'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse();S.useLayoutEffect(()=>RPresenceUI.installNativeWindowLayout(document,s,e),[s,e]);const r=bNe(),',
     "native caption safe-area lifecycle");
   result = patchPresenceCreatePicker(result);
-  return `${presenceSharedModule()}\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
+  return `${presenceSharedModule()}\nwindow.__beebotConversationNotice=RPresenceUI.createConversationNotice(S);\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
 }

@@ -1,3 +1,4 @@
+import { patchConversationNoticeChunk } from "./conversation-notice-patch.mjs";
 import { patchProductAccessCopy, patchProductConnections, patchProductAccountMenu } from "./product-settings-patch.mjs";
 import { brandRendererAssets, retireUnusedBrandAssets } from "./product-branding.mjs";
 import { buildPresence } from "./build-presence.mjs";
@@ -214,6 +215,13 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
       patched: { bytes: Buffer.byteLength(patched), sha256: sha256(patched) },
     });
   }
+  const noticePath = path.join(assetsRoot, "view-1r0bwdK4.js");
+  const noticeBefore = await readFile(noticePath, "utf8");
+  const noticeAfter = patchConversationNoticeChunk(noticeBefore);
+  await writeFile(noticePath, noticeAfter);
+  changes.push({ role: "conversation-notice", path: "dist/renderer/assets/view-1r0bwdK4.js",
+    original: { bytes: Buffer.byteLength(noticeBefore), sha256: sha256(noticeBefore) },
+    patched: { bytes: Buffer.byteLength(noticeAfter), sha256: sha256(noticeAfter) } });
   const chatBuild = await buildNodeChat({ assetsRoot });
   const chatAssets = await Promise.all(chatBuild.outputs.map(async output => ({
     path: `dist/renderer/assets/${path.basename(output.path)}`,
