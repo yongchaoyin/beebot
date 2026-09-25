@@ -30,7 +30,7 @@ export function avatarStateFromAgent(input: AvatarActivity): AvatarState {
 export function normalizeAvatarState(state: string | undefined): AvatarState {
   switch (state) {
     case "offline": case "error": case "needs_user": case "waiting": case "paused": case "speaking": case "thinking": return state;
-    case "working": case "searching": case "loading": case "sending": case "progress": case "radar": case "writing": case "uploading": return "thinking";
+    case "reading": case "handoff": case "working": case "searching": case "loading": case "sending": case "progress": case "radar": case "writing": case "uploading": return "thinking";
     case "orbit": return "waiting";
     case "notifying": case "alerting": return "needs_user";
     case "sleeping": case "drowsy": case "powering-down": return "paused";
@@ -38,15 +38,19 @@ export function normalizeAvatarState(state: string | undefined): AvatarState {
     default: return "idle";
   }
 }
-export interface MotionCandidate { id: number; state: AvatarState; priority: number; visible: boolean; paused: boolean; size: number }
+export interface MotionCandidate { id: number; state: AvatarState; priority: number; visible: boolean; paused: boolean; size: number; identity?: string }
 /** A window spends at most two activity slots and one quiet idle slot. The same
  * actor is stable across recomputations; candidate insertion never fabricates work. */
 export function selectMotionCandidates(candidates: readonly MotionCandidate[], lowPower = false): number[] {
   const eligible = candidates.filter(c => c.visible && !c.paused && c.size >= 24 && !["paused", "offline", "error", "waiting", "needs_user"].includes(c.state));
   const rank = (c: MotionCandidate) => c.priority + (c.state === "speaking" ? 30 : c.state === "thinking" ? 10 : 0);
   eligible.sort((a, b) => rank(b) - rank(a) || a.id - b.id);
-  const active = eligible.filter(c => c.state !== "idle").slice(0, lowPower ? 1 : 2);
+  // Mirrors of one Bot share an activity slot; a second surface cannot crowd
+  // another coworker out. The owning connection must scope remote identities.
+  const seen = new Set<string>();
+  const unique = eligible.filter(c => { if (!c.identity) return true; if (seen.has(c.identity)) return false; seen.add(c.identity); return true; });
+  const active = unique.filter(c => c.state !== "idle").slice(0, lowPower ? 1 : 2);
   // Idle life belongs to a primary/header or preview, not the entire sidebar.
-  const idle = lowPower || active.length ? [] : eligible.filter(c => c.state === "idle" && c.priority >= 80).slice(0, 1);
+  const idle = lowPower || active.length ? [] : unique.filter(c => c.state === "idle" && c.priority >= 80).slice(0, 1);
   return [...active, ...idle].map(c => c.id);
 }

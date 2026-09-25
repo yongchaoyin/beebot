@@ -5,7 +5,7 @@ import { ComputerHeaderControl } from "../../computer/shell/view";
 import { SharedRoomHeaderTrigger, type SharedRoomHeaderTriggerProps } from "../../agent-info/shared-room/trigger";
 import { PresenceWorkStatus } from "../../../../presence/components";
 import { AgentAvatar } from "./agent-avatar";
-import { avatarStateFromAgent } from "../../../../presence/avatar-state";
+import { avatarExpressionFromAgent } from "../../../../presence/avatar-expression";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=4886695 (ChatHeader aSn)
 // The shipped normal-agent branch owns the settings trigger, conversation-details
@@ -28,7 +28,7 @@ export interface ConversationAgentHeaderProps {
 export function ConversationAgentHeader({ agent, isComputerActive, isInfoOpen, onToggleInfo, onToggleSettings, sharedRoomTrigger, trailing, showComputerControl = true, isTransportDown = false }: ConversationAgentHeaderProps) {
   const avatarKind = agent.isSharedRoom === true ? "shared-room" : agent.isGroup === true ? "group" : "agent";
   const activity = {...agent, isTransportDown};
-  const state = avatarStateFromAgent(activity);
+  const state = avatarExpressionFromAgent(activity);
   const identity = <>
     <span className="sand-chat-header__avatar"><AgentAvatar state={state} agentId={agent.id} kind={avatarKind} memberIds={agent.memberIds} dataUrl={agent.avatarDataUrl} color={agent.avatarColor} shape={agent.avatarShape} currentActivity={agent.currentActivity} isComposingMessage={agent.isComposingMessage} isRunning={agent.isRunning} awaitingUserResponse={agent.awaitingUserResponse} size="md" /></span>
     <span id="sand-conversation-heading">{agent.name}</span>

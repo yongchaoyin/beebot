@@ -1,18 +1,24 @@
 /* Expressions survive reduced motion; animation is budgeted by the shared clock. */
-.bb-character { display:block; overflow:visible; contain:layout style; flex:none; }
+.bb-character { display:block; overflow:hidden; contain:layout style; flex:none; }
 .bb-character__body { transform-box:view-box; transform-origin:32px 38px; }
 .bb-character__face { transform-box:view-box; transform-origin:32px 34px; }
 .bb-character__eyes { transform-box:fill-box; transform-origin:center; }
 .bb-character__mouth { transform-box:fill-box; transform-origin:center; }
-.bb-character[data-state="thinking"] .bb-character__eyes { transform:scaleY(.85); }
-.bb-character[data-state="needs_user"] .bb-character__eyes { transform:scaleY(1.12); }
-.bb-character[data-state="paused"] .bb-character__eyes,
-.bb-character[data-state="offline"] .bb-character__eyes { transform:scaleY(.45); }
 .bb-character[data-state="offline"] { opacity:.64; }
-.bb-character[data-state="error"] .bb-character__mouth { transform:rotate(180deg); }
 .bb-motion-setting { display:flex; gap:12px; align-items:center; justify-content:space-between; padding:12px 0; color:var(--bb-text); font-size:14px; }
 .bb-motion-setting label { display:flex; flex-direction:column; gap:4px; }
 .bb-motion-setting small { color:var(--bb-muted); font-size:12px; }
 .bb-motion-setting select { background:var(--bb-surface); color:var(--bb-text); border:1px solid var(--bb-control-border); border-radius:8px; padding:7px 10px; font:inherit; }
 .bb-motion-setting select:focus-visible { outline:2px solid var(--bb-focus); outline-offset:2px; }
 @media (prefers-reduced-motion:reduce) { .bb-character, .bb-character * { animation:none !important; transition:none !important; } }
+/* Management-only controls. The chat receives no new panel or popup. */
+.bb-avatar-expression-preview { display:flex; flex-direction:column; align-items:flex-start; gap:8px; min-width:0; width:100%; }
+.bb-expression-controls { font:12px/1.5 var(--bb-font,inherit); color:var(--bb-text,CanvasText); width:100%; min-width:0; }
+.bb-expression-controls summary { cursor:pointer; padding:5px 0; color:var(--bb-muted,GrayText); }
+.bb-expression-controls > div { display:grid; gap:8px; padding:8px 0; }
+.bb-expression-controls select { width:100%; min-width:0; background:var(--bb-surface,Canvas); color:var(--bb-text,CanvasText); border:1px solid var(--bb-control-border,ButtonBorder); border-radius:6px; padding:6px; font:inherit; }
+.bb-expression-controls__actions { display:flex; flex-wrap:wrap; gap:6px; }
+.bb-expression-controls__actions button { border:1px solid var(--bb-control-border,ButtonBorder); border-radius:6px; padding:5px 8px; background:var(--bb-surface,Canvas); color:var(--bb-text,CanvasText); font:inherit; min-height:30px; cursor:pointer; }
+.bb-expression-controls small { color:var(--bb-muted,GrayText); overflow-wrap:anywhere; }
+.bb-expression-controls :focus-visible { outline:2px solid var(--bb-focus,Highlight); outline-offset:2px; }
+.bb-expression-controls button:disabled { opacity:.55; cursor:default; }

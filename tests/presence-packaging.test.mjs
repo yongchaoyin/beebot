@@ -41,8 +41,9 @@ test("actual packaged renderer uses original personas, live mirrors, status and 
   assert.match(main, /className:"sand-agent-avatar","data-size":f,sizePx:O,src:s/); // custom photo branch retained
   assert.match(main, /function dqn\(n\)\{return n.children\}/);
   assert.match(main, /sourceId:"bb-visible-"\+sourceId,avatarIdentity:kct\(t\)/);
-  assert.match(main, /RPresenceUI\.avatarStateFromAgent\(n\?\?e\?\?\{\}\)/);
+  assert.match(main, /RPresenceUI\.avatarExpressionFromAgent\(n\?\?e\?\?\{\}\)/);
   assert.match(main, /RPresenceUI\.avatarShapes\.map/);
+  assert.match(main, /RPresenceUI\.createPresenceAvatarPreview/);
   assert.match(main, /p.jsx\(RPresenceMotionSetting\(\),\{\}\)/);
   assert.match(main, /new URL\("beebot-app-icon.svg",import.meta.url\)/);
   assert.ok(extension.presence.assets.some(asset => asset.path.endsWith("beebot-app-icon.svg")));

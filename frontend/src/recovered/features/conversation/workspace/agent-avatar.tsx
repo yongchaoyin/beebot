@@ -2,7 +2,8 @@ import { useId, useMemo, type CSSProperties } from "react";
 import { resolvePersonaColor, resolvePersonaShape } from "../../onboarding/signed-in/character";
 import { PresenceCharacter } from "../../../../presence/components";
 import type { OnboardingCharacterState } from "../../onboarding/signed-in/scene";
-import { avatarStateFromAgent, type AvatarState, type AvatarActivity } from "../../../../presence/avatar-state";
+import { avatarExpressionFromAgent, type AvatarExpression } from "../../../../presence/avatar-expression";
+import { type AvatarState, type AvatarActivity } from "../../../../presence/avatar-state";
 
 // @evidence src/app/dist/renderer/assets/index-UbX-y3il.js#byteOffset=2302348 (Iee avatar dispatcher; Mac SHA256 ef4e9831b65d39633f09c9ad0c083b98b7ebf52e3bb558182a3dcd717...)
 // @evidence recovered/frontend/app/assets/index-UbX-y3il.js#byteOffset=2925837 (Iee avatar dispatcher; Windows SHA256 80464803b50f478598080bdc1b91da3996c6b74168e2351ea26f620f2ec62ba5)
@@ -15,7 +16,7 @@ import { avatarStateFromAgent, type AvatarState, type AvatarActivity } from "../
 
 export type AgentAvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type AgentAvatarKind = "agent" | "group" | "shared-room";
-export type PersonaState = OnboardingCharacterState | AvatarState;
+export type PersonaState = OnboardingCharacterState | AvatarState | AvatarExpression;
 
 export interface AgentAvatarProps {
   readonly agentId: string;
@@ -49,7 +50,7 @@ const SIZE_PX: Record<AgentAvatarSize, number> = { xs: 16, sm: 22, md: 28, lg: 3
 /** Shared projection also used by the packaged renderer; stale tool history
  * cannot keep an idle coworker visibly working. */
 export function personaStateFromAgent(input: AvatarActivity): PersonaState {
-  return avatarStateFromAgent(input);
+  return avatarExpressionFromAgent(input);
 }
 
 function avatarState(props: AgentAvatarProps): PersonaState {
@@ -72,6 +73,7 @@ function PersonaMark({ agentId, color, shape, size, sizePx, state, isStatic, pau
       shape={shape}
       sizePx={sizePx}
       sourceId={`bb-avatar-${source}`}
+      avatarIdentity={agentId}
       motionPriority={motionPriority}
       spinSignal={spinSignal}
       state={state}

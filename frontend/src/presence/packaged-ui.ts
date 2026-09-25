@@ -26,3 +26,6 @@ export { mountAvatarPicker } from "./avatar-picker";
 export { installNativeWindowLayout } from "./window-layout";
 
 export { createConversationNotice } from "./conversation-notice";
+
+export { avatarExpressionFromAgent } from "./avatar-expression";
+export { createPresenceAvatarPreview } from "./avatar-preview";

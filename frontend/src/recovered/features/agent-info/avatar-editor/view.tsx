@@ -1,5 +1,5 @@
 import { AVATAR_SHAPES as SHAPE_CHOICES, characterVariant } from "../../../../presence/avatar-art";
-import { PresenceMotionSetting } from "../../../../presence/components";
+import { PresenceMotionSetting, PresenceAvatarPreview } from "../../../../presence/components";
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, KeyboardEvent, PointerEvent, RefObject } from "react";
 import { OnboardingCharacter, resolvePersonaColor, resolvePersonaShape } from "../../onboarding/signed-in/character";
@@ -34,9 +34,7 @@ function CharacterChooser({ snapshot, controller }: { readonly snapshot: AvatarE
   const resolvedShape = resolvePersonaShape(snapshot.agentId, character.avatarShape);
   const disabled = snapshot.isSaving || snapshot.isCommitting;
   return <div className="sand-agent-character sand-78zum5 sand-dt5ytf sand-1oot3zn">
-    <div aria-hidden="true">
-      <OnboardingCharacter color={resolvedColor} shape={resolvedShape} sizePx={64} state="idle" className="bb-avatar-preview" isFollowingPointer sourceId={`bb-editor-${snapshot.agentId}`} />
-    </div>
+    <PresenceAvatarPreview color={resolvedColor} shape={resolvedShape} />
     <div aria-label="Character shape" className="sand-78zum5 sand-6s0dn4 sand-ehausa">
       {SHAPE_CHOICES.map((candidate) => <button aria-label={`${candidate} character shape`} aria-pressed={characterVariant(resolvedShape) === characterVariant(candidate)} className="sand-agent-character__shape" disabled={disabled} key={candidate} onClick={() => void controller.stageCharacter({ avatarShape: candidate })} title={candidate} type="button">
         <OnboardingCharacter color={resolvedColor} shape={candidate} sizePx={36} state="idle" paused sourceId={`${snapshot.agentId}-${candidate}`} />

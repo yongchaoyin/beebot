@@ -1,3 +1,5 @@
+import { mountAvatarExpressionControls } from "./avatar-preview.ts";
+import type { AvatarExpression } from "./avatar-expression.ts";
 import { AVATAR_SHAPES, COLORS, COLOR_LABELS, SHAPE_LABELS, avatarForeground, characterLayers, characterVariant, createCharacterSvg } from "./avatar-art.ts";
 import { registerAvatarMotion } from "./avatar-motion.ts";
 
@@ -45,6 +47,7 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
   }
   let value: AvatarPickerValue = { shape: options.shape, color: options.color };
   let language = options.language, disabled = options.disabled === true, disposed = false;
+  let expression: AvatarExpression = "idle";
   const element = document.createElement("section"); element.className = "bb-avatar-picker";
   const preview = document.createElement("div"); preview.className = "bb-avatar-picker__preview";
   const svg = createCharacterSvg(document, value.shape, value.color, 88);
@@ -102,6 +105,11 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
   host.append(element);
   // Register only the main preview. Choice thumbnails never consume motion slots.
   const motion = registerAvatarMotion(svg, { state: "idle", size: 88, priority: 100, followingPointer: true, paused: disabled });
+  const controls = mountAvatarExpressionControls(element, {
+    expression(next) { expression=next; motion.update({state:expression,shape:value.shape,size:88,priority:120,followingPointer:true,paused:disabled}); },
+    gesture(kind) { motion.gesture(kind); },
+    reset() {motion.reset();},
+  }, language, disabled);
   function paint() {
     if (disposed) return;
     const shape = canonicalShape(), color = selectedColor();
@@ -112,11 +120,12 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
     colorName.textContent = (language === "zh" ? "当前颜色：" : "Selected color: ") + colorLabel;
     preview.setAttribute("aria-label", (language === "zh" ? "头像预览：" : "Avatar preview: ") + selected.textContent);
     // Preserve the SVG, eyes and mouth nodes, so selection does not restart motion.
-    const layers = characterLayers(value.shape, value.color);
+    const layers = characterLayers(value.shape, value.color, expression, 88);
     svg.querySelectorAll("[data-part]").forEach((node, index) => {
       for (const [key, attribute] of Object.entries(layers[index].attrs)) node.setAttribute(key, String(attribute));
     });
     svg.dataset.variant = String(characterVariant(value.shape));
+    motion.update({state:expression,shape:value.shape,size:88,priority:120,followingPointer:true,paused:disabled});
     for (const [kind, { legend, group, buttons }] of groups) {
       const heading = kind === "shape" ? (language === "zh" ? "形状" : "Shape") : (language === "zh" ? "颜色" : "Color");
       legend.textContent = heading; group.setAttribute("aria-label", heading);
@@ -140,11 +149,11 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
   paint();
   return {
     setValue(next: AvatarPickerValue) { if (disposed) return; value = { ...next }; paint(); },
-    setLanguage(next: "en" | "zh") { if (disposed) return; language = next; paint(); },
+    setLanguage(next: "en" | "zh") { if (disposed) return; language = next; controls.setLanguage(next); paint(); },
     setDisabled(next: boolean) {
-      if (disposed || disabled === next) return; disabled = next; paint();
-      motion.update({ state: "idle", size: 88, priority: 100, followingPointer: true, paused: disabled });
+      if (disposed || disabled === next) return; disabled = next; controls.setDisabled(next); paint();
+      motion.update({ state: expression, shape:value.shape, size: 88, priority: 120, followingPointer: true, paused: disabled });
     },
-    destroy() { if (disposed) return; disposed = true; motion.destroy(); element.remove(); },
+    destroy() { if (disposed) return; disposed = true; controls.destroy(); motion.destroy(); element.remove(); },
   };
 }
