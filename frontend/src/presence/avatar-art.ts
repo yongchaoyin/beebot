@@ -1,3 +1,4 @@
+import { expressionPaths, expressionPose, type AvatarExpression } from "./avatar-expression.ts";
 import { AVATAR_SHAPES, PERSONA_SHAPE_PATHS } from "./avatar-shapes.ts";
 export { AVATAR_SHAPES } from "./avatar-shapes.ts";
 
@@ -52,16 +53,16 @@ export function avatarForeground(color: string): string {
 }
 export type AvatarPart = "body" | "detail" | "eyes" | "mouth";
 export type AvatarLayer = { part: AvatarPart; tag: "path" | "rect"; attrs: Record<string, string | number> };
-export function characterLayers(shape = "blob", color = "blue"): AvatarLayer[] {
+export function characterLayers(shape = "blob", color = "blue", expression: AvatarExpression = "idle", size = 32): AvatarLayer[] {
   const variant = characterVariant(shape), ink = avatarForeground(color);
   const kind = AVATAR_SHAPES[variant];
-  const eyeY = kind === "squircle" ? 27 : 28, eyeHeight = kind === "tablet" ? 8 : 7;
+  const paths = expressionPaths(expressionPose(expression), kind, size);
   return [
     { part: "body", tag: "path", attrs: { d: SHAPES[variant], transform: `scale(${64 / 259}) translate(15 15)`, fill: Object.hasOwn(COLORS, color) ? COLORS[color] : COLORS.blue } },
     { part: "detail", tag: "path", attrs: { d: "M25 21q1-3 5-4", fill: "none", stroke: "#FFFFFF", "stroke-opacity": .25, "stroke-width": 2, "stroke-linecap": "round" } },
-    { part: "eyes", tag: "rect", attrs: { x: 21, y: eyeY, width: 4.5, height: eyeHeight, rx: 2.25, fill: ink } },
-    { part: "eyes", tag: "rect", attrs: { x: 38.5, y: eyeY, width: 4.5, height: eyeHeight, rx: 2.25, fill: ink } },
-    { part: "mouth", tag: "path", attrs: { d: kind === "tablet" ? "M29 42h6" : kind === "cloud" ? "M29 41q3 2 6-1" : "M29 41q3 3 6 0", fill: "none", stroke: ink, "stroke-width": 1.7, "stroke-linecap": "round" } },
+    { part: "eyes", tag: "path", attrs: { d: paths.left, fill: ink } },
+    { part: "eyes", tag: "path", attrs: { d: paths.right, fill: ink } },
+    { part: "mouth", tag: "path", attrs: { d: paths.mouth, fill: ink } },
   ];
 }
 /** The DOM adapter and React factory share exact geometry and part names. */
@@ -70,16 +71,17 @@ export function createCharacterSvg(document: Document, shape: string, color: str
   const dimension = Number.isFinite(size) ? Math.max(1, Math.min(1024, size)) : 32;
   svg.setAttribute("viewBox", "0 0 64 64"); svg.setAttribute("width", String(dimension)); svg.setAttribute("height", String(dimension));
   svg.setAttribute("aria-hidden", "true"); svg.setAttribute("focusable", "false");
-  svg.classList.add("bb-character"); svg.dataset.variant = String(characterVariant(shape)); svg.dataset.state = "idle";
+  svg.classList.add("bb-character"); svg.dataset.variant = String(characterVariant(shape)); svg.dataset.state = "idle"; svg.dataset.expression = "idle";
   const body = document.createElementNS(ns, "g"); body.classList.add("bb-character__body"); svg.append(body);
   const face = document.createElementNS(ns, "g"); face.classList.add("bb-character__face");
-  const eyes = document.createElementNS(ns, "g"); eyes.classList.add("bb-character__eyes"); face.append(eyes);
-  for (const layer of characterLayers(shape, color)) {
+  const gaze = document.createElementNS(ns, "g"); gaze.classList.add("bb-character__gaze"); face.append(gaze);
+  const eyes = document.createElementNS(ns, "g"); eyes.classList.add("bb-character__eyes"); gaze.append(eyes);
+  for (const layer of characterLayers(shape, color, "idle", dimension)) {
     const node = document.createElementNS(ns, layer.tag);
     for (const [key, value] of Object.entries(layer.attrs)) node.setAttribute(key, String(value));
     node.dataset.part = layer.part;
     if (layer.part === "mouth") node.classList.add("bb-character__mouth");
-    (layer.part === "eyes" ? eyes : layer.part === "mouth" ? face : body).append(node);
+    (layer.part === "eyes" ? eyes : layer.part === "mouth" ? gaze : body).append(node);
   }
   body.append(face); return svg;
 }

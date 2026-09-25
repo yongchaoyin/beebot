@@ -39,7 +39,8 @@ test("creation picker exposes eight distinct shapes and eleven original colors w
   assert.equal(host.querySelectorAll('[data-kind="color"] [role="radio"]').length, 11);
   assert.equal(new Set([...host.querySelectorAll('[data-kind="shape"] [data-part="body"]')].map(node => node.getAttribute("d"))).size, 8);
   assert.equal(host.querySelectorAll('[tabindex="0"]').length, 2);
-  assert.equal(host.querySelectorAll("select").length, 0);
+  assert.equal(host.querySelectorAll(".bb-expression-controls select").length, 1);
+  assert.equal(host.querySelector(".bb-expression-controls").open, false, "previews stay collapsed until requested");
   assert.deepEqual(changed, []); assert.deepEqual(errors, []);
 });
 

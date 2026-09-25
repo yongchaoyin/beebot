@@ -4,3 +4,6 @@ import { createPresenceWorkStatus, createPresenceMotionSetting } from "./package
 export const PresenceCharacter = createPresenceCharacter(React);
 export const PresenceWorkStatus = createPresenceWorkStatus(React);
 export const PresenceMotionSetting = createPresenceMotionSetting(React);
+
+import { createPresenceAvatarPreview } from "./avatar-preview";
+export const PresenceAvatarPreview = createPresenceAvatarPreview(React);

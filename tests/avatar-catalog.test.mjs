@@ -72,7 +72,7 @@ test("faces and selected color ticks have at least 4.5:1 contrast on every color
     const [lo,hi]=[luminance(value),luminance(avatarForeground(id))].sort((a,b)=>a-b);
     assert.ok((hi+.05)/(lo+.05)>=4.5,id);
     assert.equal(characterLayers("blob",id)[2].attrs.fill,avatarForeground(id));
-    assert.equal(characterLayers("blob",id)[4].attrs.stroke,avatarForeground(id));
+    assert.equal(characterLayers("blob",id)[4].attrs.fill,avatarForeground(id));
   }
   assert.equal(avatarForeground("black"),"#FFFFFF");
 });
