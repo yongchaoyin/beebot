@@ -1,0 +1,34 @@
+name: presence expression verification
+on:
+  push:
+    branches: [work/presence-expressions-verification-20260925]
+    paths: [.github/workflows/presence-expressions-verification.yml]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8491442ff6a751aa930175caf185eeffae32b98a
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.0
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Export exact development inputs without account or runtime data
+        run: |
+          mkdir -p "$RUNNER_TEMP/presence-deps"
+          tar -czf "$RUNNER_TEMP/presence-deps/node-modules.tgz" node_modules
+          cp "$(command -v node)" "$RUNNER_TEMP/presence-deps/node"
+          cp package-lock.json "$RUNNER_TEMP/presence-deps/package-lock.json"
+          cd "$RUNNER_TEMP/presence-deps"
+          sha256sum node node-modules.tgz package-lock.json > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: presence-locked-dependencies
+          path: ${{ runner.temp }}/presence-deps/
+          retention-days: 3
+          if-no-files-found: error
