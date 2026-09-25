@@ -81,11 +81,11 @@ html[data-beebot-theme="presence"] .sand-prompt-send:enabled:hover { background:
 html[data-beebot-theme="presence"] .sand-prompt-send:enabled:active { transform: scale(.94); }
 html[data-beebot-theme="presence"] .sand-prompt-send:disabled { cursor: not-allowed; opacity: .45; }
 html[data-beebot-theme="presence"] :is(.bb-quoted-reply, .bb-composer-quote) {
-  border-inline-start: 3px solid var(--bb-accent); border-radius: 4px 9px 9px 4px;
-  background: var(--bb-sidebar); color: var(--bb-muted); font: 13px/1.5 var(--bb-font);
+  border: 0; border-radius: 4px; background: var(--bb-quote-bg); color: var(--bb-quote-text);
+  font: 12px/18px var(--bb-font);
 }
-html[data-beebot-theme="presence"] .bb-quoted-reply:hover { background: var(--bb-hover); }
-html[data-beebot-theme="presence"] .bb-quote-author { color: var(--bb-text); }
+html[data-beebot-theme="presence"] .bb-quoted-reply:hover { background: var(--bb-quote-hover); }
+html[data-beebot-theme="presence"] .bb-quote-author { color: inherit; font-weight: 400; }
 html[data-beebot-theme="presence"] .bb-quote-feedback { font-size: 12px; color: var(--bb-muted); }
 html[data-beebot-theme="presence"] :is([data-bb-delivery], .beebot-message-footer) { color: var(--bb-muted); font: 12px/1.5 var(--bb-font); }
 html[data-beebot-theme="presence"] [data-bb-delivery]::before {

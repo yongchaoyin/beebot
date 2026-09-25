@@ -771,6 +771,14 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
             key={entry.id}
             renderReactionActions={renderMessageReactionActions}
             renderReactionPills={renderMessageReactionPills}
+            replyQuote={entry.replyToId != null && onOpenReply != null && resolveReplyPreview != null ? <ReferencedMessagePreviewTrigger
+              authorName=""
+              isInScope={isReplyTargetInScope?.(entry.replyToId) === true}
+              onOpen={onOpenReply}
+              ownerId={entry.id}
+              preview={resolveReplyPreview(entry.replyToId) ?? { kind: "missing" }}
+              targetId={entry.replyToId}
+            /> : null}
             threadRootId={threadRootId}
           />;
           return resolveTranscriptCardInteractions == null
@@ -785,7 +793,7 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
         const referencedEntry = entry.replyToId == null ? undefined : entries.find((candidate) => candidate.id === entry.replyToId);
         const referencedAuthorName = referencedEntry?.kind === "message"
           ? referencedEntry.author
-          : replyPreview?.kind === "user-text" ? "You" : "Agent";
+          : replyPreview?.author ?? (replyPreview?.kind === "user-text" ? "You" : "Agent");
         const messageUrlCards = urlCards ?? transcriptCards?.leafProviders.urlCards ?? null;
         const messageProjection = projectTranscriptMessageCard(entry);
         const messageAdjacency = entry.adjacency == null
@@ -825,15 +833,6 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
             <time dateTime={new Date(entry.timestampMs).toISOString()} hidden id={ids.timestamp}>{new Date(entry.timestampMs).toLocaleString()}</time>
             <MessageActionAnchor entry={entry} isReadOnly={isReadOnly} onCopy={onCopyMessage} onOpenThread={resolveTranscriptCardInteractions?.openThread} onReply={onReply} onStartThread={onStartThread} renderReactionActions={reactionActions} threadRootId={threadRootId} threadSummary={threadSummary}>
               <div aria-label={entry.role === "assistant" ? "Agent message" : undefined} className="sand-message" data-group-start={messageAdjacency.isGroupStart || undefined} data-role={entry.role} role="group">
-                {replyPreview != null && onOpenReply != null ? <ReferencedMessagePreviewTrigger
-                  authorName={referencedAuthorName}
-                  isInScope={isReplyTargetInScope?.(entry.replyToId ?? "") === true}
-                  onOpen={onOpenReply}
-                  ownerId={entry.id}
-                  preview={replyPreview}
-                  targetId={entry.replyToId ?? ""}
-                  timestampMs={referencedEntry != null && "timestampMs" in referencedEntry ? referencedEntry.timestampMs : undefined}
-                /> : null}
                 {messageLink != null && messageUrlCards != null ? <LinkCardView isGroupStart={messageAdjacency.isGroupStart} provider={messageUrlCards} url={messageLink} /> : entry.isStreaming && entry.role === "assistant" && !entry.text ? <StreamingMessage /> : entry.role === "assistant" ? <AssistantMessageContent channel={entry.channel} images={entry.images} isSourceTrusted={entry.isSourceTrusted} isStreaming={entry.isStreaming} text={entry.text} /> : <UserMessageContent richText={entry.richText} text={entry.text} />}
                 {renderMessageReactionPills?.(reactionPillProps)}
                 {entry.attachments?.length ? <TranscriptAttachmentGallery adjacency={messageAdjacency} attachments={entry.attachments} downloadAttachment={downloadAttachment} readAttachmentBytes={readAttachmentBytes} resolveMedia={resolveAttachmentMedia} role={entry.role} /> : null}
@@ -843,6 +842,15 @@ export function ConversationTranscript({ entries, hasOlder = false, isLoadingOld
                 {failed ? <FailedSendActions entry={entry} onDelete={onDeleteFailedSend} onResend={onResendFailedSend} onCheck={onCheckSendReceipt} /> : null}
               </div>
             </MessageActionAnchor>
+            {replyPreview != null && onOpenReply != null ? <ReferencedMessagePreviewTrigger
+              authorName={referencedAuthorName}
+              isInScope={isReplyTargetInScope?.(entry.replyToId ?? "") === true}
+              onOpen={onOpenReply}
+              ownerId={entry.id}
+              preview={replyPreview}
+              targetId={entry.replyToId ?? ""}
+              timestampMs={referencedEntry != null && "timestampMs" in referencedEntry ? referencedEntry.timestampMs : undefined}
+            /> : null}
             {renderMessageFooter?.(entry)}
           </div>
         );

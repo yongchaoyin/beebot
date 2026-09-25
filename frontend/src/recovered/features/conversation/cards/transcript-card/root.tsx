@@ -50,6 +50,8 @@ export interface TranscriptCardRootEntryProps {
   readonly renderReactionPills?: TranscriptCardReactionPillsRenderer;
   readonly isStale?: boolean;
   readonly isKeyboardTarget?: boolean;
+  /** A resolved current-conversation reference, displayed after the card. */
+  readonly replyQuote?: ReactNode;
 }
 
 export interface TranscriptCardReactionPillsProps {
@@ -61,7 +63,7 @@ export interface TranscriptCardReactionPillsProps {
 
 export type TranscriptCardReactionPillsRenderer = (props: TranscriptCardReactionPillsProps) => ReactNode;
 
-export function TranscriptCardRootEntry({ contract, entry, adjacency, isReadOnly = false, threadRootId = null, renderReactionActions, renderReactionPills, isStale, isKeyboardTarget }: TranscriptCardRootEntryProps) {
+export function TranscriptCardRootEntry({ contract, entry, adjacency, isReadOnly = false, threadRootId = null, renderReactionActions, renderReactionPills, isStale, isKeyboardTarget, replyQuote }: TranscriptCardRootEntryProps) {
   const protocolKey = transcriptCardProtocolKey(entry.message.type);
   const metadata = contract.registry.metadata(protocolKey);
   const frame = transcriptCardFrameForEntry(entry, metadata, contract.leafProviders.attachments);
@@ -80,7 +82,7 @@ export function TranscriptCardRootEntry({ contract, entry, adjacency, isReadOnly
       renderReactionActions={renderReactionActions}
       threadRootId={threadRootId}
     >
-      <div data-entry-id={entry.id} role="article">
+      <div data-entry-id={entry.id} data-quote-owner-role="assistant" role="article">
         <TranscriptCardLeafProvider value={contract.leafProviders}>
           <Suspense fallback={<div aria-hidden="true" style={{ height: metadata.placeholderHeight, width: "100%" }} />}>
             {frame == null ? <><Leaf actionVerb={null} adjacency={adjacency} entry={entry} isKeyboardTarget={isKeyboardTarget} isStale={isStale} />{reactionPills}</> : (
@@ -96,6 +98,7 @@ export function TranscriptCardRootEntry({ contract, entry, adjacency, isReadOnly
             )}
           </Suspense>
         </TranscriptCardLeafProvider>
+        {replyQuote}
       </div>
     </TranscriptCardActionAnchor>
   );

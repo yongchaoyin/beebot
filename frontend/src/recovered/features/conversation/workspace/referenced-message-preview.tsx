@@ -192,5 +192,5 @@ export interface ReferencedMessagePreviewTriggerProps extends ReferencedMessageP
 
 /** Inline quote; navigation stays in the current conversation, without a popup. */
 export function ReferencedMessagePreviewTrigger({ targetId, isInScope, onOpen, ...previewProps }: ReferencedMessagePreviewTriggerProps) {
-  return <ReplyQuote isInScope={isInScope} onOpen={onOpen} preview={{...previewProps.preview, author: previewProps.authorName || previewProps.preview.author}} targetId={targetId} />;
+  return <ReplyQuote isInScope={isInScope} onOpen={onOpen} preview={{...previewProps.preview, author: previewProps.preview.author || previewProps.authorName}} targetId={targetId} />;
 }
