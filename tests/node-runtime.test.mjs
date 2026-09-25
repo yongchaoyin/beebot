@@ -9,6 +9,7 @@ import os from "node:os";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { scriptedChatModel, publicReply } from "./helpers/http-provider-fixture.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = await mkdtemp(path.join(os.tmpdir(), "beebot-runtime-module-"));
@@ -284,6 +285,52 @@ test("custom HTTP model configuration uses real tools and waits for background w
     if (process.env.BEEBOT_KEEP_RUNTIME_TEST_DATA !== "1") await rm(dataDir, { recursive: true, force: true });
     else console.log(`Runtime test data: ${dataDir}`);
   }
+});
+
+
+test("real HTTP Host separates ordinary dialogue, executed delivery and requested summaries across persistent turns", integration, async t => {
+  const clarification = "可以。我先帮你把内容做好。你想做个人品牌还是产品推广？";
+  const acknowledgement = "我先写一份本周选题草稿，只保存到工作目录，不发布。";
+  const delivered = "本周选题已写入 week-plan.txt。先做三条产品使用场景，草稿尚未发布。";
+  const requestedSummary = "按你的要求总结：本周先做产品使用场景，已存草稿，尚未发布。";
+  const privateFinish = { text: "已回复用户（消息已发出）。本轮处理：内部收尾记录，不应作为第二条回复。" };
+  const model = await scriptedChatModel(t, [
+    publicReply(clarification), privateFinish,
+    publicReply(acknowledgement),
+    { tool: { name: "Shell", args: { command: "printf 'Monday: product use\\nWednesday: comparison\\nFriday: questions\\n' > week-plan.txt", working_directory: "/workspace", block_until_ms: 1000 } } },
+    publicReply(delivered), privateFinish,
+    publicReply("不客气。"), privateFinish,
+    publicReply(requestedSummary), privateFinish,
+  ]);
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "bb-colleague-runtime-"));
+  const options = { dataDir, hostEntry, settings: { inferenceProvider: "custom", inferenceHttp: { baseUrl: model.baseUrl, modelId: "colleague-fixture" }, localAccountActive: true }, env: { CUSTOM_API_KEY: "loopback-only-key" } };
+  const runtime = new HostRuntime(options);
+  const bot = { id: "colleague", name: "内容同事", description: "负责内容草稿；未经批准不得发布。", avatarShape: "cloud", avatarColor: "green" };
+  const visible = result => result.transcript.filter(entry => entry.kind === "send-message");
+  try {
+    const first = await runtime.execute({ runId: "conversation", bot, prompt: "可以帮我运营账号吗？先聊一下，不要执行。" }, AbortSignal.timeout(30_000));
+    assert.equal(first.text, clarification);
+    assert.equal(visible(first).length, 1);
+    assert.doesNotMatch(JSON.stringify(visible(first)), /已回复用户|本轮处理/);
+    const second = await runtime.execute({ runId: "work", bot, prompt: "产品推广。先在工作目录写本周三条选题草稿到 week-plan.txt，不要发布。" }, AbortSignal.timeout(30_000));
+    assert.equal(visible(second).length, 2, "a real task keeps both its useful start update and actual delivery");
+    assert.ok(second.text.includes(acknowledgement));
+    assert.ok(second.text.includes(delivered));
+    assert.doesNotMatch(JSON.stringify(visible(second)), /已回复用户|本轮处理/);
+    const planPath = path.join(dataDir, "runtime-bots", hash(bot.id), "host/box-workspace/week-plan.txt");
+    const plan = await readFile(planPath, "utf8");
+    assert.equal(plan, "Monday: product use\nWednesday: comparison\nFriday: questions\n");
+    const third = await runtime.execute({ runId: "thanks", bot, prompt: "谢谢" }, AbortSignal.timeout(30_000));
+    assert.equal(third.text, "不客气。");
+    assert.equal(visible(third).length, 1, "a casual follow-up does not re-report previous work");
+    const fourth = await runtime.execute({ runId: "requested-summary", bot, prompt: "请总结刚才的结果" }, AbortSignal.timeout(30_000));
+    assert.equal(fourth.text, requestedSummary);
+    assert.equal(visible(fourth).length, 1, "explicit user-requested summaries remain deliverable");
+    assert.equal(await readFile(planPath, "utf8"), plan);
+    model.assertComplete();
+    assert.ok(model.requests[0].input.tools.some(tool => tool.function.name === "SendMessage"));
+    assert.ok(JSON.stringify(model.requests[0].input.messages).includes("Conversation and actually doing work"));
+  } finally { await runtime.close(); await rm(dataDir, { recursive: true, force: true }); }
 });
 
 test("controller crash disconnects and stops owned Bot processes without replaying the run", integration, async () => {

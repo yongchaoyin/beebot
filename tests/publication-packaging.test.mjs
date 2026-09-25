@@ -149,7 +149,8 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(providers, /your own Linux computer/);
   assert.match(providers, /If a SendMessage tool is available/);
   assert.match(providers, /hostSuppliedTools/);
-  assert.match(providers, /withSyntheticSendMessage/);
+  assert.doesNotMatch(providers, /withSyntheticSendMessage/);
+  assert.match(providers, /fullStream: result\.fullStream/);
   assert.match(providers, /resolveHttpToolParameters/);
   assert.match(providers, /mcpServers: \{ grok_bot_plugins:/);
   assert.match(providers, /recordRoutedUsage\(provider, usage\)/);

@@ -5,7 +5,7 @@ export const SEND_MESSAGE_REMINDER_MESSAGE = `<system_reminder>
 You have made several tool calls without a SendMessage, so the user is currently watching silence. Actually invoke the SendMessage tool now. Send a brief, specific update on what you are doing or what you just found before continuing.
 </system_reminder>`;
 export const EARLY_RESULT_REMINDER_MESSAGE = `<system_reminder>
-Remember: the user cannot see tool output or your thinking — only SendMessage reaches them. If you have produced a result or finished what they asked, send it now with SendMessage tool call before continuing or ending the turn. If you are still mid-task, keep working and send the result once you have it.
+Remember: the user cannot see tool output or your thinking — only SendMessage reaches them. If actual work has produced a new result the user is waiting on and it has not been delivered, send it now with SendMessage before ending the turn. An ordinary answer already sent is complete: do not summarize it again, or report internal bookkeeping as task execution. If you are still mid-task, keep working and send the result once you have it.
 </system_reminder>`;
 export const DISK_PRESSURE_REMINDER_MESSAGE = `<system_reminder>
 The box is near disk capacity. Avoid disk-heavy work and do not fill the remaining capacity.

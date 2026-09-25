@@ -39,6 +39,18 @@ New Group and settings may use centered management dialogs. Do not put creation
 forms into the narrow sidebar just to avoid a modal. Always exercise second and
 third sends while work is running, in both single-Bot and Group conversations.
 
+## Conversation and delivery
+
+Ordinary dialogue needs a direct answer, not a task recap. Only report execution
+outcomes after real work or an execution attempt, and do not repeat a result
+already delivered. Requested document summaries remain valid answers. A task is
+not established by tool-call count, a plan, a receipt or a UI working state.
+
+When SendMessage is available, only real successful sends become public replies.
+Never synthesize a send from private final text, compaction, or internal bookkeeping.
+Be proactive within the user's actual goal and authorization; clarify consequential
+ambiguity without turning every question into a workflow. Do not simulate peers.
+
 ## Implementation paths
 
 The shipped renderer uses a pinned upstream baseline plus the adapters in
