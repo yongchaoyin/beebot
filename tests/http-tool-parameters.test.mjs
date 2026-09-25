@@ -37,25 +37,3 @@ test("HTTP tool parameters convert Zod into JSON Schema instead of dumping Zod i
     await loaded.dispose();
   }
 });
-
-test("plain assistant text is wrapped as a SendMessage tool call", async () => {
-  const loaded = await loadModule();
-  try {
-    async function* chunks() {
-      yield { type: "text-delta", textDelta: "你好" };
-      yield { type: "text-delta", textDelta: "世界" };
-    }
-    const events = [];
-    for await (const event of loaded.module.withSyntheticSendMessage(chunks())) events.push(event);
-    const send = events.find((event) => event.type === "tool-call");
-    assert.deepEqual(send, {
-      type: "tool-call",
-      toolCallId: send.toolCallId,
-      toolName: "SendMessage",
-      args: { type: "text", content: "你好世界" },
-    });
-    assert.match(send.toolCallId, /^synthetic-send-/);
-  } finally {
-    await loaded.dispose();
-  }
-});

@@ -24,29 +24,3 @@ export function resolveHttpToolParameters(value: unknown): ReturnType<typeof jso
   }
   return undefined;
 }
-
-export async function* withSyntheticSendMessage<T extends { type: string }>(
-  stream: AsyncIterable<T>,
-): AsyncGenerator<T | {
-  readonly type: "tool-call";
-  readonly toolCallId: string;
-  readonly toolName: "SendMessage";
-  readonly args: { readonly type: "text"; readonly content: string };
-}> {
-  let text = "";
-  let toolCall = false;
-  for await (const chunk of stream) {
-    if (chunk.type === "text-delta" && "textDelta" in chunk && typeof chunk.textDelta === "string") text += chunk.textDelta;
-    if (chunk.type === "tool-call" || chunk.type === "tool-call-streaming-start" || chunk.type === "tool-call-delta") toolCall = true;
-    yield chunk;
-  }
-  const content = text.trim();
-  if (!toolCall && content.length > 0) {
-    yield {
-      type: "tool-call",
-      toolCallId: `synthetic-send-${Date.now()}`,
-      toolName: "SendMessage",
-      args: { type: "text", content },
-    };
-  }
-}

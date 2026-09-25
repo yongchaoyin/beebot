@@ -6,10 +6,11 @@ import { query as queryClaude, type SDKResultMessage } from "@anthropic-ai/claud
 import { createOpenAI } from "@ai-sdk/openai";
 import { streamText, tool, type CoreMessage, type LanguageModelV1, type ToolSet } from "ai";
 
+import { COLLEAGUE_CONVERSATION_POLICY } from "../../../shared/colleague-conversation.js";
 import { BasePromptBuilder, BasePromptExecutor } from "../../../packages/chat-inference/base.js";
 import type { SandInferenceProvider } from "../../../shared/inference-router.js";
 import { isHttpInferenceVendor, resolveVendorHttpConfig, vendorPreset, type HttpInferenceVendor, type InferenceVendorAccount } from "../../../shared/inference-vendor.js";
-import { resolveHttpToolParameters, withSyntheticSendMessage } from "../../../shared/http-tool-parameters.js";
+import { resolveHttpToolParameters } from "../../../shared/http-tool-parameters.js";
 import { resolveClaudeCodeCliPath } from "../../../shared/node/inference-router-local.js";
 import { getSandRootDir } from "../../host-paths.js";
 import { readLocalInferenceSnapshot, snapshotHttpSession } from "../../../shared/node/local-inference-snapshot.js";
@@ -32,6 +33,7 @@ export const GROK_ROUTER_SYSTEM_PROMPT = [
   "Use those tools to do the work. Never claim you cannot operate a computer, open files, or use the desktop when the tools are present.",
   "Never ask for an API key for an already-connected plugin.",
   "If a SendMessage tool is available, that is the only way the user sees your reply — do not rely on plain assistant text.",
+  COLLEAGUE_CONVERSATION_POLICY,
 ].join("\n");
 
 function recordRoutedUsage(provider: RoutedProvider, usage: UsageRecord): void {
@@ -281,7 +283,10 @@ function httpVendorExecutor(provider: HttpInferenceVendor, messages: readonly Pr
   const extendedUsage = result.usage.then(value => ({ inputTokens: value.promptTokens, outputTokens: value.completionTokens, cacheReadTokens: 0, cacheWriteTokens: 0, maxTokens: 0 }));
   if (onUsage != null) void extendedUsage.then(onUsage);
   return {
-    fullStream: withSyntheticSendMessage(result.fullStream as AsyncIterable<{ type: string }>),
+    // Preserve the provider stream verbatim. Plain text is private in a Host
+    // tool session (including its final completion/compaction text), not a
+    // second SendMessage. Text-only routes consume these same deltas explicitly.
+    fullStream: result.fullStream,
     response: result.response,
     usage: result.usage,
     extendedUsage,
