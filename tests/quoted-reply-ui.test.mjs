@@ -17,7 +17,7 @@ async function setup(t,record=assignment){
  return{window,document:window.document,api:window.quoteFixture,quote:()=>window.document.querySelector('.bb-quoted-reply'),composer:()=>window.document.querySelector('.bb-composer-quote')};
 }
 test('actual packaged quote shows author and original message inline with no hover popup',async t=>{
- const ui=await setup(t);assert.match(ui.quote().textContent,/BotA.*修改输入框/);assert.match(ui.composer().textContent,/回复 BotA/);
+ const ui=await setup(t);assert.match(ui.quote().textContent,/BotA.*修改输入框/);assert.match(ui.composer().getAttribute('aria-label'),/回复 BotA/);assert.match(ui.composer().textContent,/BotA：/);
  ui.quote().dispatchEvent(new ui.window.MouseEvent('mouseenter',{bubbles:true}));ui.quote().focus();await tick();
  assert.equal(ui.document.querySelector('[role=tooltip],[role=dialog]'),null);
  ui.quote().click();await tick();assert.deepEqual(JSON.parse(JSON.stringify(ui.api.calls)),[['quote','group','assignment']]);
@@ -31,7 +31,7 @@ test('composer cancellation removes only the quote and keeps unrelated typing',a
 test('language changes preserve quote target, focused node and draft',async t=>{
  const ui=await setup(t);const original=ui.quote();original.focus();
  ui.window.__sandUiLanguage='en';ui.window.dispatchEvent(new ui.window.Event('sand-ui-language-changed'));await tick();
- assert.equal(ui.quote(),original);assert.equal(ui.document.activeElement,original);assert.match(ui.composer().textContent,/Reply to BotA/);
+ assert.equal(ui.quote(),original);assert.equal(ui.document.activeElement,original);assert.match(ui.composer().getAttribute('aria-label'),/Reply to BotA/);
  assert.equal(original.dataset.replyTargetId,'assignment');assert.equal(ui.document.querySelector('textarea').value,'保留我的草稿');
 });
 test('unavailable originals remain visible and retryable, never mislabeled deleted',async t=>{
@@ -52,7 +52,7 @@ test('files, images and untrusted author strings are text, not executable previe
  for (const entry of [{kind:'message',content:{}},{kind:'user-attachment',file_path:null},{...assignment,message:{type:'attachment',url:{}}}]) assert.equal(ui.api.preview(entry).kind,'missing');
 });
 test('single Bot uses the same original-user quote presentation',async t=>{
- const ui=await setup(t,{id:'assignment',kind:'message',role:'user',content:'第一件工作'});assert.match(ui.quote().textContent,/你.*第一件/);assert.match(ui.composer().textContent,/回复 你/);
+ const ui=await setup(t,{id:'assignment',kind:'message',role:'user',content:'第一件工作'});assert.match(ui.quote().textContent,/你.*第一件/);assert.match(ui.composer().getAttribute('aria-label'),/回复 你/);
  ui.api.changeTarget({id:'second',kind:'message',role:'user',content:'第二件工作'});await tick();assert.equal(ui.quote().dataset.replyTargetId,'second');assert.doesNotMatch(ui.composer().textContent,/第一件/);
 });
 test('explicit message reference links use inline quotes, not inherited hover dialogs',async t=>{
@@ -104,4 +104,58 @@ test('original history paging preserves the quote-only navigation marker on ever
  assert.equal(next.kind,'load-older');assert.equal(next.requested.quoted,true);assert.equal(next.requested.pagesRequested,2);
  assert.equal(decide(next.requested,{currentAgentId:'group',nowMs:3,isEntryInWindow:true,isRevealSurfaceReady:false}).kind,'wait');
  assert.equal(decide(next.requested,{currentAgentId:'other-group',nowMs:3}).kind,'drop');
+});
+
+
+test('shipped quote is below the reply bubble, never inside it or above it', async t => {
+ const ui=await setup(t);ui.api.mode('message');await tick();
+ const block=ui.document.querySelector('.sand-message-block');
+ const bubble=block.querySelector('.sand-message'),wrap=block.querySelector('.bb-quote-wrap');
+ assert.ok(bubble);assert.ok(wrap);assert.equal(block.children[0],bubble);assert.equal(block.children[1],wrap);
+ assert.equal(bubble.querySelector('.bb-quoted-reply'),null);
+ assert.equal(block.dataset.quoteOwnerRole,'user');
+ assert.equal(ui.quote().textContent,'BotA：@BotB 修改输入框，保持原来的风格。');
+ ui.api.role('assistant');await tick();assert.equal(ui.document.querySelector('.sand-message-block').dataset.quoteOwnerRole,'assistant');
+ assert.equal(ui.quote().dataset.replyTargetId,'assignment');
+});
+
+test('quote thumbnails only use authorized ready raster cache, never attachment URLs', async t => {
+ const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lZkY8wAAAABJRU5ErkJggg==';
+ const url='https://untrusted.invalid/private-photo.png';
+ const ui=await setup(t,{...assignment,message:{type:'attachment',url}});
+ assert.equal(ui.quote().querySelector('img'),null);
+ for(const src of [url,'file:///private/photo.png','data:image/svg+xml;base64,PHN2Zy8+','javascript:alert(1)']) {
+  ui.api.setMedia(url,{status:'ready',kind:'image',src});await tick();assert.equal(ui.quote().querySelector('img'),null);
+ }
+ ui.api.setMedia(url,{status:'ready',kind:'image',src:png});await tick();
+ assert.equal(ui.quote().querySelector('img').getAttribute('src'),png);
+ assert.equal(ui.composer().querySelector('img').getAttribute('src'),png);
+ ui.api.setMedia(url,null);await tick();assert.equal(ui.quote().querySelector('img'),null);
+ assert.match(ui.quote().textContent,/图片/);
+});
+
+test('replying to an already quoted message keeps a single direct reference', async t => {
+ const original={...assignment,replyTo:'first-task',workOn:'first-task'};
+ const ui=await setup(t,original);ui.api.mode('message');await tick();
+ assert.equal(ui.document.querySelectorAll('.sand-message-block .bb-quoted-reply').length,1);
+ assert.equal(ui.quote().dataset.replyTargetId,original.id);
+ assert.equal(original.replyTo,'first-task');assert.equal(original.workOn,'first-task');
+});
+
+test('draft quote has no extra heading and mouse cancellation does not move the text caret', async t => {
+ const ui=await setup(t);const input=ui.document.querySelector('textarea');input.focus();input.setSelectionRange(2,4);
+ const clear=ui.composer().querySelector('button');
+ const event=new ui.window.MouseEvent('mousedown',{bubbles:true,cancelable:true});clear.dispatchEvent(event);
+ assert.equal(event.defaultPrevented,true);assert.equal(ui.document.activeElement,input);
+ assert.equal(input.selectionStart,2);assert.equal(input.selectionEnd,4);
+ assert.doesNotMatch(ui.composer().textContent,/回复|Reply to/);
+ clear.click();await tick();assert.equal(ui.composer(),null);assert.equal(input.value,'保留我的草稿');
+});
+
+test('shipped composer preserves the editor position while moving reference below it', () => {
+ const source=readFileSync(new URL('../src/app/dist/renderer/assets/index-UbX-y3il.js',import.meta.url),'utf8');
+ const patched=patchQuotedReplies(source);
+ assert.match(patched,/children:\[Vr,si,Yi,null,ii,Gr,ri,br\]/);
+ assert.throws(()=>patchQuotedReplies(source.replace('children:[Vr,si,Yi,ri,ii,Gr,br]','children:[Vr,si,Yi,ii,Gr,br]')),/draft quote below editor/);
+ assert.throws(()=>patchQuotedReplies(source.replace('style:I.style,children:[O,_]','style:I.style,children:[_,O]')),/reply below message/);
 });

@@ -168,7 +168,6 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
       <div className="sand-prompt-shell" data-expanded={hasPayload || undefined} onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}>
         {isDragOver ? <div aria-hidden="true" className="sand-chat-drop-overlay"><div className="sand-chat-drop-overlay__badge">Drop files to add to chat</div></div> : null}
         {notice ? <p aria-live="polite" className="sand-prompt-attachment-notice" role="status">{notice}</p> : null}
-        {replyTarget == null || onClearReplyTarget == null ? null : <ComposerReplyPill onClear={onClearReplyTarget} target={replyTarget} />}
         {draft.attachments.length > 0 ? (
           <div aria-label="Attachments" className="sand-prompt-attachments" role="list">
             {draft.attachments.map((attachment, index) => {
@@ -201,6 +200,7 @@ export function ConversationComposer({ acceptedSendGeneration = 0, draft, disabl
           richText={draft.richText}
           scopeKey={scopeKey}
         />
+        {replyTarget == null || onClearReplyTarget == null ? null : <ComposerReplyPill onClear={onClearReplyTarget} target={replyTarget} />}
         {voice.isRecording || voice.isActivating ? <span aria-live="polite" className="sand-prompt-voice-status" role="status">Listening…</span> : null}
         <div className="sand-prompt-actions-row">
           {enableAttachments ? <SandIconButton aria-label="Attach file" className={PROMPT_ATTACH_CLASS} disabled={disabled || atLimit || voiceBusy} icon="plus" onClick={() => fileInput.current?.click()} shape="circle" size="lg" type="button" variant="default" /> : <span />}

@@ -6,7 +6,8 @@ export type QuoteNavigation = (targetId: string) => void | boolean | Promise<voi
 
 const compact = (value: string, limit: number) => {
   const text = value.replace(/\s+/gu, " ").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+  const characters = Array.from(text);
+  return characters.length > limit ? `${characters.slice(0, limit - 1).join("").trimEnd()}…` : text;
 };
 export const quoteLanguage = () => typeof window !== "undefined" &&
   (window as Window & { __sandUiLanguage?: string }).__sandUiLanguage === "zh" ? "zh" : "en";
@@ -22,7 +23,7 @@ export function quotedMessageLabel(preview: QuotePreview, lang = quoteLanguage()
       return compact(`${copy("[文件]", "[File]", lang)} ${name || copy("附件", "Attachment", lang)}`, 140);
     }
     case "link": return compact(`${copy("[链接]", "[Link]", lang)} ${preview.url}`, 140);
-    case "missing": return copy("原消息暂不可用，点击查找", "Original message unavailable; click to locate", lang);
+    case "missing": return copy("原消息暂不可用", "Original message unavailable", lang);
   }
 }
 export function quotedAuthor(preview: QuotePreview, lang = quoteLanguage()): string {
@@ -55,20 +56,38 @@ export function previewFromTranscript(entry: any, fallbackName?: string): QuoteP
   return { kind: "missing" };
 }
 
+/** Only display an already-resolved raster from the authorized attachment cache.
+ * Never fetch the original attachment URL or render an SVG/HTML data resource. */
+export function quoteThumbnailSource(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= 8 * 1024 * 1024 &&
+    /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=\s]+$/u.test(value) ? value : undefined;
+}
+
 const CSS = `
-.bb-quote-wrap{display:block;max-width:100%;min-width:0;margin:0 0 6px;-webkit-app-region:no-drag}
-.sand-reply-quote.bb-quoted-reply{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:fit-content;max-width:min(100%,460px);min-width:0;min-height:40px;margin:0;padding:8px 11px;text-align:start;border:0;border-inline-start:2px solid var(--cursor-stroke-primary,#8887);border-radius:4px 8px 8px 4px;background:color-mix(in srgb,currentColor 6%,transparent);color:var(--cursor-text-secondary,GrayText);font:12px/1.5 system-ui;cursor:pointer;white-space:normal;overflow:hidden}
-.bb-quoted-reply:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
-.bb-quoted-reply .bb-quote-author{display:block;max-width:100%;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--cursor-text-primary,CanvasText)}
-.bb-quoted-reply .sand-reply-quote__label{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;overflow-wrap:anywhere;text-overflow:ellipsis;max-width:100%}
-.bb-quote-feedback{display:block;max-width:440px;font:11px/1.45 system-ui;color:var(--cursor-text-secondary,GrayText);margin-top:4px;overflow-wrap:anywhere}
-.bb-quote-feedback:empty{display:none}.bb-quoted-reply:focus-visible,.bb-composer-quote button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
-.sand-prompt-reply-pill.bb-composer-quote{display:flex;align-items:center;gap:10px;padding:8px 10px;margin:0 0 6px;min-width:0;max-width:100%;border-inline-start:2px solid var(--cursor-stroke-primary,#8887);background:color-mix(in srgb,currentColor 5%,transparent);border-radius:6px;color:var(--cursor-text-secondary,GrayText);font:12px/1.5 system-ui}
-.bb-composer-quote .sand-prompt-reply-pill__body{display:flex;flex:1;min-width:0;flex-direction:column;gap:2px}.bb-composer-quote .bb-quote-author{font-weight:600;color:var(--cursor-text-primary,CanvasText);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bb-composer-quote .sand-reply-quote__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bb-composer-quote button{display:grid;place-items:center;flex:none;min-width:30px;min-height:30px;padding:4px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;font:18px system-ui}
-.bb-composer-quote button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
-@media(forced-colors:active){.bb-quoted-reply,.bb-composer-quote{border:1px solid CanvasText!important}}
+.bb-quote-wrap{display:block;width:fit-content;max-width:100%;min-width:0;margin:4px 0 0;-webkit-app-region:no-drag}
+.sand-reply-quote.bb-quoted-reply{display:flex;align-items:center;gap:8px;box-sizing:border-box;width:fit-content;max-width:min(100%,460px);min-width:0;min-height:28px;margin:0;padding:5px 8px;text-align:start;border:0;border-radius:4px;background:var(--bb-quote-bg,var(--cursor-bg-tertiary,#ECEEF1));color:var(--bb-quote-text,var(--cursor-text-secondary,#596270));font:12px/18px var(--bb-font,system-ui);cursor:pointer;white-space:normal;overflow:hidden}
+.bb-quoted-reply:hover{background:var(--bb-quote-hover,var(--cursor-bg-hover,#E1E4E9))}
+.bb-quote-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-width:0;overflow:hidden;overflow-wrap:anywhere;text-overflow:ellipsis;white-space:normal}
+.bb-quoted-reply .bb-quote-author,.bb-composer-quote .bb-quote-author{display:inline;font:inherit;color:inherit;unicode-bidi:isolate}
+.bb-quoted-reply .sand-reply-quote__label,.bb-composer-quote .sand-reply-quote__label{display:inline;font:inherit;color:inherit;white-space:normal}
+.bb-quote-thumb{display:block;flex:none;width:32px;height:32px;border-radius:3px;object-fit:cover}
+.bb-quote-feedback{display:block;max-width:440px;font:11px/1.45 system-ui;color:var(--bb-quote-text,var(--cursor-text-secondary,#596270));margin-top:3px;overflow-wrap:anywhere}
+.bb-quote-feedback:empty{display:none}.bb-quoted-reply:focus-visible,.bb-composer-quote button:focus-visible{outline:2px solid var(--bb-focus,Highlight);outline-offset:2px}
+.sand-prompt-reply-pill.bb-composer-quote{display:flex;align-items:center;gap:8px;box-sizing:border-box;padding:2px 6px 2px 8px;margin:6px 0 0;min-height:30px;min-width:0;max-width:100%;border:0;border-radius:4px;background:var(--bb-quote-bg,var(--cursor-bg-tertiary,#ECEEF1));color:var(--bb-quote-text,var(--cursor-text-secondary,#596270));font:12px/18px var(--bb-font,system-ui)}
+.bb-composer-quote .sand-prompt-reply-pill__body{display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bb-composer-quote .sand-reply-quote__label{white-space:nowrap}
+.bb-composer-quote .bb-quote-thumb{width:24px;height:24px}
+.bb-composer-quote button{display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:18px/1 system-ui}
+.bb-composer-quote button:hover{background:var(--bb-quote-hover,var(--cursor-bg-hover,#E1E4E9))}
+/* Match the reply's side, not the author of the original message. Keep the
+   quote outside the bubble and inside the existing measured virtual row. */
+.sand-message-block[data-quote-owner-role="user"]>.bb-quote-wrap,
+.sand-transcript-row[data-role="user"]>.bb-quote-wrap{align-self:flex-end;margin-inline-start:auto}
+.sand-message-block[data-quote-owner-role="assistant"]>.bb-quote-wrap,
+.sand-transcript-row[data-role="assistant"]>.bb-quote-wrap{align-self:flex-start;margin-inline-end:auto}
+.bb-quote-wrap[data-quote-variant="reference"]{display:inline-block;vertical-align:middle;margin:0 2px;max-width:100%}
+.bb-quote-wrap[data-quote-variant="reference"] .bb-quoted-reply{padding:2px 6px;min-height:24px}
+@media(forced-colors:active){.bb-quoted-reply,.bb-composer-quote{border:1px solid CanvasText!important;color:CanvasText!important;background:Canvas!important}}
 `;
 
 /** Inject the existing React runtime, not another bundled copy. Both the readable
@@ -90,38 +109,44 @@ export function createQuotedReplyUI(React: typeof ReactAPI) {
     }, []);
     return lang;
   }
-  function QuotedReply({ targetId, preview, scopeId, onNavigate, ariaDescribedBy }: { targetId: string; preview: QuotePreview; scopeId?: string; onNavigate: QuoteNavigation; ariaDescribedBy?: string }) {
+  function QuotedReply({ targetId, preview, scopeId, onNavigate, ariaDescribedBy, thumbnailSrc, variant = "reply" }: { targetId: string; preview: QuotePreview; scopeId?: string; onNavigate: QuoteNavigation; ariaDescribedBy?: string; thumbnailSrc?: string; variant?: "reply" | "reference" }) {
     const lang = usePresentation();
     const [state, setState] = React.useState<"idle" | "locating" | "unavailable">("idle");
     const generation = React.useRef(0), timer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const available = preview.kind !== "missing";
+    const thumbnail = preview.kind === "image" ? quoteThumbnailSource(thumbnailSrc) : undefined;
     React.useEffect(() => {
       generation.current++;clearTimeout(timer.current);setState("idle");
       return () => { generation.current++;clearTimeout(timer.current); };
     }, [targetId, scopeId, available]);
     const navigate = async () => {
       if (state === "locating") return;
-      const token = ++generation.current;clearTimeout(timer.current);setState(available ? "idle" : "locating");
+      const token = ++generation.current;clearTimeout(timer.current);setState("locating");
       try {
         const result = await onNavigate(targetId);
         if (token !== generation.current) return;
         if (result === false) setState("unavailable");
-        else if (!available) timer.current = setTimeout(() => { if (token === generation.current) setState("unavailable"); }, 6000);
+        else if (result === true || available) setState("idle");
+        else timer.current = setTimeout(() => { if (token === generation.current) setState("unavailable"); }, 6000);
       } catch { if (token === generation.current) setState("unavailable"); }
     };
     const author = quotedAuthor(preview, lang), label = quotedMessageLabel(preview, lang);
-    return h("span", { className: "bb-quote-wrap" },
+    return h("span", { className: "bb-quote-wrap", "data-quote-variant": variant },
       h("button", { type: "button", className: "sand-reply-quote bb-quoted-reply", "data-variant": "quote", "data-reply-target-id": targetId,
         "aria-label": `${copy("引用", "Quote", lang)} ${author}: ${label}. ${copy("定位原消息", "Locate original message", lang)}`,
         "aria-busy": state === "locating", "aria-describedby": ariaDescribedBy, onClick: () => { void navigate(); } },
-        h("span", { className: "bb-quote-author" }, author),h("span", { className: "sand-reply-quote__label" }, label)),
+        h("span", { className: "bb-quote-text" },h("bdi", { className: "bb-quote-author" }, author), copy("：", ": ", lang),h("span", { className: "sand-reply-quote__label" }, label)),
+        thumbnail ? h("img", { className: "bb-quote-thumb", src: thumbnail, alt: "", "aria-hidden": true, draggable: false }) : null),
       h("span", { role: "status", className: "bb-quote-feedback" }, state === "locating" ? copy("正在当前会话查找原消息…", "Locating in this conversation…", lang) : state === "unavailable" ? copy("暂未找到原消息，请加载历史后重试。引用关系仍保留。", "Original not located. Load history and retry; the reference is retained.", lang) : ""));
   }
-  function ComposerQuote({ preview, onClear }: { preview: QuotePreview; onClear(): void }) {
+  function ComposerQuote({ preview, onClear, thumbnailSrc }: { preview: QuotePreview; onClear(): void; thumbnailSrc?: string }) {
     const lang = usePresentation();const id = React.useId();
-    return h("div", { className: "sand-prompt-reply-pill bb-composer-quote", role: "region", "aria-labelledby": id, "data-quoted-message-id": preview.targetId },
-      h("span", { className: "sand-prompt-reply-pill__body", id },h("span", { className: "bb-quote-author" }, `${copy("回复", "Reply to", lang)} ${quotedAuthor(preview, lang)}`),h("span", { className: "sand-reply-quote__label" }, quotedMessageLabel(preview, lang))),
-      h("button", { type: "button", className: "sand-prompt-reply-pill__clear", "aria-label": copy("取消引用", "Cancel reply", lang), onClick: onClear }, "×"));
+    const author = quotedAuthor(preview, lang);
+    const thumbnail = preview.kind === "image" ? quoteThumbnailSource(thumbnailSrc) : undefined;
+    return h("div", { className: "sand-prompt-reply-pill bb-composer-quote", role: "region", "aria-label": `${copy("回复", "Reply to", lang)} ${author}`, "data-quoted-message-id": preview.targetId },
+      h("span", { className: "sand-prompt-reply-pill__body", id },h("bdi", { className: "bb-quote-author" }, author), copy("：", ": ", lang),h("span", { className: "sand-reply-quote__label" }, quotedMessageLabel(preview, lang))),
+      thumbnail ? h("img", { className: "bb-quote-thumb", src: thumbnail, alt: "", "aria-hidden": true, draggable: false }) : null,
+      h("button", { type: "button", className: "sand-prompt-reply-pill__clear", "aria-label": copy("取消引用", "Cancel reply", lang), onMouseDown: (event: ReactAPI.MouseEvent) => event.preventDefault(), onClick: onClear }, "×"));
   }
   return { QuotedReply, ComposerQuote };
 }

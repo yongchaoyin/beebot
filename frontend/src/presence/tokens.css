@@ -2,6 +2,9 @@
 html[data-beebot-theme="presence"] {
   --bb-bg: #F6F7F8;
   --bb-sidebar: #F0F2F5;
+  --bb-quote-bg: #E9EBEF;
+  --bb-quote-text: #596270;
+  --bb-quote-hover: #DFE3E9;
   --bb-surface: #FFFFFF;
   --bb-hover: #E8EBEF;
   --bb-selected: #E5EAF3;
@@ -37,6 +40,9 @@ html[data-beebot-theme="presence"] {
 html[data-beebot-theme="presence"][data-theme="cursor-dark"] {
   --bb-bg: #17191D;
   --bb-sidebar: #1D2026;
+  --bb-quote-bg: #2A2E35;
+  --bb-quote-text: #B6BECD;
+  --bb-quote-hover: #353B45;
   --bb-surface: #252A32;
   --bb-hover: #2E3440;
   --bb-selected: #2B3547;
