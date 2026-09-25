@@ -34,7 +34,6 @@ async function RLang(){try{const st=await window.desktop.agent.getUiLanguage();w
 function RSidebarLeft(){const el=document.querySelector(".sand-agents-sidebar, [class*='sand-agents-sidebar']");return el?Math.round(el.getBoundingClientRect().width):260}
 function RAgentVendorId(agentId){
   window.__sandAgentVendors=window.__sandAgentVendors||{};
-  if(window.__sandAgentVendors[agentId]) return window.__sandAgentVendors[agentId];
   const roster=window.__sandRoster;
   const pools=[];
   try{pools.push(roster?.snapshots?.get?.()?.agents?.rows)}catch{}
@@ -44,9 +43,9 @@ function RAgentVendorId(agentId){
   for(const rows of pools){
     if(!Array.isArray(rows)) continue;
     const row=rows.find(a=>a&&a.id===agentId);
-    if(row&&typeof row.inferenceVendorId==="string"&&row.inferenceVendorId.length>0) return row.inferenceVendorId;
+    if(row) return typeof row.inferenceVendorId==="string"?row.inferenceVendorId:"";
   }
-  return "";
+  return window.__sandAgentVendors[agentId]||"";
 }
 function RRosterRows(){
   const roster=window.__sandRoster; const pools=[];
@@ -437,13 +436,16 @@ if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(as
   const owner=pane?.closest("[data-beebot-settings-owner]");
   const agentId=owner?.getAttribute("data-beebot-settings-owner");
   if(!pane||!agentId) return;
+  const roster=window.__sandRoster;
+  const isCurrent=()=>pane.isConnected&&owner.getAttribute("data-beebot-settings-owner")===agentId&&window.__sandRoster===roster;
   let listed;try{listed=await window.desktop.agent.getInferenceVendors()}catch{return}
-  if(!pane.isConnected||owner.getAttribute("data-beebot-settings-owner")!==agentId)return;
+  if(!isCurrent())return;
   const vendors=Array.isArray(listed?.vendors)?listed.vendors:[];
   const current=RAgentVendorId(agentId)||listed?.defaultVendorId||vendors[0]?.id||"";
   const present=pane.querySelector("#sand-agent-vendor");
-  if(present){RSyncVendorChoices(present.querySelector("select"),vendors,current);return}
-  const wrap=document.createElement("label");wrap.id="sand-agent-vendor";wrap.setAttribute("data-agent-id",agentId);
+  if(present&&present.dataset.agentId===agentId&&present.__sandModelRoster===roster){RSyncVendorChoices(present.querySelector("select"),vendors,current);return}
+  present?.remove();
+  const wrap=document.createElement("label");wrap.id="sand-agent-vendor";wrap.setAttribute("data-agent-id",agentId);wrap.__sandModelRoster=roster;
   wrap.style.cssText="display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px;margin:16px 0 0;padding:13px;border:1px solid var(--cursor-border-secondary);border-radius:9px;background:var(--cursor-bg-secondary)";
   const text=document.createElement("span");text.style.cssText="display:grid;gap:4px;min-width:0";
   const title=document.createElement("strong");title.textContent=RCreateText("这个 Bot 使用的 API","API for this Bot");title.style.cssText="font-size:13px;color:var(--cursor-text-primary);font-weight:500";
@@ -458,17 +460,21 @@ if(!window.__sandVendorPaneBound){window.__sandVendorPaneBound=!0;setInterval(as
     const name=(pane.querySelector("input")?.value||"Bot").trim().split("\n")[0];
     Promise.resolve().then(()=>{
       if(typeof window.__sandUpdateAgent!=="function")throw new Error("Bot settings unavailable");
-      if(!pane.isConnected||owner.getAttribute("data-beebot-settings-owner")!==agentId)throw new Error("Bot settings changed");
+      if(!isCurrent())throw new Error("Bot settings changed");
       return window.__sandUpdateAgent(agentId,{name,inferenceVendorId:choice});
-    }).then(()=>{
+    }).then(saved=>{
+      if(!isCurrent())return;
+      if(saved?.id!==agentId||saved.inferenceVendorId!==choice)throw new Error("Model save was not confirmed");
       window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[agentId]=choice;
       hint.textContent=RCreateText("已保存，下次发送时使用该模型。","Saved. The next message will use this model.");
-    },()=>{sel.value=previous;hint.textContent=RCreateText("保存失败，原模型未更改。请检查连接后重试。","Save failed; original model unchanged. Check the connection and try again.");
-    }).finally(()=>{delete sel.dataset.pending;sel.disabled=false;});
+    }).catch(()=>{
+      if(!isCurrent())return;
+      sel.value=previous;hint.textContent=RCreateText("未确认模型保存结果，请检查连接并重新打开 Bot 设置核对。","Save not confirmed. Check the connection and reopen Bot settings to verify.");
+    }).finally(()=>{if(isCurrent()){delete sel.dataset.pending;sel.disabled=vendors.length===0;}});
   };
   wrap.append(text,sel);pane.append(wrap);
 },1200)}
-function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversationStatus(n);const e=n.roster;window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
+function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversationStatus(n);const e=n.roster;if(window.__sandRoster!==e)window.__sandAgentVendors=Object.create(null);window.__sandRoster=e;window.__sandCreateAgent=async(r,i)=>{
   const {deploymentServerId,connectionId,key,...local}={...r,origin:"user",...i};
   if(deploymentServerId!==undefined&&deploymentServerId!==""){
     const copy=RUiCopy(),api=window.__beebotServerBots;
@@ -482,4 +488,4 @@ function MOn(n){if(typeof RBindConversationStatus==="function")RBindConversation
   }
   window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();
   const created=await e.createAgent(local);const id=created?.agent?.id||created?.id;if(id&&r&&typeof r.inferenceVendorId==="string"&&r.inferenceVendorId.length>0){window.__sandAgentVendors=window.__sandAgentVendors||{};window.__sandAgentVendors[id]=r.inferenceVendorId}return created
-};window.__sandCreateGroup=(r)=>{window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();return e.createGroup(r)};window.__sandUpdateAgent=(id,profile)=>e.updateAgent({id,profile});const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);
+};window.__sandCreateGroup=(r)=>{window.__beebotNodeChat?.close();window.__beebotCloseNodeWorkbench?.();return e.createGroup(r)};window.__sandUpdateAgent=(id,profile)=>e.updateAgent(id,profile);const t=S.useCallback(async(r,i)=>{if(r&&typeof r.avatarShape==="string"&&r.avatarShape.length>0)return window.__sandCreateAgent(r,i);if(window.__sandSkipCreateSheet)return window.__sandCreateAgent(r,i);const o=await window.__sandPickCreateBot(r);if(o==null)return;return window.__sandCreateAgent({...r,...o},i)},[e]),s=lr(e.deleteAgents);

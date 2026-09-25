@@ -24,3 +24,5 @@ export { COLORS as avatarColors, AVATAR_PALETTE as avatarPalette, characterVaria
 export { mountAvatarPicker } from "./avatar-picker";
 
 export { installNativeWindowLayout } from "./window-layout";
+
+export { createConversationNotice } from "./conversation-notice";

@@ -277,6 +277,8 @@ export interface TranscriptThinking {
 
 export interface TranscriptNotice {
   kind: "notice";
+  code?: string;
+  replyTo?: string;
   id: string;
   text: string;
   timestampMs: number;
