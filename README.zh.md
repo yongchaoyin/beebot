@@ -1,250 +1,215 @@
+<img src="branding/beebot-app-icon.svg" alt="BeeBot" width="88">
+
 # BeeBot
 
 [English](README.md) | 中文
 
-BeeBot 是一款简洁的 macOS 办公与生活助手。你给出目标和边界，Bot 像同事
-一样在同一台 Linux 电脑上协作。每个 Bot 有自己的身份、记忆和桌面，并使用
-你为它选择的模型厂商。不需要 Cursor 账号，也不绑定 Cursor 云端。
+BeeBot 是一个 macOS 上的 AI 同事工作空间。你可以和一个 Bot 单独交谈，也可以
+把几个 Bot 放进群聊，交代目标和边界，在对话里跟进工作。Bot 会持续保留自己的
+身份、记忆和工作上下文。
 
-本仓库与 Anysphere、Cursor、xAI、SpaceX 无关，也不是官方 Grok Bot 发行版。
+你可以选择模型厂商，在本机电脑环境中执行任务，也可以连接独立部署的 BeeBot
+Node。使用 BeeBot 不需要 Cursor 账号。
 
-现已增加第一轮 **Mac 客户端 + 独立服务端**。运行 `npm run node:build` 构建，
-`npm run node:init` 初始化，配置模型后执行 `npm run node:start`；在 Mac 的
-**设置 → 服务器（Settings → Servers）** 添加地址并登录，再从主 Bot 列表上方 **+ → 新建 Bot** 选择部署服务器。
-远端 Bot 会出现在左侧主列表中。详见[运行说明](docs/node-server.md)和
-[实施进度](docs/distributed-hive-implementation.md)。跨服务器自动委派与多用户托管
-属于后续阶段，现有本地团队能力继续保留。
+[构建桌面应用](#快速开始) · [运行服务端](docs/node-server.md) ·
+[架构说明](docs/ARCHITECTURE.md) · [参与开发](CONTRIBUTING.md)
 
-## 设计哲学
+## 像同事一样共事
 
-BeeBot 的核心是：你给出目标和边界，Bot 像团队一样自主分工、交换信息、
-互相补位，共同完成交付。你随时可以介入；需要判断时，他们会把你找回来。
+每个 Bot 都能独立工作。群聊是共同的工作空间：真实的 Bot 互相发消息、请求帮助、
+交接成果。协调关系跟随当前任务，不需要常设主管。工作进行时，你可以继续聊天、
+补充信息或介入调整。
 
-产品应让你感到：交代目标之后，一群了解你的同事开始协作。你不是必须盯着
-会议的主持人。
-
-### 每个 Bot 是长期个体
-
-Bot 是同事，不是一次性工人。它有名字、专长、记忆和判断。工作越久越了解
-你。只跑一步 GUI 或浏览器的临时子任务工人，不是团队成员。
-
-### Group 是共同协作空间
-
-成员共享目标、进展和成果，并知道同伴在做什么。聊天可以是这个空间的一种
-表面，中心是共事，不是轮流发言。
-
-### 分工由团队自己形成
-
-你不必把工作拆成工单再逐个安排。成员根据能力和当前情况认领工作、请求
-帮助、交接结果。
-
-### 协调角色按需出现
-
-你可以指定「这次由你负责」。成员也可以自然承担协调。角色随任务结束而
-解散。没有必选的固定主管 Bot。
-
-### 围绕整体成果行动
-
-有价值时参与，需要时补位，没贡献时保持安静。系统应记住谁认了什么、做到
-哪、结果在哪，避免重复劳动、无限讨论和无人收尾。
-
-### 你怎么对他们说话
-
-| 你说 | 产品应理解成 |
+| 你说 | 期望的交互 |
 | --- | --- |
-| 「大家把这件事完成。」 | 把目标和边界交给团队。他们自主协作，直到交付或需要你判断。 |
-| 「@小研，查一下这个。」 | 定向任务，不是全员开工。 |
-| 「@小策，这次你牵头。」 | 本任务的协调关系，不是升职。 |
+| 「大家把这件事完成。」 | 把目标和边界交给团队。 |
+| 「@小研，查一下这个。」 | 定向请一位同事处理。 |
+| 「@小策，这次你牵头。」 | 请一位同事协调当前任务。 |
 
-默认是第一种。后两种是你介入的方式。交代完可以走开，也可以随时走进去改
-目标、改边界、改谁牵头。卡住需要判断时，他们来找你，而不是在群里空转等
-你碰巧看到。
+产品的目标是让 Bot 负责把工作推进到交付，需要判断时再找你，普通聊天保持自然。
+实际判断和任务完成质量仍取决于配置的模型及可用工具。
 
-### 共用一台电脑
+## 当前桌面体验
 
-团队共用一台持久的 Linux 机器。这是共事的物理形态，不是比喻。
+### 聊天与协作
 
-- **共用：** `/workspace`、装过的工具、浏览器登录。一个 Bot 建好的文件或
-  登录，别的都能用。更新和重置针对整台电脑。
-- **分开：** 每个 Bot 有自己的桌面——自己的屏幕和浏览器窗口。打开某个 Bot
-  的 Computer，看到的是它那块屏，看不到别人。它自己的 computer-use 子任务
-  和它共用这块屏，所以同一时刻只能有一个在操作 GUI。
-- **身份在共用盘上：** 每个 Bot 的人设和记忆在
-  `/home/box/sand-data/agents/<botId>/`。因为在同一台机器上，队友仍可以读
-  这些文件。
-- **你的 Mac 是另一台电脑。** Bot 只能通过 CopyToBox / CopyFromBox，或经
-  你批准的 ExternalShell 到达。
+- **单 Bot 与本机群聊：** 持久对话、引用回复、定向提及，以及工作期间继续补充
+  消息。富文本输入框使用一套带头像的 `@` 列表。
+- **本机 Bot 有明确的主要职责：** 新建或编辑时确认职责、排除事项和预期交付物。
+  职责版本与名字、人设、模型分开保存，旧 Bot 的配置继续保留。
+- **有记录的分工和交付：** 本机 Bot 可以分配、认领任务，跟踪前置工作，发布成果，
+  自行检查完成标准或请指定同事复核。检查对应当前版本的成果和依据。
+- **只读协作面板：** 查看负责人、进度、阻塞、完成标准和成果预览，已完成工作单独
+  折叠。面板自动更新，日常本机任务不再要求你操作验收或刷新按钮；需要你决策或
+  实际授权时，仍在聊天里沟通。
 
-交接靠把成果留在共用机器上。`/workspace` 里的文件还没有锁或所有权模型，
-两个 Bot 可以覆盖同一路径。
+上述协作和主要职责功能属于本机 Host。远端 Node 协议使用独立任务记录，仍保留
+结果确认流程。职责描述或 Bot 自检不会增加工具权限，也不证明模型结论一定正确。
 
-### 这不是什么
+详见[同事协作](docs/implementation/natural-colleague-attention.md)、
+[主要职责](docs/implementation/bot-primary-job.md)、
+[进度面板](docs/implementation/colleague-progress-and-completion.md)和
+[任务收尾](docs/implementation/colleague-completion.md)。
 
-- 不是多 Agent 辩论赛。发言不是价值本身。
-- 不是主管树。没有常设老板 Bot。
-- 不是一次性工人池。
-- 不是你当项目经理去拆每一项任务。
+### 中英文界面与动态头像
 
-今天的 Group 仍是并发群聊（`@`、无话就 `(pass)`）。上面是产品北极星。
-差距在于：从「一起说话」变成「一起交付」。
+在 **设置 → 通用 → 外观 → 语言** 切换 English / 中文。设置、应用菜单和聊天控件
+跟随应用语言；消息原文、Bot 名称、模型标识和未发送草稿保持原样。界面语言与 Bot
+回复语言独立，上游错误详情保留原文。macOS 自行加入菜单的系统项目跟随操作系统语言。
 
-## 中性界面与动态头像
+界面支持浅色和深色外观，使用中性底色和少量蓝色强调。八种头像轮廓共享表情和
+工作动作。头像编辑器中的「自然」模式会让列表里可见的空闲 Bot 偶尔做短暂表情，
+工作中的动作优先；也可以选择「轻微」或「关闭」。系统减少动态效果、窗口焦点与
+可见性设置会被遵守。历史消息头像和群头像拼图保持静止，自定义照片继续可用。
+应用与 Dock 图标使用绿色 Bot 形象。
 
-界面采用中性灰白、深灰和少量蓝色。八种头像样式共享同一个真实状态驱动的动作引擎，源码界面与正式打包渲染器保持一致。头像编辑器中的「头像动效」支持「自然」「轻微」「关闭」。自然模式下，列表里可见的空闲 Bot 会错峰做短暂表情，正在工作的同事优先；系统减少动态效果、窗口失焦和离屏规则优先。历史消息和群头像拼图保持静止，用户自定义照片和已保存配置继续兼容。应用图标使用与绿色 Bot 相同的绿色。详见[实现与验收说明](docs/implementation/sidebar-presence-and-green-icon.md)。
+详见[双语支持](docs/implementation/ui-language-completion.md)、
+[表情动作](docs/implementation/presence-expressions.md)和
+[列表动效与绿色图标](docs/implementation/sidebar-presence-and-green-icon.md)。
 
-## 当前功能
+### 模型与执行环境
 
-### 本地电脑
-
-所有 Bot 共用一台沙箱 Linux 电脑。**设置 → Router → Use local Docker VM**
-会把这台电脑跑在本机 Docker 容器里（只监听 loopback，设置和 API key
-以绑定挂载方式注入）。需要 Docker Desktop，或其他兼容的本地 Docker。
-每个 Bot 在这台机器上有自己的桌面；文件、装过的工具和浏览器登录对整个
-团队持久有效。
-
-### 模型 API
-
-打开 **设置 → Router → 模型 API**，可以添加多个厂商。每个模型都有自己的名称、
-厂商、API key、Base URL 和模型 ID。密钥只保存在这台 Mac 上。
-
-支持的 HTTP 厂商：
+**本机 Bot** 在 **设置 → 模型路由 → 模型 API** 中配置名称、厂商、API key、
+Base URL 和模型 ID，再为每个 Bot 选择模型 API。模型凭据保存在 Mac 上。
+支持的 HTTP 路由包括：
 
 | 厂商 | 默认接口 |
 | --- | --- |
 | OpenRouter | `https://openrouter.ai/api/v1` |
 | OpenAI | `https://api.openai.com/v1` |
 | DeepSeek | `https://api.deepseek.com` |
-| 自定义 | 任意 OpenAI 兼容的 Base URL |
+| 自定义 | 兼容 OpenAI 的 Base URL |
 
-本机已经登录的 Claude Code / Codex 也可以作为本地 CLI 路由使用。
+Claude Code 可以复用本机登录。Codex 路由复用本机 Codex CLI 保存的 ChatGPT 登录，
+由 BeeBot 直接发送请求。HTTP 模型路由支持插件、流式输出和本地用量统计；上游专有
+云服务仍需要对应的上游会话。
 
-### 每个 Bot 使用自己的 API
+| 部署方式 | 执行环境和模型配置 |
+| --- | --- |
+| 本机电脑 | Bot 共用这台 Mac 上持久运行的 Linux Docker 电脑，各自有桌面，文件、工具和浏览器登录共享。本机 Bot 可以分别选择模型 API。 |
+| 独立 Node | Node 运行自己的 Host 进程、Bot 工作目录和服务端配置的模型，凭据由服务器管理。退出 Mac 客户端不会停止服务端。 |
 
-**新建 Bot** 会让你起名字、选图标和颜色，并选择这个 Bot 使用哪一个已保存的
-模型 API。之后也可以在 **Bot 设置** 里改。不同 Bot 可以走不同厂商，好发挥
-各家模型的长处。
-
-### 语言、群聊和桌面里的其他部分
-
-- **设置 → 通用 → 外观 → 语言** 在 English / 中文之间切换。设置、桌面菜单和
-  聊天控件跟随这项设置，不跟随操作系统语言；聊天原文和未发送草稿保持不变。
-  详见[实现与回归记录](docs/implementation/ui-language-completion.md)。
-- **+ → 新建群聊** 可以用现有 Bot 建群。
-- 路由到 HTTP 模型时，插件、流式输出和本地用量统计仍然可用。只有 Cursor
-  会话才提供的云端能力（网页搜索/抓取、自动审查）默认关闭。
-
-## 来源
-
-BeeBot 起步于对公开 Grok Bot 0.18.0 macOS 应用的非官方、面向源码的重建。
-Electron、host、coordinator、本地执行和协议边界的可读 TypeScript 在
-`source/` 下。打包后的应用仍以校验和钉死的 0.18 渲染器为 UI 基线，再叠一层
-设置页和新建 Bot 的补丁。
-
-Dock 名称和 bundle 标识是 BeeBot。界面里仍有部分文案写着 Grok Bot，因为那份
-官方渲染器是按字节保留的。
-
-BeeBot 原创部分使用 MIT 许可。重建得到的上游材料和保留的 0.18.0 安装包不在
-该授权范围内。详见 [LICENSE](LICENSE)、[NOTICE.md](NOTICE.md) 和
-[PROVENANCE.md](PROVENANCE.md)。
-
-## 环境要求
-
-- Apple Silicon 上的 macOS
-- Node.js 26.5.x
-- Xcode Command Line Tools
-- Git LFS
-- Docker Desktop（本地电脑）
-- 若走 Claude Code / Codex 路由，需要本机已登录对应工具
+本机共享文件不按 Bot 隔离；Node 的独立工作目录也不构成安全沙箱。
+部署方式和信任边界详见[服务端指南](docs/node-server.md)。
 
 ## 快速开始
 
+### 构建桌面应用
+
+需要 Apple Silicon Mac、**Node.js 26.5.0**（见 [.node-version](.node-version)）、
+Xcode Command Line Tools 和 Git LFS。本机电脑模式还需要运行兼容的本地 Docker
+服务，例如 Docker Desktop。
+
 ```sh
+git lfs install
 git clone https://github.com/yongchaoyin/beebot.git
 cd beebot
-git lfs install
 git lfs pull
 npm ci
 npm run bootstrap
-npm run check
+npm run icon:generate
 npm run package
+npm run verify
 open dist/BeeBot.app
 ```
 
-1. 在首次配置页粘贴厂商 API key（之后也可以在 **设置 → Router → 模型 API**
-   里继续添加）。
-2. 如未打开，打开 **Use local Docker VM**。
-3. 新建 Bot，选好它使用的 API，然后发一条消息。
+`bootstrap` 校验固定运行时并准备被忽略的构建输入。`package` 执行完整源码检查、
+构建运行时、应用已声明的渲染器适配，生成 ad-hoc 签名的 `dist/BeeBot.app`。
+`verify` 校验包内容、身份和签名。上游自动更新已关闭；更新仓库源码后重新构建，
+即可使用新的 BeeBot 版本。
 
-`npm run bootstrap` 会优先使用 Git LFS 里保存的 0.18.0 DMG。若本地没有这份
-归档，再回退到原来的公开下载地址；也可以用 `GROK_BOT_018_APP` 指向已有的
-应用副本。Bootstrap 会校验 DMG 和 `app.asar`，缓存对应的 Electron 运行时，
-并填充被忽略的 `src/app/dist` 构建输入。
+### 先使用本机 Bot
 
-`npm run package` 会编译运行时、打上渲染器补丁、生成应用包、写入 BeeBot
-bundle 标识、做 ad-hoc 签名并校验。产物在 `dist/BeeBot.app`。
+1. 在首次配置页或 **设置 → 模型路由 → 模型 API** 中配置模型。
+2. 启动本机 Docker 服务，并在模型路由中启用「使用本机 Docker 虚拟机」。
+3. 从 **+ → 新建 Bot** 设置名字、头像、主要职责和模型 API，然后开始聊天。
+4. 用 **+ → 新建群聊** 把已有的本机 Bot 放到一起。
 
-打包构建会在打包边界关掉上游更新器，并默认关闭上游 Sentry 和遥测。显式提供
-的环境配置仍然生效。
+本机模式下，团队共享 `/workspace`，每个 Bot 保留自己的桌面和持久身份。
+Mac 本身是另一个执行环境，继续遵守已有权限设置。
 
-## 架构
+### 连接独立 Node
 
-```text
-官方渲染器 + BeeBot 补丁
-          │
-          │ desktop preload / RPC
-          ▼
-     Electron main
-          │
-          ├── 设置、密钥、模型 API
-          └── 本机 Docker 连接器
-                       │
-                       ▼
-              coordinator + host
-                       │
-              按 Bot 选择的推理厂商
-           ┌───────────┼───────────┐
-     OpenRouter     OpenAI      DeepSeek / 自定义
-                       │
-              共用的一台 Linux 电脑
-              （每个 Bot 在上面有自己的桌面）
-```
-
-主要源码目录：
-
-- `source/electron-main/` — 桌面生命周期、设置、厂商密钥、沙箱连接、
-  coordinator 和 RPC；
-- `source/electron-preload/` — 暴露给 UI 的窄桥；
-- `source/host/` — 推理、工具、MCP、设置和一轮对话的执行；
-- `source/node-agent-coordinator/` — 对话记录、流式状态、反应和 MCP 桥；
-- `source/shared/` — 共享契约、设置、协议和厂商辅助；
-- `frontend/` — 可读的 React/TypeScript 渲染器重建；
-- `scripts/` — 引导、编译、渲染器补丁、打包、签名和校验；
-- `tests/` — 发布与路由回归。
-
-更细的说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
-## 开发命令
+Node 可以独立构建，不依赖 Electron 或保留的桌面渲染器：
 
 ```sh
-npm test                  # 聚焦回归测试
-npm run typecheck         # 渲染器 TypeScript
-npm run source:typecheck  # 运行时 TypeScript
-npm run frontend:build    # 构建可读渲染器重建
-npm run package           # 构建、签名并校验 macOS 应用
-npm run verify            # 校验已有打包应用
-npm run smoke             # 有界的原生冒烟检查
-npm run publication:check # 证明干净历史导出无损
+npm run node:build
+npm run node:init
 ```
 
-`.cache`、`.build`、`dist`、`src/app/dist`、`recovered`、`recovery` 以及本地
-探测目录都会被忽略。
+接着按[服务端指南](docs/node-server.md)配置服务端模型和凭据，再运行
+`npm run node:start`。在已完成初始化的桌面应用中打开 **设置 → 服务器**，添加
+Node 地址，在系统浏览器登录并完成设备授权：第一台设备需要离线恢复码，后续
+新设备需要已有可信管理员批准。详见[可信设备](docs/implementation/node-trusted-devices.md)。
 
-## 项目状态
+获授权的远端 Bot 出现在原来的 Bot 列表和聊天区域中。管理员可以从
+**+ → 新建 Bot** 选择部署服务器。远端 Bot 使用服务端的模型配置，不使用 Mac
+上选择的模型 API。连接已有 Node 不要求客户端安装 Docker 或提供 SSH 凭据；
+全新桌面配置的纯远端首次引导目前尚未完成。
 
-应用可以启动，核心流程可用：共用一台本地 Docker 电脑、多个模型 API、按 Bot
-选厂商。上面的团队协作是北极星；今天的 Group 仍是群聊。目前仍是实验性项目，
-只针对钉死的一份 macOS/arm64 运行时，不承诺兼容后续官方 Grok Bot 版本。
-飞书、QQ 这类消息网关还在规划中，尚未进仓库。
+## 架构与构建边界
 
-改代码请先读 [CONTRIBUTING.md](CONTRIBUTING.md)。干净历史导出流程见
-[docs/PUBLISHING.md](docs/PUBLISHING.md)。
+```text
+macOS 桌面 — 聊天、Bot 列表、设置
+    ├─ 本机电脑 → coordinator + Host → 共用 Linux Docker 电脑
+    └─ 设置 → 服务器 → 已授权 Node → Host + Bot 工作目录
+```
+
+| 源码位置 | 职责 |
+| --- | --- |
+| `source/electron-main/`、`source/electron-preload/` | 桌面生命周期、设置与可信 UI 桥 |
+| `source/client-connections/`、`source/node/` | 服务器连接、设备授权和独立 Node 执行 |
+| `source/host/`、`source/node-agent-coordinator/` | 模型推理、工具、聊天与本机协作 |
+| `source/shared/` | 共享设置、协议和模型路由 |
+| `frontend/` | 可读的 React/TypeScript 界面与共享组件 |
+| `scripts/lib/` | 应用于实际打包渲染器的适配代码 |
+| `tests/` | UI、运行时、安全、协作与打包回归 |
+
+正式 UI 使用校验固定的上游渲染器，再应用可重建的 BeeBot 品牌、设置、聊天、
+语言和头像适配。只修改可读的 `frontend/`，不能证明打包界面已经改变。
+经过认证的上游输入保持不变，打包副本应用适配并接受校验。
+详见[架构](docs/ARCHITECTURE.md)和[来源记录](PROVENANCE.md)。
+
+## 开发与验证
+
+使用固定工具链并遵循 [CONTRIBUTING.md](CONTRIBUTING.md)。安装依赖、准备运行时
+并生成图标后，可以执行：
+
+```sh
+npm run check                            # 两套 TypeScript 检查与完整默认测试集
+npm run frontend:build                   # 构建可读渲染器
+node scripts/verify-native-window-layout.mjs # 真实 macOS 窗口与组件夹具
+npm run package                          # 构建并签名桌面应用
+npm run verify                           # 校验该应用包
+npm run publication:check                # 验证已提交 Git 树的导出完整性
+npm run node:test:integration             # 使用测试模型的真实 Node/Host/Shell 集成
+```
+
+默认测试集包含按条件跳过的部署和集成测试，跳过不代表通过。原生组件夹具和受控
+模型测试也不代表真实模型的任务质量。
+
+`npm run smoke` 另有纯源码渲染器来源与路由覆盖门槛。当前固定版渲染器构建尚未
+满足该门槛，会报告 `PREREQUISITE`，不能视为原生冒烟通过。
+
+生成的载荷和本机证据保存在被忽略的 `.cache`、`.build`、`dist`、`src/app/dist`、
+`recovered`、`recovery` 等目录中。干净导出流程见[发布说明](docs/PUBLISHING.md)。
+
+## 当前限制
+
+- 桌面仍是实验性项目，面向固定的 macOS / Apple Silicon 运行时。仓库尚未交付
+  Windows、iOS、Android 客户端或消息网关。
+- 群聊目前使用本机 Bot。远端 Node v1 尚未共享本机协作记录，也未提供逐字流式
+  输出等完整本机聊天能力。
+- 多服务器连接不等于自动跨服务器分工、故障接替或成果迁移。连接成功不代表
+  模型可用或任务完成；结果不明的中断操作不会盲目重放。
+- 实验性托管 API 已有账号和加密空间存储；租户隔离执行、桌面空间切换及公开
+  托管尚未完成。详见[托管 API 范围](docs/implementation/hosted-catalog-api.md)。
+
+## 来源与许可
+
+BeeBot 起步于对公开 Grok Bot 0.18.0 macOS 应用的非官方、面向源码的重建。
+本项目独立于 Anysphere、Cursor、xAI 和 SpaceX，也不是官方 Grok Bot 发行版。
+
+BeeBot 原创部分使用 MIT 许可。重建的上游材料、商标和保留的安装包不在该授权
+范围内。详见 [LICENSE](LICENSE)、[NOTICE.md](NOTICE.md) 和
+[PROVENANCE.md](PROVENANCE.md)。

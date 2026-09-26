@@ -1,284 +1,242 @@
+<img src="branding/beebot-app-icon.svg" alt="BeeBot" width="88">
+
 # BeeBot
 
 English | [中文](README.zh.md)
 
-BeeBot is a simple macOS assistant for work and everyday life. You give a goal
-and a boundary; bots collaborate as colleagues on one shared Linux computer. Each bot has its own
-identity, memory, and desktop, and talks to the model vendor you choose.
-There is no Cursor account lock-in.
+BeeBot is a macOS workspace for AI colleagues. Talk to one Bot or bring several
+into a Group, give them a goal and boundaries, and follow their work in the
+conversation. Bots keep their identity, memory and working context across tasks.
 
-This repository is independent of Anysphere, Cursor, xAI, and SpaceX. It is not
-an official Grok Bot release.
+Use your chosen model providers with the local computer, or connect to an
+independently deployed BeeBot Node. BeeBot does not require a Cursor account.
 
-The first Mac client + self-hosted server iteration is available. Build the
-server with `npm run node:build`, initialize with `npm run node:init`, configure
-its model, and run `npm run node:start`. In the Mac app, open **Settings → Servers**
-to connect and sign in. Then use the main sidebar **+ → New bot** and choose its
-deployment server. Remote Bots appear in the same sidebar. See the [server guide](docs/node-server.md) and
-[implementation status](docs/distributed-hive-implementation.md) for the current
-scope. Automatic cross-server Bot delegation and multi-tenant hosting are later
-stages; the existing local collaboration remains available.
+[Build the desktop](#quick-start) · [Run a server](docs/node-server.md) ·
+[Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md)
 
-## Design philosophy
+## Working with colleagues
 
-BeeBot's core is: you give a goal and a boundary, and bots work together as colleagues.
-They divide the work, exchange what they need, cover for each other, and
-finish the delivery. You can step in at any time. When a judgment is needed,
-they bring you back.
+A Bot is useful on its own. A Group is a shared workplace where real Bots exchange
+messages, ask for help and hand off results. Coordination belongs to a task; there
+is no required permanent manager. You can keep talking, add context or intervene
+while work is running.
 
-The feeling should be: after you hand over a goal, a group of colleagues who
-know you start working. You are not the meeting host who has to stay in the
-thread.
-
-### Long-lived individuals
-
-Each bot is a colleague, not a disposable worker. It has a name, a specialty,
-memory, and judgment. The longer it works with you, the better it knows you.
-Temporary subagents that run a single GUI or browser step are not team
-members.
-
-### Group is a shared workplace
-
-A group is a place where members share a goal, progress, and results, and can
-see what the others are doing. Chat can be a surface of that place. The
-center is the work, not taking turns speaking.
-
-### The team forms the division of labor
-
-You do not have to break the job into tickets and assign each one. Members
-claim work from their ability and the current situation, ask for help, and
-hand off results.
-
-### Coordination is per task, not a rank
-
-You can say who should lead this time. A member can also take that on
-unasked. The role dissolves when the task ends. There is no required standing
-manager bot.
-
-### Act around the whole outcome
-
-Speak when there is something to add. Cover a gap when needed. Stay quiet
-when there is nothing to contribute. The system should remember who claimed
-what, how far it got, and where the result is, so the team does not duplicate
-work, talk forever, or leave the last mile unowned.
-
-### How you talk to them
-
-| You say | The product should hear |
+| You say | Intended interaction |
 | --- | --- |
-| "Get this done." | Hand the goal and boundary to the team. They collaborate until they deliver or need your judgment. |
-| "@Research, look this up." | A directed ask. Not an all-hands. |
-| "@Strategy, you lead this time." | A coordination relationship for this task, not a promotion. |
+| “Get this done.” | Give the team a goal and boundaries. |
+| “@Research, look this up.” | Direct the request to one colleague. |
+| “@Strategy, lead this time.” | Ask a colleague to coordinate this task. |
 
-The default is the first. The others are how you intervene. After you hand
-over a goal you can leave. You can also walk in and change the goal, the
-boundary, or who is leading. When they need a judgment, they find you instead
-of spinning until you happen to look.
+The product goal is for Bots to own the work through delivery, ask for judgments
+when needed, and keep ordinary conversation natural. Model judgment and task
+quality still depend on the configured model and available tools.
 
-### One shared computer
+## Current desktop experience
 
-The team shares one persistent Linux machine. That is the physical form of
-working together, not a metaphor.
+### Conversations and collaboration
 
-- **Shared:** `/workspace`, installed tools, and browser logins. A file or
-  login created by one bot is there for the others. Update and reset apply to
-  the whole computer.
-- **Separate:** each bot has its own desktop — its own screen and browser
-  window. Opening Computer on a bot shows that bot's screen, not the others'.
-  A bot's computer-use subagent shares that same screen, so only one GUI
-  operator runs there at a time.
-- **Identity on the shared disk:** each bot's profile and memory live under
-  `/home/box/sand-data/agents/<botId>/`. Teammates can still read those files
-  because they are on the same machine.
-- **Your Mac is a different computer.** Bots reach it only through CopyToBox /
-  CopyFromBox, or ExternalShell after you approve.
+- **Individual Bots and local Groups:** persistent conversations, quoted replies,
+  directed mentions and follow-up messages while work is running. The rich
+  composer uses one avatar-bearing `@` list.
+- **An explicit primary job for each local Bot:** confirm its responsibilities,
+  exclusions and expected deliverables when creating or editing it. Job revisions
+  are separate from its name, persona and model; older profiles are preserved.
+- **Recorded work and delivery:** local Bots can assign and claim work, track
+  prerequisites, publish results and check completion criteria themselves or
+  through a designated colleague. Checks refer to the current result and evidence.
+- **A read-only collaboration panel:** inspect owners, progress, blockers,
+  completion criteria and result previews. Completed work is folded separately.
+  The panel updates automatically; routine local work no longer needs acceptance
+  or refresh buttons. Decisions and actual permission requests stay in the chat.
 
-Work is handed off by leaving it on the shared machine. There is not yet a
-lock or ownership model for files in `/workspace`; two bots can overwrite the
-same path.
+These collaboration and primary-job features describe the local Host. The remote
+Node protocol has a separate task ledger and retains its result-confirmation flow.
+A role or self-check does not grant additional tool permissions or prove that a
+model's conclusion is correct.
 
-### What this is not
+Details: [colleague attention](docs/implementation/natural-colleague-attention.md),
+[primary jobs](docs/implementation/bot-primary-job.md),
+[progress panel](docs/implementation/colleague-progress-and-completion.md), and
+[completion](docs/implementation/colleague-completion.md).
 
-- Not a multi-agent debate. Speaking is not the value.
-- Not a management tree. There is no permanent boss bot.
-- Not a pool of one-shot workers.
-- Not you acting as project manager who splits every task.
+### Chinese, English and expressive avatars
 
-Today's Group is still a concurrent chat room (mentions, silence as
-`(pass)`). The philosophy above is the product north star. The gap is moving
-from talking together to delivering together.
+**Settings → General → Appearance → Language** switches between English and 中文.
+Settings, application menus and conversation controls follow the application
+language. Message text, Bot names, model identifiers and unsent drafts keep their
+original content. This sets the UI language, not the Bot's reply language;
+upstream error details retain their original text. macOS-owned menu additions
+follow the operating system.
 
-## Neutral appearance and expressive avatars
+The interface supports light and dark appearances, with neutral surfaces and a
+restrained blue accent. Eight avatar silhouettes share expressive faces and work
+motions. In **Natural** motion mode, visible idle Bots in the sidebar occasionally
+make brief expressions; active work takes priority. **Subtle** and **Off** are also
+available in the avatar editor. System reduced-motion, window focus and visibility
+are respected. Historical avatars and Group collages stay still, and custom photos
+remain supported. The application and Dock icon use the green Bot identity.
 
-The interface uses neutral light/dark surfaces and a restrained blue accent. Eight avatar silhouettes share one state-driven motion engine in editable and packaged renderers. In the avatar editor, **Avatar motion** offers **Natural**, **Subtle**, and **Off**. In Natural mode, visible idle Bots in the sidebar take turns making brief expressions, with working colleagues taking priority. System reduced-motion, window visibility and focus take priority; historical messages and group collages stay still. Custom photos and saved persona preferences are retained. The application icon uses the same green as the green Bot identity. See [implementation and validation](docs/implementation/sidebar-presence-and-green-icon.md).
+See [language support](docs/implementation/ui-language-completion.md),
+[expressions](docs/implementation/presence-expressions.md), and
+[sidebar motion and the green icon](docs/implementation/sidebar-presence-and-green-icon.md).
 
-## Current features
+### Models and execution
 
-### Local computer
+For **local Bots**, open **Settings → Router → Model APIs**. Save a name, provider,
+API key, Base URL and model ID, then choose an API per Bot. Model credentials are
+stored on the Mac. Supported HTTP routes include:
 
-All bots share one sandbox Linux machine. **Settings → Router → Use local
-Docker VM** runs that computer in a Docker container on this Mac (loopback
-ports only, settings and API keys bind-mounted in). Docker Desktop, or another
-compatible local Docker daemon, must be running. Each bot gets its own
-desktop on that machine; files, installed tools, and browser logins persist
-for the whole team.
-
-### Model APIs
-
-Open **Settings → Router → Model APIs** to add more than one vendor. Each
-saved model has its own name, vendor, API key, Base URL, and model ID. Keys
-stay on this Mac.
-
-Supported HTTP vendors:
-
-| Vendor | Default endpoint |
+| Provider | Default endpoint |
 | --- | --- |
 | OpenRouter | `https://openrouter.ai/api/v1` |
 | OpenAI | `https://api.openai.com/v1` |
 | DeepSeek | `https://api.deepseek.com` |
-| Custom | any OpenAI-compatible Base URL |
+| Custom | An OpenAI-compatible Base URL |
 
-Claude Code and Codex remain available as local CLI routes when those tools
-are already signed in on this Mac.
+Claude Code can reuse its local login. The Codex route reuses the ChatGPT login
+saved by the local Codex CLI, with requests sent directly by BeeBot. Routed HTTP
+models support plugins, streaming and local usage totals. Upstream cloud-only
+services still require their corresponding upstream session.
 
-### One API per bot
+| Deployment | Execution and model configuration |
+| --- | --- |
+| Local computer | Bots share a persistent Linux Docker computer on this Mac. Each has its own desktop; files, installed tools and browser logins are shared. Local Bots can use different saved model APIs. |
+| Independent Node | The Node runs its own Host processes, Bot workspaces and server-configured model. Credentials are managed on the server. Closing the Mac client does not stop the server. |
 
-**New Bot** asks for a name, icon, color, and which saved model API that bot
-should use. **Bot settings** can change the API later. Different bots can use
-different vendors on the same computer host.
-
-### Language, groups, and the rest of the desktop
-
-- **Settings → General → Appearance → Language** chooses English or 中文 for
-  settings, desktop menus and conversation controls. It follows that setting,
-  not the operating system, and preserves message text and unsent drafts.
-  See [implementation and validation](docs/implementation/ui-language-completion.md).
-- **+ → New group chat** creates a group from existing bots.
-- Connected plugins, streaming, and local usage totals still work on routed
-  HTTP models. Cursor-only cloud extras (web search/fetch, auto-review) stay
-  off unless a Cursor session is present.
-
-## Lineage
-
-BeeBot started from an unofficial, source-oriented reconstruction of the public
-Grok Bot 0.18.0 macOS app. Readable TypeScript for the Electron, host,
-coordinator, local-execution, and protocol boundaries lives under `source/`.
-Packaged builds still use the checksum-pinned 0.18 renderer as the UI baseline
-and apply reproducible BeeBot settings, conversation, neutral-theme and avatar adapters on top.
-
-The Dock name and bundle identity are BeeBot. The authenticated upstream files
-remain immutable; the packaged copy receives the declared adapters. Historical
-evidence and protocol identifiers retain their original names.
-
-Original BeeBot contributions are MIT-licensed. Reconstructed upstream material
-and the preserved 0.18.0 installers are not covered by that grant. See
-[LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and [PROVENANCE.md](PROVENANCE.md).
-
-## Requirements
-
-- macOS on Apple Silicon
-- Node.js 26.5.x
-- Xcode Command Line Tools
-- Git LFS
-- Docker Desktop (for the local computer)
-- optional local Claude Code or Codex authentication for those routes
+Local shared files are not isolated between Bots. Separate Node work directories
+also do not establish a security sandbox. See the [server guide](docs/node-server.md)
+for deployment and trust boundaries.
 
 ## Quick start
 
+### Build the desktop
+
+Use an Apple Silicon Mac, **Node.js 26.5.0** (see [.node-version](.node-version)),
+Xcode Command Line Tools and Git LFS. A running compatible local Docker daemon,
+such as Docker Desktop, is needed for the local computer mode.
+
 ```sh
+git lfs install
 git clone https://github.com/yongchaoyin/beebot.git
 cd beebot
-git lfs install
 git lfs pull
 npm ci
 npm run bootstrap
-npm run check
+npm run icon:generate
 npm run package
+npm run verify
 open dist/BeeBot.app
 ```
 
-1. Paste a vendor API key on the first-run setup page (or add more later in
-   **Settings → Router → Model APIs**).
-2. Turn on **Use local Docker VM** if it is not already on.
-3. Create a bot, pick the API it should use, and send a message.
+`bootstrap` authenticates the pinned runtime and hydrates the ignored build inputs.
+`package` runs the full source checks, builds the runtimes, applies the declared
+renderer adapters and creates an ad-hoc-signed `dist/BeeBot.app`. `verify` checks
+its contents, identity and signature. Upstream automatic updates are disabled;
+update this source checkout and rebuild to use a newer BeeBot version.
 
-`npm run bootstrap` first uses the Git LFS preservation copy of the pinned
-0.18.0 DMG. If that archive is absent, it falls back to the original public URL;
-`GROK_BOT_018_APP` can also point to an existing application copy. Bootstrap
-verifies both the DMG and `app.asar`, caches the matching Electron runtime, and
-hydrates the ignored `src/app/dist` build input.
+### Start with local Bots
 
-`npm run package` compiles the runtimes, applies the renderer patches, creates
-the app bundle, assigns the BeeBot bundle identity, ad-hoc signs it, and
-verifies the result. Output is written to `dist/BeeBot.app`.
+1. Configure a model in first-run setup or **Settings → Router → Model APIs**.
+2. Start your local Docker daemon and enable **Use local Docker VM** in Router.
+3. Choose **+ → New bot**, set its name, avatar, primary job and model API, and chat.
+4. Use **+ → New group chat** to bring existing local Bots together.
 
-Packaged builds disable the upstream updater at the packaging boundary and
-default upstream Sentry and telemetry emission off. Explicitly supplied
-environment configuration is still respected.
+In this mode, the team shares `/workspace`; each Bot has its own desktop and
+persistent identity. The Mac itself is a separate execution surface governed by
+its existing permissions.
 
-## Architecture
+### Connect an independent Node
 
-```text
-polished shipped renderer + BeeBot patches
-          │
-          │ desktop preload / RPC
-          ▼
-     Electron main
-          │
-          ├── settings, secrets, vendor APIs
-          └── owned local Docker connector
-                       │
-                       ▼
-              coordinator + host
-                       │
-              per-bot inference vendor
-           ┌───────────┼───────────┐
-     OpenRouter     OpenAI      DeepSeek / custom
-                       │
-         one shared Linux computer
-         (per-bot desktop on that machine)
-```
-
-The main source areas are:
-
-- `source/electron-main/` — desktop lifecycle, settings, vendor secrets, box
-  connectors, coordinator ownership, and RPC handlers;
-- `source/electron-preload/` — the narrow trusted bridge exposed to the UI;
-- `source/host/` — inference, tools, MCP, settings, and turn execution;
-- `source/node-agent-coordinator/` — transcript routing, streaming activity,
-  reactions, and the routed MCP bridge;
-- `source/shared/` — shared contracts, settings, protocol, and vendor helpers;
-- `frontend/` — readable React/TypeScript renderer reconstruction;
-- `scripts/` — bootstrap, compilation, renderer patching, packaging, signing,
-  and verification; and
-- `tests/` — publication and router regressions.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for more detail.
-
-## Development commands
+The Node builds independently of Electron and the preserved desktop renderer:
 
 ```sh
-npm test                  # focused regression tests
-npm run typecheck         # renderer TypeScript
-npm run source:typecheck  # runtime TypeScript
-npm run frontend:build    # build the readable renderer reconstruction
-npm run package           # build, sign, and verify the macOS app
-npm run verify            # verify an existing packaged app
-npm run smoke             # bounded native smoke check
-npm run publication:check # prove a fresh-history export is lossless
+npm run node:build
+npm run node:init
 ```
 
-Generated directories including `.cache`, `.build`, `dist`, `src/app/dist`,
-`recovered`, `recovery`, and local probe roots are ignored.
+Then configure the server's model and credentials using the
+[server guide](docs/node-server.md) before running `npm run node:start`.
+In an initialized desktop, open **Settings → Servers**, add the Node address,
+and sign in through the system browser. Complete device authorization: the first
+device needs an offline recovery code; later devices require approval by a trusted
+administrator. See [trusted devices](docs/implementation/node-trusted-devices.md).
 
-## Project status
+Authorized remote Bots appear in the usual Bot list and conversation view.
+An administrator can choose the deployment server in **+ → New bot**. Remote Bots
+use that server's model configuration, rather than the Mac's saved API selection.
+Connecting to an existing Node does not require Docker or SSH credentials on the
+client. Remote-only onboarding for a fresh desktop profile is not yet complete.
 
-The app launches and the core flows are usable: one shared local Docker
-computer, multiple vendor APIs, and per-bot routing. Hive collaboration as
-described above is the north star; today's Group is still a chat room. This
-is still experimental. It targets one pinned macOS/arm64 runtime and does not
-promise compatibility with later upstream Grok Bot versions. Messaging
-gateways (Feishu, QQ, and similar) are planned and not in this tree yet.
+## Architecture and build boundaries
 
-For changes, read [CONTRIBUTING.md](CONTRIBUTING.md). For the clean-history
-export procedure, see [docs/PUBLISHING.md](docs/PUBLISHING.md).
+```text
+macOS desktop — conversations, Bot list, Settings
+    ├─ local computer → coordinator + Host → shared Linux Docker computer
+    └─ Settings → Servers → authenticated Node → Host + Bot workspaces
+```
+
+| Source area | Responsibility |
+| --- | --- |
+| `source/electron-main/`, `source/electron-preload/` | Desktop lifecycle, settings and the trusted UI bridge |
+| `source/client-connections/`, `source/node/` | Server connections, device authorization and independent Node execution |
+| `source/host/`, `source/node-agent-coordinator/` | Model inference, tools, conversations and local collaboration |
+| `source/shared/` | Shared settings, protocols and provider routes |
+| `frontend/` | Readable React/TypeScript UI and shared components |
+| `scripts/lib/` | Adapters applied to the actual packaged renderer |
+| `tests/` | UI, runtime, security, collaboration and package regressions |
+
+The shipped UI uses a checksum-pinned upstream renderer plus reproducible BeeBot
+adapters for branding, settings, conversations, language and avatars. Editing the
+readable `frontend/` alone does not demonstrate a change to the packaged UI.
+Authenticated upstream inputs remain immutable; the packaged copy is adapted and
+verified. See [architecture](docs/ARCHITECTURE.md) and [provenance](PROVENANCE.md).
+
+## Development and validation
+
+Use the pinned toolchain and follow [CONTRIBUTING.md](CONTRIBUTING.md). After
+installing dependencies, bootstrapping and generating the icon:
+
+```sh
+npm run check                            # both TypeScript projects and the full default test suite
+npm run frontend:build                   # build the readable renderer
+node scripts/verify-native-window-layout.mjs # real macOS window/component fixture
+npm run package                          # build and sign the desktop package
+npm run verify                           # verify that package
+npm run publication:check                # verify lossless export of the committed Git tree
+npm run node:test:integration             # opt-in real Node/Host/Shell integration with test models
+```
+
+The default suite includes conditionally skipped deployment/integration tests;
+those skips are not integration passes. Native component fixtures and scripted
+model tests do not establish production-model quality.
+
+`npm run smoke` has a separate clean-source renderer provenance and route-coverage
+gate. The current pinned-renderer build does not satisfy that gate and reports
+`PREREQUISITE`; it is not a successful native smoke run.
+
+Generated payloads and local evidence in `.cache`, `.build`, `dist`, `src/app/dist`,
+`recovered` and `recovery` are ignored. See [publishing](docs/PUBLISHING.md) for the
+clean-export procedure.
+
+## Current limits
+
+- The desktop is experimental and targets the pinned macOS/Apple Silicon runtime.
+  Windows, iOS and Android clients and messaging gateways are not shipped here.
+- Groups currently use local Bots. Remote Node v1 does not yet share the local
+  collaboration ledger or provide full local-chat features such as token streaming.
+- Multiple server connections do not provide automatic cross-server delegation,
+  failover or result migration. Connection status does not imply model readiness
+  or task completion; uncertain interrupted operations are not blindly replayed.
+- Experimental hosted APIs already provide accounts and encrypted workspace
+  storage. Tenant-isolated execution, desktop workspace selection and public
+  hosting are not yet available. See [hosted API scope](docs/implementation/hosted-catalog-api.md).
+
+## Lineage and licensing
+
+BeeBot began as an unofficial, source-oriented reconstruction of the public Grok
+Bot 0.18.0 macOS application. It is independent of Anysphere, Cursor, xAI and
+SpaceX, and is not an official Grok Bot release.
+
+Original BeeBot contributions are MIT-licensed. Reconstructed upstream material,
+trademarks and preserved installers are not covered by that grant. See
+[LICENSE](LICENSE), [NOTICE.md](NOTICE.md) and [PROVENANCE.md](PROVENANCE.md).
