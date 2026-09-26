@@ -9,6 +9,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { downloadArtifact } from '@electron/get';
 import { build } from 'esbuild';
 import { applyOriginalRendererRouterPatch } from './lib/router-renderer-patch.mjs';
+import { patchUiLanguageRenderer } from './lib/ui-language-renderer-patch.mjs';
 
 assert.equal(process.platform, 'darwin', 'Native window verification requires macOS; browser emulation is not native evidence.');
 const root = process.cwd(), output = path.resolve(process.env.BEEBOT_WINDOW_REPORT_DIR || '.build/window-verification');
@@ -25,14 +26,20 @@ try {
   assert.ok(start >= 0 && end > start && chromeStart >= 0 && chromeEnd > chromeStart);
   const header = source.slice(start, end), chrome = source.slice(chromeStart, chromeEnd);
   assert.ok(header.includes('bb-wordmark') && chrome.includes('installNativeWindowLayout'));
+  // Reuse the production language bootstrap and helpers for the translated
+  // staged functions. Only persistence is a fixture; memo/hooks remain real.
+  const language = patchUiLanguageRenderer('', { main: true }).source;
   const browser = `import React from ${JSON.stringify(path.join(root,'node_modules/react/index.js'))};
 import {createRoot} from ${JSON.stringify(path.join(root,'node_modules/react-dom/client.js'))};
 import * as jsx from ${JSON.stringify(path.join(root,'node_modules/react/jsx-runtime.js'))};
+import * as compiler from ${JSON.stringify(path.join(root,'node_modules/react/compiler-runtime.js'))};
 import * as Shared from ${JSON.stringify(path.join(root,'frontend/src/presence/packaged-ui.ts'))};
-const mem={c:n=>Array(n).fill(Symbol.for('react.memo_cache_sentinel'))};
+const S=React;
+window.desktop={agent:{getUiLanguage:async()=>({language:'en'}),setUiLanguage:async language=>({language})}};
+${language}
 const classes=(...a)=>a.filter(Boolean).join(' '), pass=({children})=>children;
 const leaf=({icon,children,focusAppearance,label,size,...props})=>jsx.jsx('button',{...props,style:{width:28,height:28,flexShrink:0},children:children||'+'});
-const Header=((p,he,re,fr,yo,hcn)=>{${header};return pcn;})(jsx,mem,classes,leaf,pass,pass);
+const Header=((p,he,re,fr,yo,hcn)=>{${header};return pcn;})(jsx,compiler,classes,leaf,pass,pass);
 window.__layout={zoom:1,fullscreen:false};window.__newClicks=0;
 const Controls=((S,t4e,Hse,bNe,RPresenceUI,p)=>{${chrome};return xPe;})(React,()=>({isFullscreen:window.__layout.fullscreen,isMaximized:false}),()=>({platform:'darwin'}),()=>({}),Shared,jsx);
 const app=createRoot(document.getElementById('root'));
@@ -55,7 +62,7 @@ window.__renderLayout=(next)=>{Object.assign(window.__layout,next);document.docu
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {windowChromeOptions,MAC_TRAFFIC_LIGHT_POSITION,attachWindowStateBroadcast}=require('./chrome.cjs');
 app.setPath('userData',${JSON.stringify(path.join(temp,'user-data'))});
-const report={passed:false,scope:'real macOS BrowserWindow and native buttons; staged pcn/xPe, test leaf callbacks; not the installed complete application',checks:[],consoleErrors:[]};
+const report={passed:false,scope:'real macOS BrowserWindow and native buttons; staged pcn/xPe, production language runtime/compiler caches, test leaf callbacks and persistence; not the installed complete application',checks:[],consoleErrors:[]};
 const out=${JSON.stringify(output)};let window;
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 function record(name,value){assert.ok(value,name);report.checks.push(name);}
@@ -66,6 +73,13 @@ app.whenReady().then(async()=>{try{
  window.webContents.on('console-message',details=>{if(details.level==='error')report.consoleErrors.push(details.message);});
  await window.loadFile(${JSON.stringify(path.join(renderer,'window.html'))});window.focus();await settle();
  assert.deepEqual(window.getWindowButtonPosition(),MAC_TRAFFIC_LIGHT_POSITION);record('actual native button position matches shared metrics',true);
+ await window.webContents.executeJavaScript('window.__nativeDraft=document.getElementById("draft");window.__nativeHeader=document.querySelector(".sand-agents-sidebar__new");window.__nativeDraft.focus()');
+ for(const [language,label] of [['en','New'],['zh','新建'],['en','New']]){
+  await window.webContents.executeJavaScript('window.__beebotUiLanguage.set('+JSON.stringify(language)+')');await settle();
+  const state=await window.webContents.executeJavaScript('({label:document.querySelector(".sand-agents-sidebar__new").getAttribute("aria-label"),sameHeader:window.__nativeHeader===document.querySelector(".sand-agents-sidebar__new"),sameDraft:window.__nativeDraft===document.getElementById("draft"),draft:document.getElementById("draft").value,focused:document.activeElement===window.__nativeDraft})');
+  record('real language runtime updates native fixture to '+language,state.label===label);
+  record('language '+language+' preserves header, composer and focus',state.sameHeader&&state.sameDraft&&state.draft==='keep this draft'&&state.focused);
+ }
  attachWindowStateBroadcast(window,state=>{void window.webContents.executeJavaScript('window.__renderLayout('+JSON.stringify({fullscreen:state.isFullscreen})+')');});
  for(const zoom of [.75,1,1.25,1.5,2]){
   window.setContentSize(Math.round(850*zoom),Math.round(650*zoom));window.webContents.setZoomFactor(zoom);await window.webContents.executeJavaScript('window.__renderLayout({zoom:'+zoom+'})');await settle();

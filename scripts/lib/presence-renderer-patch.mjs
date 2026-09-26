@@ -66,5 +66,8 @@ export function patchPresenceRenderer(source) {
     'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse();S.useLayoutEffect(()=>RPresenceUI.installNativeWindowLayout(document,s,e),[s,e]);const r=bNe(),',
     "native caption safe-area lifecycle");
   result = patchPresenceCreatePicker(result);
-  return `${presenceSharedModule()}\nwindow.__beebotConversationNotice=RPresenceUI.createConversationNotice(S);\nfunction RPresenceAvatarPreview(){return RPresenceAvatarPreview.value??=RPresenceUI.createPresenceAvatarPreview(S)}\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
+  // S is the renderer React binding and is assigned later in the same file.
+  // Creating the notice during this prefix runs before that assignment and
+  // caches a component whose React is undefined.
+  return `${presenceSharedModule()}\nfunction RBeebotConversationNotice(n){const Component=RBeebotConversationNotice.value??=RPresenceUI.createConversationNotice(S);return S.createElement(Component,n)}\nwindow.__beebotConversationNotice=RBeebotConversationNotice;\nfunction RPresenceAvatarPreview(){return RPresenceAvatarPreview.value??=RPresenceUI.createPresenceAvatarPreview(S)}\nfunction RPresenceCharacter(){return RPresenceCharacter.value??=RPresenceUI.createPresenceCharacter(S)}\nfunction RPresenceMotionSetting(){return RPresenceMotionSetting.value??=RPresenceUI.createPresenceMotionSetting(S)}\nfunction RPresenceWorkStatus(){return RPresenceWorkStatus.value??=RPresenceUI.createPresenceWorkStatus(S)}\n${result}`;
 }

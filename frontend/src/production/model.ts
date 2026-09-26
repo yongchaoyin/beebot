@@ -82,11 +82,25 @@ function stringArray(value: unknown): string[] {
 }
 
 function parseLastEntryKinds(value: unknown): Readonly<Record<string, number>> | null {
-  if (!isRecord(value)) return null;
   const kinds: Record<string, number> = {};
-  for (const [kind, count] of Object.entries(value)) {
-    if (kind.length === 0 || typeof count !== "number" || !Number.isInteger(count) || count <= 0) return null;
-    kinds[kind] = count;
+  const addKind = (kind: unknown, count: unknown): boolean => {
+    if (typeof kind !== "string" || kind.length === 0 || Object.hasOwn(Object.prototype, kind) || kind === "prototype"
+      || typeof count !== "number" || !Number.isSafeInteger(count) || count <= 0) return false;
+    const total = (kinds[kind] ?? 0) + count;
+    if (!Number.isSafeInteger(total)) return false;
+    kinds[kind] = total;
+    return true;
+  };
+  // Host summaries use kind/count arrays; earlier readable-renderer payloads
+  // used records. Keep one record view model for both wire representations.
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (!isRecord(entry) || !Object.hasOwn(entry, "kind") || !Object.hasOwn(entry, "count") || !addKind(entry.kind, entry.count)) return null;
+    }
+  } else if (isRecord(value)) {
+    for (const [kind, count] of Object.entries(value)) if (!addKind(kind, count)) return null;
+  } else {
+    return null;
   }
   return kinds;
 }
