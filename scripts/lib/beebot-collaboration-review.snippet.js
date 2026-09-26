@@ -6,11 +6,12 @@ function RBindCollaborationReview(runtime) {
   window.__beebotCollaborationReview?.dispose();
   const t = (cn,en) => window.__sandUiLanguage === "zh" ? cn : en;
   const node = (tag,cls) => {const e=document.createElement(tag);if(cls)e.className=cls;return e;};
-  const root=node("section","bb-work"), toggle=node("button"), panel=node("div"), feedback=node("p"), completion=node("p");
+  const root=node("section","bb-work"), toggle=node("button"), acceptAll=node("button","bb-work-accept-all"), panel=node("div"), feedback=node("p"), completion=node("p");
   root.dataset.bbWork=""; root.id="beebot-collaboration-review";toggle.type="button";panel.id="bb-work-panel";
-  toggle.setAttribute("aria-controls",panel.id);feedback.setAttribute("role","status");completion.className="bb-work-completion";root.append(toggle,completion,panel,feedback);
+  acceptAll.type="button";
+  toggle.setAttribute("aria-controls",panel.id);feedback.setAttribute("role","status");completion.className="bb-work-completion";root.append(toggle,acceptAll,completion,panel,feedback);
   let disposed=false,room=null,epoch=0,serial=0,offEntries,entryStore,signature="",timer,expanded=false,trusted=false;
-  let data={tasks:[],completions:[]},error=""; const disposers=[],cards=new Map();
+  let data={tasks:[],completions:[]},error="",batch=null,batchFeedback=""; const disposers=[],cards=new Map();
   const remote=()=>document.body?.dataset.beebotRemoteActive==="true";
   const down=()=>runtime.connection?.snapshots?.get?.()?.transport==="down";
   const selected=()=>runtime.selection.snapshots.get()?.currentAgentId??null;
@@ -35,7 +36,7 @@ function RBindCollaborationReview(runtime) {
   function sync(){
     if(disposed)return;
     const next=selected();
-    if(next!==room){epoch++;serial++;room=next;offEntries?.();entryStore=null;signature="";trusted=false;expanded=false;error="";clear();
+    if(next!==room){epoch++;serial++;room=next;offEntries?.();entryStore=null;signature="";trusted=false;expanded=false;error="";batch=null;batchFeedback="";clear();
       if(room){entryStore=runtime.transcript.snapshotsFor(room);offEntries=entryStore.subscribe(sync);}}
     if(!room||remote()){trusted=false;serial++;signature="";root.hidden=true;return;}
     const entries=entryStore?.get?.()?.entries??[];
@@ -68,16 +69,16 @@ function RBindCollaborationReview(runtime) {
       const selectId=`bb-criterion-${epoch}-${cards.size}-${index}`;select.id=selectId;label.htmlFor=selectId;label.textContent=`${index+1}. ${criterion}`;
       for(const value of ["","pass","fail"]){const opt=node("option");opt.value=value;select.append(opt);}
       note.maxLength=1000;note.rows=2;
-      select.onchange=()=>{c.intent=null;render();};note.oninput=()=>{c.intent=null;};
+      select.onchange=()=>{c.intent=null;render();};note.oninput=()=>{c.intent=null;render();};
       field.append(label,select,note);form.append(field);c.fields.push({select,note});
     });
     for(const item of task.evidence??[]){const text=node("pre");text.textContent=item.available?(item.text||t("已发布文件；请检查会话中的附件。","Published file; inspect its attachment in the conversation.")):t("原成果暂不可用","Original result unavailable");
       const version=node("small");version.textContent=(item.files??[]).map(f=>`SHA-256 ${f.sha256.slice(0,12)}… · ${f.bytes} B`).join("\n");body.append(text,version);}
     accept.onclick=()=>submit(c,"accept");changes.onclick=()=>submit(c,"changes");cards.set(key,c);return c;
   }
-  async function submit(c,verdict){
-    if(!isCurrent(c.at,c.id)||!trusted||down()||c.pending||!c.task.canReview)return;
-    const values=c.fields.map(({select,note})=>({value:select.value,note:note.value.trim()}));
+  async function submit(c,verdict,batchOwner=null){
+    if(!isCurrent(c.at,c.id)||!trusted||down()||c.pending||!c.task.canReview||(batch&&batch!==batchOwner))return false;
+    const values=c.fields.map(({select,note})=>({value:batchOwner?"pass":select.value,note:batchOwner?t("用户选择全部验收通过，确认此项通过。","User selected Accept all and confirmed this criterion passes."):note.value.trim()}));
     if(values.some(v=>!v.value)||(verdict==="accept"&&values.some(v=>v.value!=="pass"))||(verdict==="changes"&&!values.some(v=>v.value==="fail"))){c.status.textContent=t("请逐项检查并选择结果。","Check and choose an outcome for every criterion.");return;}
     if(values.some(v=>v.value==="fail"&&!v.note)){c.status.textContent=t("请说明需要修改的项目。","Explain each criterion that needs changes.");c.fields[values.findIndex(v=>v.value==="fail"&&!v.note)].note.focus();return;}
     const review={action:"review",task_id:c.task.id,expected_version:c.task.version,submission_id:c.task.submission.id,verdict,
@@ -100,8 +101,37 @@ function RBindCollaborationReview(runtime) {
       error=result.notified===false?t("验收已保存，后续通知未确认；请检查会话。","Review saved; follow-up notification needs inspection."):t("验收已保存到会话。","Review saved in this conversation.");
       trusted=false;c.status.textContent=error;
       await load();
-    }catch{if(isCurrent(c.at,c.id))c.status.textContent=t("尚未确认保存。请刷新核对当前版本；原输入已保留，不会自动重复操作。","Saving is unconfirmed. Refresh and inspect this version; input is retained and no action is automatically repeated.");}
+      return result.notified===false?"saved-notification-pending":"saved";
+    }catch{if(isCurrent(c.at,c.id)){if(batchOwner)trusted=false;c.status.textContent=t("尚未确认保存。请刷新核对当前版本；原输入已保留，不会自动重复操作。","Saving is unconfirmed. Refresh and inspect this version; input is retained and no action is automatically repeated.");}return false;}
     finally{if(isCurrent(c.at,c.id)){c.pending=false;render();}}
+  }
+  const hasReviewDraft=()=>[...cards.values()].some(c=>c.task.canReview&&c.fields.some(({select,note})=>select.value==="fail"||note.value.trim()));
+  async function submitAll(){
+    if(batch||!trusted||down()||remote()||hasReviewDraft()||[...cards.values()].some(c=>c.pending))return;
+    // Freeze exactly the versions visible at the click. Newly submitted work is
+    // never swept into an earlier acceptance, even after the status refresh.
+    const items=data.tasks.filter(task=>task.canReview).map(task=>({key:card(task).key,token:task.reviewToken}));
+    if(!items.length)return;
+    const own={at:epoch,id:room};batch=own;batchFeedback="";let saved=0,notificationPending=false;
+    render();
+    try{
+      for(const item of items){
+        if(batch!==own||!isCurrent(own.at,own.id)||!trusted||down())break;
+        const c=cards.get(item.key);
+        if(!c?.task.canReview||c.task.reviewToken!==item.token)break;
+        const result=await submit(c,"accept",own);
+        if(!result)break;
+        saved++;
+        if(result==="saved-notification-pending"){notificationPending=true;break;}
+      }
+    }finally{
+      if(batch===own){batch=null;
+        if(isCurrent(own.at,own.id))batchFeedback=saved===items.length&&!notificationPending
+          ?t(`已验收通过 ${saved} 项成果。`,`Accepted ${saved} results.`)
+          :t(`已确认通过 ${saved}/${items.length} 项；后续已停止，请刷新核对未确认的结果或通知。`,`Confirmed ${saved}/${items.length}; stopped. Refresh to inspect unconfirmed results or notifications.`);
+        render();
+      }
+    }
   }
   function render(){
     if(disposed)return;
@@ -110,11 +140,15 @@ function RBindCollaborationReview(runtime) {
     const waiting=data.tasks.filter(task=>task.canReview).length;
     toggle.textContent=waiting?t(`协作 · ${waiting} 项待你验收`,`Collaboration · ${waiting} awaiting your review`):t(`协作 · ${data.tasks.length} 项工作`,`Collaboration · ${data.tasks.length} work items`);
     toggle.setAttribute("aria-expanded",String(expanded));panel.hidden=!expanded;
+    acceptAll.hidden=!waiting&&!batch;
+    acceptAll.textContent=batch?t("正在验收…","Accepting…"):t(`全部验收通过（${waiting}）`,`Accept all (${waiting})`);
+    acceptAll.disabled=!!batch||!trusted||down()||!waiting||hasReviewDraft()||[...cards.values()].some(c=>c.pending);
+    acceptAll.title=hasReviewDraft()?t("已有验收说明或修改意见，请在展开列表中逐项处理。","Review notes or requested changes are present. Review these items individually."):t("确认当前所有待验收成果的各项标准均通过。","Confirm every criterion passes for all results currently awaiting your review.");
     const receipts=data.completions??[], valid=receipts.filter(item=>item.current).length;
     completion.hidden=!receipts.length;
     completion.textContent=valid?t(`${valid} 项交付已核对当前已记录工作。`,`Closed against the recorded work set: ${valid}.`):t("此前交付的工作范围或版本已变化，需要重新核对。","Previously closed work has changed; recheck the updated scope or versions.");
     const name=id=>id==="user"?t("你","You"):(runtime.roster.snapshots?.get?.()?.agents?.rows??[]).find(b=>b.id===id)?.name??t("Bot 同事","Bot colleague");
-    feedback.textContent=down()?t("连接中断，暂不能验收。","Disconnected. Reviews are unavailable."):error;
+    feedback.textContent=down()?t("连接中断，暂不能验收。","Disconnected. Reviews are unavailable."):[error,batchFeedback].filter(Boolean).join(" ");
     const wanted=new Set();
     for(const task of data.tasks){const c=card(task);wanted.add(c.key);c.task=task;
       c.owner.textContent=task.state==="declined"?t(`原派给 ${name(task.assignee)} · ${name(task.reviewer)} 验收`,`Originally offered to ${name(task.assignee)} · ${name(task.reviewer)} reviews`):t(`${name(task.assignee)} 负责 · ${name(task.reviewer)} 验收`,`${name(task.assignee)} owns · ${name(task.reviewer)} reviews`);
@@ -122,13 +156,14 @@ function RBindCollaborationReview(runtime) {
       c.reason.hidden=!task.reason;c.reason.textContent=task.reason||"";
       c.heading.textContent=t("查看已提交的成果与依据","Inspect submitted results and evidence");c.basis.hidden=!task.submission;
       c.form.hidden=c.actions.hidden=!task.canReview;c.accept.textContent=t("确认此版本通过","Accept this version");c.changes.textContent=t("提出修改","Request changes");
-      c.accept.disabled=c.changes.disabled=!trusted||down()||c.pending;
-      c.fields.forEach(({select,note},i)=>{select.disabled=note.disabled=c.pending;[...select.options].forEach((o,j)=>o.textContent=[t("请选择","Choose outcome"),t("通过","Pass"),t("需要修改","Needs changes")][j]);note.setAttribute("aria-label",t(`第 ${i+1} 项验收说明`,`Review note for criterion ${i+1}`));note.placeholder=t("补充说明；需要修改时必填","Optional note; required for changes");});
+      c.accept.disabled=c.changes.disabled=!trusted||down()||c.pending||!!batch;
+      c.fields.forEach(({select,note},i)=>{select.disabled=note.disabled=c.pending||!!batch;[...select.options].forEach((o,j)=>o.textContent=[t("请选择","Choose outcome"),t("通过","Pass"),t("需要修改","Needs changes")][j]);note.setAttribute("aria-label",t(`第 ${i+1} 项验收说明`,`Review note for criterion ${i+1}`));note.placeholder=t("补充说明；需要修改时必填","Optional note; required for changes");});
       if(c.root.parentElement!==panel)panel.append(c.root);
     }
     for(const [key,c] of cards)if(!wanted.has(key)){c.root.remove();cards.delete(key);}
   }
   toggle.onclick=()=>{expanded=!expanded;render();};
+  acceptAll.onclick=submitAll;
   const refresh=node("button");refresh.type="button";refresh.textContent=t("刷新状态","Refresh status");refresh.onclick=()=>{trusted=false;load();};root.append(refresh);
   disposers.push(runtime.selection.snapshots.subscribe(sync));
   if(runtime.connection?.snapshots)disposers.push(runtime.connection.snapshots.subscribe(sync));

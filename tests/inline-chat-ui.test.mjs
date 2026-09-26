@@ -230,6 +230,48 @@ test("switching from a group to a single Bot clears group-only controls and rest
   assert.equal(ui.editor.getAttribute("aria-controls"), "original-controls"); assert.equal(ui.editor.value, "@");
 });
 
+test("rich group and single-Bot composers retain sole ownership of native mentions and keys", async t => {
+  const ui = await boot(t);
+  // Begin with the legacy fallback open, then mount the shipped rich composer.
+  ui.editor.value = "@"; ui.editor.setSelectionRange(1, 1);
+  ui.editor.dispatchEvent(new ui.window.Event("input", { bubbles: true }));
+  assert.ok(ui.document.getElementById("sand-beebot-mention"));
+  const rich = ui.document.createElement("div");
+  rich.setAttribute("contenteditable", "true"); rich.className = "tiptap ProseMirror";
+  rich.setAttribute("aria-controls", "native-mentions");
+  rich.setAttribute("aria-expanded", "true");
+  rich.setAttribute("aria-activedescendant", "native-everyone");
+  const picker = ui.document.createElement("div"); picker.id = "native-mentions";
+  picker.setAttribute("role", "listbox"); picker.innerHTML = '<div id="native-everyone" role="option">@ everyone</div>';
+  ui.editor.replaceWith(rich); rich.after(picker);
+  let received = [];
+  rich.addEventListener("keydown", event => received.push([event.key, event.defaultPrevented]));
+  for (const conversation of ["group", "a", "group"]) {
+    ui.select(conversation);
+    // Repeat input while a turn is running; the adapter must never take over.
+    ui.roster.find(row => row.id === "a").isRunning = true;
+    for (const text of ["@", "second @", "third @阿"]) {
+      rich.textContent = text;
+      rich.dispatchEvent(new ui.window.InputEvent("input", { bubbles: true, data: "@" }));
+      assert.equal(ui.document.getElementById("sand-beebot-mention"), null);
+      assert.equal(ui.document.querySelectorAll('[role="listbox"]').length, 1);
+      assert.equal(ui.document.getElementById("native-mentions"), picker);
+      assert.equal(rich.getAttribute("aria-controls"), picker.id);
+      assert.equal(rich.getAttribute("aria-activedescendant"), "native-everyone");
+      for (const key of ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"]) {
+        const event = new ui.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        rich.dispatchEvent(event); assert.equal(event.defaultPrevented, false);
+      }
+      assert.equal(rich.textContent, text);
+    }
+  }
+  assert.equal(received.length, 45);
+  assert.ok(received.every(([, prevented]) => !prevented));
+  ui.window.eval('RShowMention({editor:document.querySelector("[contenteditable]")},[],"","group")');
+  assert.equal(ui.document.getElementById("sand-beebot-mention"), null);
+  assert.equal(rich.getAttribute("aria-expanded"), "true");
+});
+
 test("only user-initiated management is modal; chat controls stay inline without browser prompts", () => {
   const creation = createSource.slice(createSource.indexOf("let RCreateRequestSerial"), createSource.indexOf("if(!window.__sandVendorPaneBound)"));
   assert.match(creation, /aria-modal/);

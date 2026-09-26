@@ -107,3 +107,62 @@ test("declined work shows its reason inline without offering acceptance or leaki
  ui.window.__sandUiLanguage="en";ui.window.dispatchEvent(new ui.window.Event('sand-ui-language-changed'));
  assert.match(ui.root().textContent,/Declined/);assert.equal(ui.window.document.querySelectorAll('[role="dialog"]').length,0);
 });
+
+const bulkButton=ui=>ui.root().querySelector('.bb-work-accept-all');
+const bulkTasks=()=>['one','two','three'].map(id=>task({id,submission:{id:id+'-submission',resultIds:[id+'-result'],manifest:[]}}));
+async function setBulk(ui,tasks=bulkTasks()) { ui.tasks(tasks);ui.refresh();await tick();return tasks; }
+
+test('one click accepts only the displayed reviewable versions, preserving the chat draft',async t=>{
+ const ui=await boot(t),tasks=await setBulk(ui,[...bulkTasks(),task({id:'running',state:'claimed',canReview:false})]);
+ const requests=[];ui.review(async request=>{requests.push(request);const current=tasks.find(item=>item.id===request.review.task_id);current.canReview=false;current.state='accepted';current.version++;return {saved:true};});
+ assert.equal(bulkButton(ui).textContent,'全部验收通过（3）');assert.equal(ui.calls.length,0);
+ bulkButton(ui).click();bulkButton(ui).click();await tick();
+ assert.equal(requests.length,3);assert.deepEqual(requests.map(r=>r.review.task_id),['one','two','three']);
+ assert.equal(new Set(requests.map(r=>r.review.request_id)).size,3);
+ for(const request of requests){assert.equal(request.review.expected_version,3);assert.equal(request.review.checks.length,2);assert.ok(request.review.checks.every(c=>c.passed&&c.evidence_ids[0]===request.review.submission_id));}
+ assert.match(ui.root().textContent,/已验收通过 3 项成果/);assert.equal(bulkButton(ui).hidden,true);
+ assert.equal(tasks[3].state,'claimed');assert.equal(ui.window.document.querySelector('#chat').value,'Keep my draft');
+});
+
+test('bulk acceptance stops on uncertain saving and manual retry reuses that exact request identity',async t=>{
+ const ui=await boot(t),tasks=await setBulk(ui),requests=[];
+ ui.review(async request=>{requests.push(request);if(request.review.task_id==='two')throw Error('lost response');tasks[0].canReview=false;return {saved:true};});
+ bulkButton(ui).click();await tick();assert.equal(requests.length,2);assert.match(ui.root().textContent,/1\/3/);assert.equal(bulkButton(ui).disabled,true);
+ await tick();assert.equal(requests.length,2,'no automatic replay');
+ ui.review(async request=>{requests.push(request);tasks.find(item=>item.id===request.review.task_id).canReview=false;return {saved:true};});
+ ui.refresh();await tick();bulkButton(ui).click();await tick();
+ assert.equal(requests.length,4);assert.equal(requests[1].review.request_id,requests[2].review.request_id);
+});
+
+test('new or changed submissions are never accepted by an earlier bulk click',async t=>{
+ const ui=await boot(t),tasks=await setBulk(ui),requests=[];
+ ui.review(async request=>{requests.push(request);tasks[0].canReview=false;tasks[1].version++;tasks.push(task({id:'new'}));return {saved:true};});
+ bulkButton(ui).click();await tick();assert.equal(requests.length,1);assert.match(ui.root().textContent,/1\/3/);
+ assert.equal(tasks[1].canReview,true);assert.equal(tasks.at(-1).canReview,true);
+});
+
+test('switching conversation during bulk saving stops unsent reviews and hides old feedback',async t=>{
+ const ui=await boot(t);await setBulk(ui);const gate=Promise.withResolvers(),requests=[];
+ ui.review(request=>{requests.push(request);return gate.promise;});bulkButton(ui).click();
+ ui.selected.set({currentAgentId:'other'});gate.resolve({saved:true});await tick();
+ assert.equal(requests.length,1);assert.doesNotMatch(ui.root().textContent,/1\/3|已验收通过/);
+ assert.equal(bulkButton(ui).disabled,false);
+});
+
+test('bulk acceptance respects disconnect, pending single review, changes and note drafts',async t=>{
+ const ui=await boot(t);await setBulk(ui);ui.expand();
+ const select=ui.root().querySelector('select'),note=ui.root().querySelector('textarea');
+ select.value='fail';select.dispatchEvent(new ui.window.Event('change'));assert.equal(bulkButton(ui).disabled,true);
+ select.value='';select.dispatchEvent(new ui.window.Event('change'));note.value='check this';note.dispatchEvent(new ui.window.Event('input'));assert.equal(bulkButton(ui).disabled,true);assert.equal(note.value,'check this');
+ note.value='';note.dispatchEvent(new ui.window.Event('input'));assert.equal(bulkButton(ui).disabled,false);
+ ui.connection.set({transport:'down'});assert.equal(bulkButton(ui).disabled,true);bulkButton(ui).click();assert.equal(ui.calls.length,0);
+ ui.connection.set({transport:'up'});await tick();ui.choose();const gate=Promise.withResolvers();ui.review(()=>gate.promise);
+ ui.root().querySelector('.bb-work-actions button').click();assert.equal(bulkButton(ui).disabled,true);bulkButton(ui).click();gate.resolve({saved:true});await tick();
+});
+
+test('saved acceptance with unconfirmed notification stops the batch and stays explicit',async t=>{
+ const ui=await boot(t);await setBulk(ui);const requests=[];ui.review(async request=>{requests.push(request);return{saved:true,notified:false};});
+ bulkButton(ui).click();await tick();assert.equal(requests.length,1);assert.match(ui.root().textContent,/1\/3.*通知/);
+ ui.window.__sandUiLanguage='en';ui.window.dispatchEvent(new ui.window.Event('sand-ui-language-changed'));
+ assert.equal(bulkButton(ui).textContent,'Accept all (3)');
+});

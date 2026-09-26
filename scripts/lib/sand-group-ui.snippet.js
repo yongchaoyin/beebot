@@ -268,6 +268,9 @@ function RHideMention(){
 }
 function RShowMention(state,members,query,groupId){
   RHideMention();
+  // Rich composers already own the avatar picker, mention nodes and keyboard
+  // navigation. This fallback is only for plain textarea composers.
+  if(state.editor.tagName!=="TEXTAREA") return;
   const hits=members.filter(m=>!query||m.name.toLowerCase().includes(query.toLowerCase())||m.id.toLowerCase().includes(query.toLowerCase())).slice(0,8);
   if(!hits.length) return;
   const menu=document.createElement("div");menu.id="sand-beebot-mention";menu.setAttribute("role","listbox");
@@ -310,6 +313,7 @@ function RBindMentions(){
   document.addEventListener("input",event=>{
     if(event.isComposing||composing.has(event.target)) {RHideMention();return;}
     const editor=event.target?.closest?.(RGroupEditorSelector),group=RActiveGroup();
+    if(editor?.tagName!=="TEXTAREA") {RHideMention();return;}
     const state=editor&&RReadMentionSelection(editor);
     if(!group||!state||state.start!==state.end) {RHideMention();return;}
     const query=RMentionQuery(state.value,state.start);
