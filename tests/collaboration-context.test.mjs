@@ -80,8 +80,8 @@ test("single Bot context uses the same priority view with unchanged authoritativ
   const h=await continuityHarness(t),s=h.sessions.get("a");
   s.db.appendTranscriptEntry({id:"direct-goal",kind:"message",role:"user",content:"Independently check the file"});
   h.tm.ackObligations.fulfillAckObligation=()=>{};const turn=new h.runtime.TurnRuntime(h.tm);h.tm.turnRuntime=turn;
-  const id=turn.handleAgentUpdate({type:"send-message",timestampMs:1,message:{type:"text",content:"I will check the file",collaboration:{action:"assign",request_id:"direct",goal_message_id:"direct-goal",assignee:"a",reviewer:"user",title:"File check",criteria:["Readable"]}}},s);
+  const id=turn.handleAgentUpdate({type:"send-message",timestampMs:1,message:{type:"text",content:"I will check the file",collaboration:{action:"assign",request_id:"direct",goal_message_id:"direct-goal",assignee:"a",reviewer:"self",title:"File check",criteria:["Readable"]}}},s);
   const before=JSON.stringify(h.entries("a"));const context=h.runtime.collaborationContext(h.entries("a"),"a",[id]);
-  assert.match(context,/File check/);assert.match(context,/"reviewer":"user"/);assert.match(context,/"requirementsSourceId"/);
+  assert.match(context,/File check/);assert.match(context,/"reviewer":"self"/);assert.match(context,/"requirementsSourceId"/);
   assert.equal(JSON.stringify(h.entries("a")),before);assert.equal(h.entries("room").length,0);
 });

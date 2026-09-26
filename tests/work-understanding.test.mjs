@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { continuityHarness, deferred, until } from "./helpers/continuity-harness.mjs";
 
-const task = (id, title, assignee = "b") => ({ id, title, assignee, creator: "a", reviewer: "user",
+const task = (id, title, assignee = "b") => ({ id, title, assignee, creator: "a", reviewer: "self",
   goalId: `goal-${id}`, version: 1, scopeVersion: 1, state: "offered", dependencies: [],
   criteria: ["Check result"], evidenceIds: [], updatedBy: "a", updatedMessageId: id });
 const user = (content, extra = {}) => ({ id: "u", kind: "message", role: "user", content, ...extra });
@@ -13,7 +13,7 @@ function assign(h, title, assignee = "b", room = "room") {
   s.db.appendTranscriptEntry(user("Discuss this work before execution", { id: goal }));
   const msg = { type: "text", content: `Work: ${title}`, purpose: "update", collaboration: {
     action: "assign", request_id: `req-${seq}`, goal_message_id: goal, title, assignee,
-    reviewer: "user", criteria: ["Return evidence"],
+    reviewer: "self", criteria: ["Return evidence"],
   } };
   const id = h.tm.groupChat.postGroupMemberMessage(s, { id: "a", name: "A" }, msg.content, undefined,
     h.runtime.prepareGroupPublication(s.dbPath, msg, false));
@@ -127,7 +127,7 @@ test("single Bot receives the same sourced understanding without revising any wo
   s.db.appendTranscriptEntry(user("Discuss the report",{id:"goal-a"}));
   h.tm.ackObligations.fulfillAckObligation=()=>{};
   const runtime=new h.runtime.TurnRuntime(h.tm);h.tm.turnRuntime=runtime;
-  const id=runtime.handleAgentUpdate({type:"send-message",timestampMs:1,message:{type:"text",content:"I will prepare a report",collaboration:{action:"assign",request_id:"self",goal_message_id:"goal-a",assignee:"a",reviewer:"user",title:"日报整理",criteria:["Readable"]}}},s);
+  const id=runtime.handleAgentUpdate({type:"send-message",timestampMs:1,message:{type:"text",content:"I will prepare a report",collaboration:{action:"assign",request_id:"self",goal_message_id:"goal-a",assignee:"a",reviewer:"self",title:"日报整理",criteria:["Readable"]}}},s);
   s.db.appendTranscriptEntry(user("《日报整理》请解释需求，不要修改",{id:"ask-a"}));
   const before=JSON.stringify(h.entries("a"));
   const context=h.runtime.collaborationContext(h.entries("a"),"a",["ask-a"]);

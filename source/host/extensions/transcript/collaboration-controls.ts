@@ -6,7 +6,7 @@ import { readSandGroupConfig } from "../../groups/group-store.js";
 import { prepareCollaboration, projectCollaboration } from "./collaboration.js";
 import { completionIsCurrent, projectCompletions } from "./collaboration-completion.js";
 import { verifyWorkEvidence } from "./collaboration-evidence.js";
-import { workDependenciesReady, workIsAccepted, workReviewNeedsRefresh } from "./collaboration-transitions.js";
+import { workIsCompleted, workReviewNeedsRefresh } from "./collaboration-transitions.js";
 import { appendEntry } from "./transcript-store.js";
 import { nextEntryId } from "./transcript-entry-ids.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
@@ -43,8 +43,28 @@ export class CollaborationControls {
   async snapshot(raw:unknown) {
     const {agentId} = query.parse(raw), {session,members} = await this.room(agentId);
     const entries:TranscriptEntry[] = session.db.getTranscriptEntries(), tasks = projectCollaboration(entries);
+    // Structural completion is historical. A current presentation must also
+    // check both published manifests, including a separate review/self-check
+    // report and every prerequisite, without rewriting the recorded judgment.
+    const verified = new Map<string, boolean>();
+    const isCurrent = (task: CollaborationTask): boolean => {
+      if (verified.has(task.id)) return verified.get(task.id)!;
+      let current = workIsCompleted(task, tasks);
+      if (current) {
+        try {
+          verifyWorkEvidence(entries, task.submission!.manifest, session.dbPath);
+          verifyWorkEvidence(entries, task.state === "completed" ? task.selfCheck!.manifest : task.review!.manifest!, session.dbPath);
+        } catch { current = false; }
+      }
+      if (current) current = task.dependencies.every(id => {
+        const dependency = tasks.get(id);return !!dependency && isCurrent(dependency);
+      });
+      verified.set(task.id, current);return current;
+    };
     return {agentId, tasks:[...tasks.values()].map(task => ({...task,
-      dependenciesReady:workDependenciesReady(task,tasks), acceptedForCurrentInputs:workIsAccepted(task,tasks), reviewNeedsRefresh:workReviewNeedsRefresh(task),
+      dependenciesReady:task.dependencies.every(id => {const dependency=tasks.get(id);return !!dependency && isCurrent(dependency);}),
+      acceptedForCurrentInputs:task.state === "accepted" && isCurrent(task), reviewNeedsRefresh:workReviewNeedsRefresh(task),
+      completedForCurrentInputs:isCurrent(task),
       canReview:this.canReview(task,members,entries), reviewToken:this.token(agentId,task,members,entries),
       evidence:(task.submission?.manifest ?? []).map(item => {
         const entry = entries.find(row => row.id === item.id), message = entry?.message as any;
@@ -53,7 +73,11 @@ export class CollaborationControls {
         return {id:item.id, available, text:available && message?.type === "text" ? String(message.content).slice(0,4000) : "",
           files:item.files.map(file => ({sha256:file.sha256,bytes:file.bytes}))};
       })})),
-      completions:[...projectCompletions(entries).values()].map(receipt => ({...receipt, current:completionIsCurrent(receipt,tasks)}))};
+      completions:[...projectCompletions(entries).values()].map(receipt => {
+        let current=completionIsCurrent(receipt,tasks) && receipt.tasks.every(pin => {const task=tasks.get(pin.id);return !!task && isCurrent(task);});
+        if (current) try { verifyWorkEvidence(entries,receipt.manifest,session.dbPath); } catch { current=false; }
+        return {...receipt,current};
+      })};
   }
   async review(raw:unknown) {
     const args = collaborationReviewRequestSchema.parse(raw), {session,members,group} = await this.room(args.agentId);

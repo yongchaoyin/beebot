@@ -84,19 +84,19 @@ test("tool schema retains work sidecar and rejects external channel commands",as
   const h=await continuityHarness(t);
   const message=action({action:"assign",request_id:"one",goal_message_id:"g",title:"Test",assignee:"a",criteria:["Read file"]});
   const output=await h.runtime.buildSandSendMessage({},message,{getIngestAttachment:()=>undefined,onSendMessage:()=>undefined});
-  assert.equal(output.collaboration.reviewer,"user");assert.equal(output.purpose,"update");
+  assert.equal(output.collaboration.reviewer,undefined);assert.equal(output.purpose,"update");
   await assert.rejects(h.runtime.buildSandSendMessage({},{...message,channel:"slack:somewhere"},{getIngestAttachment:()=>undefined,onSendMessage:()=>undefined}));
   assert.throws(()=>h.runtime.prepareCollaboration({messageId:"s",actor:"a",members:["a"],entries:[],message,sharedRoom:true}),/work_scope_unsupported/);
 });
 
-test("single Bot uses the actual update handler and cannot approve itself",async t=>{
+test("single Bot uses the actual update handler and defaults to explicit owner checking",async t=>{
   const h=await continuityHarness(t),s=h.sessions.get("a");
   s.db.appendTranscriptEntry({id:"user-1",kind:"message",role:"user",content:"Check the file"});
   h.tm.ackObligations.fulfillAckObligation=()=>{};
   const turn=new h.runtime.TurnRuntime(h.tm);h.tm.turnRuntime=turn;
   const msg=action({action:"assign",request_id:"private",goal_message_id:"user-1",title:"File",assignee:"a",criteria:["Readable"]});
   const id=turn.handleAgentUpdate({type:"send-message",message:msg,timestampMs:2},s);
-  assert.equal(h.runtime.projectCollaboration(h.entries("a")).get(id).reviewer,"user");
+  assert.equal(h.runtime.projectCollaboration(h.entries("a")).get(id).reviewer,"self");
   assert.equal(h.entries("room").length,0);
   turn.handleAgentUpdate({type:"send-message",message:action({action:"claim",request_id:"private-claim",task_id:id,expected_version:1}),timestampMs:3},s);
   assert.equal(h.runtime.projectCollaboration(h.entries("a")).get(id).state,"claimed");

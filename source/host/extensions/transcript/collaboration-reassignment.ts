@@ -12,6 +12,8 @@ export function transferUnstartedWork(input: {
   entries: readonly TranscriptEntry[]; messageId: string;
 }): {task: CollaborationTask; wake: string[]} {
   const {prior, action, actor, members, entries, messageId} = input;
+  if (action.action === "reassign") check(action.reviewer !== "user", "work_human_gate_unsupported",
+    "Use owner checks or a current peer; ask actual user decisions in conversation rather than creating a manual acceptance workflow.");
   check(action.action === "decline" ? actor === prior.assignee : actor === prior.creator,
     action.action === "decline" ? "work_not_owner" : "work_not_coordinator", "Only the designated colleague can decline; only this assignment's coordinator can reassign.");
   const wasClaimed = entries.some(entry => {
@@ -28,10 +30,11 @@ export function transferUnstartedWork(input: {
     return {task: next, wake: [prior.creator]};
   }
   check(members.includes(action.assignee), "work_assignee_unavailable", "Select a current colleague; this record does not grant capabilities.");
-  check(action.reviewer === "user" || (members.includes(action.reviewer) && action.reviewer !== action.assignee),
-    "work_reviewer_invalid", "Choose an independent current reviewer or the user.");
+  check(action.reviewer === "self" || (members.includes(action.reviewer) && action.reviewer !== action.assignee),
+    "work_reviewer_invalid", "Choose self for owner checks or an independent current reviewer.");
   check(action.assignee !== prior.assignee || prior.state === "declined", "work_same_assignee", "Only a declined task can be explicitly re-offered to the same colleague.");
   next.assignee = action.assignee;next.reviewer = action.reviewer;next.state = "offered";next.scopeVersion++;
+  next.reviewPolicy = action.reviewer === "self" ? "owner" : "peer";
   // Invalidate old assignment-scoped questions, retain goal/criteria/dependencies
   // and original quote identity. No automatic claim, cancellation or tool grant.
   return {task: next, wake: [action.assignee]};

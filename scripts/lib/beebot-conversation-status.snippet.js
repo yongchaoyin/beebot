@@ -36,7 +36,9 @@ function RBindConversationStatus(runtime) {
   const isRemote=()=>document.body?.dataset.beebotRemoteActive==="true";
   const snapshot=()=>entryStore?.get?.();
   const transportDown=()=>runtime.connection?.snapshots?.get?.()?.transport==="down";
-  const labels=()=>({queued:t("等待处理","Waiting to be handled"),processing:t("正在处理","Being handled"),processed:t("本轮已处理，暂无关联回复","Handled; no linked reply"),replied:t("已有回应","Response available"),failed:t("本次处理失败，消息已保留","Handling failed; message retained"),"needs-review":t("结果待核查，未自动重做","Review needed; not replayed"),cancelled:t("后续处理已停止","Further handling stopped")});
+  // Routine delivery bookkeeping stays in the transcript store. Only an
+  // interruption requiring context is added beside the actual conversation.
+  const labels=()=>({failed:t("本次处理失败，消息已保留","Handling failed; message retained"),"needs-review":t("结果需要核查，工作没有重新执行","The result needs checking; work has not been repeated"),cancelled:t("后续处理已停止","Further handling stopped")});
   function render(){
     scheduled=false;if(disposed)return;
     const current=runtime.selection.snapshots.get()?.currentAgentId??null;
@@ -47,7 +49,7 @@ function RBindConversationStatus(runtime) {
       for(const node of document.querySelectorAll("[data-bb-delivery],[data-bb-publication]"))node.remove();
     }
     const state=snapshot(),entries=!remote&&id&&Array.isArray(state?.entries)?state.entries:[];
-    const byRow=new Map(entries.filter(e=>e?.delivery&&labels()[e.delivery.state]).map(e=>[e.kind==="message"&&e.clientNonce?`nonce:${e.clientNonce}`:e.id,e]));
+    const byRow=new Map(entries.filter(e=>e?.delivery&&(labels()[e.delivery.state]||Object.values(e.delivery.recipients||{}).some(state=>labels()[state]))).map(e=>[e.kind==="message"&&e.clientNonce?`nonce:${e.clientNonce}`:e.id,e]));
     const names=new Map((runtime.roster?.snapshots?.get?.()?.agents?.rows||[]).map(bot=>[bot.id,bot.name]));
     const copy=labels();
     // Read statuses only from current authoritative transcript, not rendered text.
@@ -56,24 +58,22 @@ function RBindConversationStatus(runtime) {
       if(!entry){badge?.remove();continue;}
       if(!badge){badge=document.createElement("span");badge.dataset.bbDelivery=entry.id;row.append(badge);}
       const recipients=Object.entries(entry.delivery.recipients||{}).filter(([,value])=>copy[value]);
-      const detail=recipients.length>1?recipients.map(([bot,status])=>`${names.get(bot)||t("成员","Member")} · ${copy[status]}`).join("；"):"";
-      const systemStatus=entry.delivery.state==="replied"&&entry.delivery.systemResponse?.kind==="recorded-work-status";
-      const value=systemStatus?t("工作记录已返回，未重新执行","Work record returned; no new execution"):detail||copy[entry.delivery.state];
+      const detail=Object.keys(entry.delivery.recipients||{}).length>1?recipients.map(([bot,status])=>`${names.get(bot)||t("成员","Member")} · ${copy[status]}`).join("；"):"";
+      const attentionState=copy[entry.delivery.state]?entry.delivery.state:["needs-review","failed","cancelled"].find(state=>recipients.some(([,value])=>value===state));
+      const value=detail||copy[attentionState];
       if(badge.textContent!==value)badge.textContent=value;
-      badge.dataset.state=entry.delivery.state;
+      badge.dataset.state=attentionState;
     }
-    const publications=new Map(entries.filter(e=>e?.message?.artifact||e?.decisionStatus==="stale"||e?.message?.images?.some(image=>image.artifact)).map(e=>[e.id,e]));
+    // Artifacts already have their own conversation cards. Their provenance
+    // remains recorded internally; a hash banner adds no useful action here.
+    const publications=new Map(entries.filter(e=>e?.decisionStatus==="stale").map(e=>[e.id,e]));
     for(const row of document.querySelectorAll("[data-row-key]")){
       const entry=publications.get(row.getAttribute("data-row-key"));let badge=row.querySelector(":scope > [data-bb-publication]");
       if(!entry){badge?.remove();continue;}
       if(!badge){badge=document.createElement("span");badge.dataset.bbPublication=entry.id;row.append(badge);}
-      const files=entry.message?.artifact?[entry.message.artifact]:(entry.message?.images||[]).map(image=>image.artifact).filter(Boolean);
-      const value=entry.decisionStatus==="stale"?t("要求已变化，这个旧问题已失效；请在会话中重新确认。","Requirements changed. This old question is inactive; clarify in this conversation."):
-        files.map(file=>file.availability==="snapshot"&&/^[a-f0-9]{64}$/.test(file.sha256||"")
-          ?t(`成果快照 · ${Number(file.bytes).toLocaleString()} 字节 · SHA-256 ${file.sha256.slice(0,12)}…（不代表验收通过）`,`Artifact snapshot · ${Number(file.bytes).toLocaleString()} bytes · SHA-256 ${file.sha256.slice(0,12)}… (not an acceptance result)`)
-          :t("外部文件链接，未在本机验证。","External file link, not locally verified.")).join("；");
+      const value=t("要求已变化，这个旧问题已失效；请在会话中重新确认。","Requirements changed. This old question is inactive; clarify in this conversation.");
       if(badge.textContent!==value)badge.textContent=value;
-      badge.title=files.map(file=>file.sha256||"").filter(Boolean).join("\n");
+      badge.removeAttribute("title");
     }
     const unresolved=entries.filter(entry=>["queued","processing","needs-review"].includes(entry?.delivery?.state));
     const processing=unresolved.filter(entry=>["queued","processing"].includes(entry.delivery.state)).length;
@@ -81,9 +81,10 @@ function RBindConversationStatus(runtime) {
     if(dock&&toolbar.parentElement!==dock)dock.prepend(toolbar);
     toolbar.hidden=remote||!id||(!unresolved.length&&!feedback&&!intent);
     const nextSummary=transportDown()?t("连接中断，保留最后确认的处理状态。","Disconnected. Showing the last confirmed state."):
-      processing?t(`${processing} 条消息处理中或等待处理，你可以继续说话。`,`${processing} message(s) being handled or waiting. You can keep talking.`):
-      unresolved.length?t("有执行结果需要核查，未自动重做。","Some results need review. Nothing was automatically replayed."):"";
+      unresolved.some(entry=>entry.delivery.state==="needs-review")?t("有执行结果需要核查，工作没有重新执行。","Some results need checking. Work has not been repeated."):
+      processing?t("同事正在工作","Colleagues are working"):"";
     if(summary.textContent!==nextSummary)summary.textContent=nextSummary;
+    summary.hidden=!nextSummary;
     stop.textContent=t("停止此会话的工作","Stop this conversation’s work");
     stop.hidden=!processing||!!intent;stop.disabled=pending||transportDown()||typeof runtime.roster?.stopConversation!=="function";
     confirm.hidden=!intent;proceed.disabled=pending||transportDown();cancel.disabled=pending;

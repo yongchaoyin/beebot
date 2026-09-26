@@ -13,7 +13,7 @@ async function fixture(t, solo=false) {
  const entries=()=>h.entries(room), tasks=()=>h.runtime.projectCollaboration(entries());
  const owner=solo?"a":"b";
  const action=(actor,op)=>post(actor,{type:"text",content:"Work update",purpose:"update",collaboration:{request_id:`op-${++seq}`,...op}});
- const assign=()=>action("a",{action:"assign",goal_message_id:"goal",title:"Scoped result",assignee:owner,reviewer:solo?"user":"a",criteria:["Correct result"]});
+ const assign=()=>action("a",{action:"assign",goal_message_id:"goal",title:"Scoped result",assignee:owner,reviewer:solo?"self":"a",criteria:["Correct result"]});
  const command=(actor,id,type,extra={})=>action(actor,{action:type,task_id:id,expected_version:tasks().get(id).version,...extra});
  const evidence=(actor,id,content="Actual result")=>post(actor,{type:"text",purpose:"update",content,reply_to:id});
  const submit=(id,ref=evidence(owner,id))=>command(owner,id,"submit",{result_ids:[ref],evidence_ids:[ref]});

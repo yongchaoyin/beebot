@@ -349,7 +349,12 @@ export function projectTranscriptEntry(value: unknown, index: number, agentName:
   }
   if (value.kind === "notice") {
     const text = messageText(value);
-    return text == null ? null : { kind: "notice", id, text, timestampMs };
+    return text == null ? null : { kind: "notice", id, text, timestampMs,
+      ...(typeof value.code === "string" ? {code:value.code} : {}),
+      ...(typeof value.replyTo === "string" ? {replyTo:value.replyTo} : {}),
+      ...(typeof value.controlActor === "string" ? {controlActor:value.controlActor} : {}),
+      ...(isRecord(value.collaborationEvent) ? {collaborationEvent:value.collaborationEvent} : {}),
+    };
   }
   const message = isRecord(value.message) ? value.message : null;
   if (value.kind === "send-message" && message?.type === "permission-request") {

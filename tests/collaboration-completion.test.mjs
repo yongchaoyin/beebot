@@ -1,3 +1,4 @@
+import {publishHistoricalUserAssignment} from "./helpers/legacy-collaboration.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {continuityHarness} from "./helpers/continuity-harness.mjs";
@@ -6,7 +7,7 @@ function setup(h,room="room"){
  const session=h.sessions.get(room);session.db.appendTranscriptEntry({id:"goal",kind:"message",role:"user",content:"Improve this release"});let seq=0;
  const publish=(actor,message)=>h.tm.groupChat.postGroupMemberMessage(session,{id:actor,name:actor},message.content,undefined,h.runtime.prepareGroupPublication(session.dbPath,message,false));
  const tasks=()=>h.runtime.projectCollaboration(h.entries(room));
- const post=(actor,collaboration,content="Work event")=>publish(actor,{type:"text",purpose:"update",content,collaboration});
+ const post=(actor,collaboration,content="Work event")=>publishHistoricalUserAssignment(session,message=>publish(actor,message),{type:"text",purpose:"update",content,collaboration});
  const assign=(extra={})=>post("a",{action:"assign",request_id:`assign-${++seq}`,goal_message_id:"goal",title:"Chat behavior",assignee:"b",reviewer:"a",criteria:["Correct","Tested"],...extra});
  const cmd=(actor,id,action,rest={})=>post(actor,{action,request_id:`op-${++seq}`,task_id:id,expected_version:tasks().get(id).version,...rest});
  const result=(actor,id)=>publish(actor,{type:"text",purpose:"update",content:"Actual result and recorded test evidence",reply_to:id,work_on:id});
@@ -44,7 +45,7 @@ test("finish rechecks published evidence, not just earlier pass labels",async t=
  w.session.db.updateTranscriptEntry(e,row=>({...row,message:{...row.message,content:"Edited after review"}}));
  assert.throws(()=>w.finish(),/work_evidence_changed/);
 });
-test("human review is a durable inline receipt and wakes only intended colleagues once",async t=>{
+test("historical human review is a durable receipt and wakes only intended colleagues once",async t=>{
  const h=await continuityHarness(t,{members:["a","b","c"]}),w=setup(h),id=w.assign({reviewer:"user"});w.submit(id);
  const controls=new h.runtime.CollaborationControls(h.tm),snap=await controls.snapshot({agentId:"room"}),args=request(snap.tasks[0]);
  assert.equal(snap.tasks[0].canReview,true);
@@ -89,12 +90,13 @@ test("an unrelated user message does not invalidate a work review; scope correct
  w.cmd("a",another,"revise",{source_message_id:"correction",title:"New",criteria:["Updated"]});
  await assert.rejects(controls.review(next),/work_version_conflict/);
 });
-test("single Bot can submit, receive real user review and finish without inventing a manager",async t=>{
+test("historical single Bot work can receive real user review and finish without inventing a manager",async t=>{
  const h=await continuityHarness(t),session=h.sessions.get("a");
  // Model publishing reuses the exact single-Bot update method already tested in C1.
  const runtime=new h.runtime.TurnRuntime(h.tm);h.tm.ackObligations.fulfillAckObligation=()=>{};
  h.tm.roster.applyAgentUpdateToOutline=()=>{};
- const post=message=>{const prior=h.tm.turnRuntime;h.tm.turnRuntime=runtime;try{return runtime.handleAgentUpdate({type:"send-message",message,timestampMs:Date.now()},session);}finally{h.tm.turnRuntime=prior;}};
+ const rawPost=message=>{const prior=h.tm.turnRuntime;h.tm.turnRuntime=runtime;try{return runtime.handleAgentUpdate({type:"send-message",message,timestampMs:Date.now()},session);}finally{h.tm.turnRuntime=prior;}};
+ const post=message=>publishHistoricalUserAssignment(session,rawPost,message);
  session.db.appendTranscriptEntry({id:"goal",kind:"message",role:"user",content:"Independent work"});
  const id=post({type:"text",content:"I will do this",collaboration:{action:"assign",request_id:"one",goal_message_id:"goal",assignee:"a",reviewer:"user",title:"Independent",criteria:["Accurate"]}});
  post({type:"text",content:"Claim",collaboration:{action:"claim",request_id:"two",task_id:id,expected_version:1}});
@@ -108,11 +110,11 @@ test("single Bot can submit, receive real user review and finish without inventi
 });
 
 
-test("actual group user review resumes colleagues and closes the original goal, not the control notice",async t=>{
+test("historical group user review resumes colleagues and closes the original goal, not the control notice",async t=>{
  let h,id,started=false,finished=false,ack=false;
  h=await continuityHarness(t,{runMember:async call=>{
   const tasks=()=>h.runtime.projectCollaboration(h.entries("room"));
-  const post=(action,content)=>call.publish({type:"text",purpose:"update",content,collaboration:action});
+  const post=(action,content)=>publishHistoricalUserAssignment(h.sessions.get("room"),message=>call.publish(message),{type:"text",purpose:"update",content,collaboration:action});
   if(call.id==="a"&&!started){started=true;const goal=h.entries("room").find(e=>e.role==="user").id;
    id=post({action:"assign",request_id:"assign-live",goal_message_id:goal,title:"Deliver a version",assignee:"b",reviewer:"user",criteria:["Readable"]},"B owns this work");
   }else if(call.id==="b"&&tasks().get(id)?.state==="offered"){

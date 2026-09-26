@@ -89,10 +89,10 @@ test("single Bot records inability in the same chat without inventing another me
  h.tm.ackObligations.fulfillAckObligation=()=>{};h.tm.roster.applyAgentUpdateToOutline=()=>{};
  const post=collaboration=>{const prior=h.tm.turnRuntime;h.tm.turnRuntime=runtime;try{return runtime.handleAgentUpdate({type:"send-message",message:{type:"text",content:"Cannot take this work yet",purpose:"update",collaboration},timestampMs:Date.now()},session);}finally{h.tm.turnRuntime=prior;}};
  session.db.appendTranscriptEntry({id:"goal",kind:"message",role:"user",content:"Prepare a native test"});
- const id=post({action:"assign",request_id:"assign",goal_message_id:"goal",title:"Native test",assignee:"a",reviewer:"user",criteria:["Runs on macOS"]});
+ const id=post({action:"assign",request_id:"assign",goal_message_id:"goal",title:"Native test",assignee:"a",reviewer:"self",criteria:["Runs on macOS"]});
  post({action:"decline",request_id:"decline",task_id:id,expected_version:1,reason:"Native macOS environment not available"});
  assert.equal(h.runtime.projectCollaboration(h.entries("a")).get(id).state,"declined");
- assert.throws(()=>post({action:"reassign",request_id:"reassign",task_id:id,expected_version:2,assignee:"b",reviewer:"user",reason:"Try another"}),/work_assignee_unavailable/);
+ assert.throws(()=>post({action:"reassign",request_id:"reassign",task_id:id,expected_version:2,assignee:"b",reviewer:"self",reason:"Try another"}),/work_assignee_unavailable/);
  assert.equal(h.directCalls.length,0);
 });
 

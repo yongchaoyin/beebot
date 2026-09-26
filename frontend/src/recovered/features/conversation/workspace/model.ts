@@ -279,6 +279,9 @@ export interface TranscriptNotice {
   kind: "notice";
   code?: string;
   replyTo?: string;
+  /** Read-only metadata identifies generated bookkeeping without matching text. */
+  controlActor?: string;
+  collaborationEvent?: unknown;
   id: string;
   text: string;
   timestampMs: number;

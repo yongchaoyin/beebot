@@ -19,7 +19,9 @@ export const collaborationActionSchema = z.discriminatedUnion("action", [
   }).strict(),
   z.object({ ...common, action: z.literal("assign"), goal_message_id: address,
     title: z.string().trim().min(1).max(240), assignee: address,
-    reviewer: address.default("user"), criteria: z.array(z.string().trim().min(1).max(600)).min(1).max(12),
+    // The Host applies the self default. Keep omission through tool parsing so
+    // pre-upgrade request IDs can replay their original user-default digest.
+    reviewer: address.optional(), criteria: z.array(z.string().trim().min(1).max(600)).min(1).max(12),
     dependencies: refs,
   }).strict(),
   z.object({ ...task, action: z.literal("decline"), reason: z.string().trim().min(1).max(1000) }).strict(),
@@ -33,6 +35,8 @@ export const collaborationActionSchema = z.discriminatedUnion("action", [
   z.object({ ...task, action: z.literal("submit"), result_ids: requiredRefs, evidence_ids: requiredRefs }).strict(),
   z.object({ ...task, action: z.literal("review"), submission_id: address,
     verdict: z.enum(["accept", "changes"]), checks }).strict(),
+  z.object({ ...task, action: z.literal("self-check"), submission_id: address, checks,
+    source_message_id: address.optional() }).strict(),
   z.object({ ...task, action: z.literal("progress"), evidence_ids: refs }).strict(),
   z.object({ ...task, action: z.literal("block"), reason: z.string().trim().min(1).max(1000) }).strict(),
 ]);
@@ -50,7 +54,10 @@ export const collaborationTaskSchema = z.object({
   id: address, goalId: address, creator: address, assignee: address, reviewer: address,
   title: z.string().min(1).max(240), criteria: z.array(z.string().min(1).max(600)).min(1).max(12),
   dependencies: z.array(address).max(24), version,
-  state: z.enum(["offered", "declined", "claimed", "blocked", "waiting", "review", "changes-requested", "accepted"]),
+  state: z.enum(["offered", "declined", "claimed", "blocked", "waiting", "review", "changes-requested", "accepted", "completed"]),
+  // Absent only in historical records: never infer that a legacy human gate was
+  // explicitly requested, or silently migrate it during projection.
+  reviewPolicy: z.enum(["owner", "peer", "user"]).optional(),
   scopeVersion: version.default(1), revisionSourceId: address.optional(),
   submission: z.object({id: address, scopeVersion: version, resultIds: requiredRefs,
     evidenceIds: requiredRefs, manifest: z.array(workEvidenceSchema).max(48),
@@ -60,6 +67,9 @@ export const collaborationTaskSchema = z.object({
     // Optional only to read pre-upgrade history. Such acceptance needs a fresh
     // review; current evidence must never be passed off as its historical basis.
     manifest: z.array(workEvidenceSchema).min(1).max(288).optional(),
+  }).strict().optional(),
+  selfCheck: z.object({id: address, actor: address, submissionId: address, checks,
+    manifest: z.array(workEvidenceSchema).min(1).max(288), sourceMessageId: address.optional(),
   }).strict().optional(),
   roleAcceptance: roleCheckSchema.extend({primaryJob:z.string().min(1).max(240)}).strict().optional(),
   claimedBy: address.optional(), reason: z.string().max(1000).optional(),

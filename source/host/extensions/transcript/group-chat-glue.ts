@@ -667,6 +667,7 @@ export class GroupChatGlue {
     const config = readSandGroupConfig(dirname(session.dbPath));
     const candidateId = nextEntryId(session.db.getTranscriptEntries(), "send-message");
     const work = prepareCollaboration({ actorRole: this.tm.botRoles?.read(member.id) ?? null, messageId: candidateId, dbPath: session.dbPath, actor: member.id, members: config?.memberIds ?? [],
+      uncertainMessageIds: this.tm.sendPipeline.deliveries.list(session.dbPath).filter((record: {state: string}) => record.state === "needs-review").map((record: {id: string}) => record.id),
       entries: session.db.getTranscriptEntries(), message: publication?.message ?? {type:"text",content}, sharedRoom: !!config?.sharedRoomId });
     if (work.replayId) return work.replayId;
     const replyTo = publication?.replyToId ?? work.replyTo;
@@ -679,7 +680,7 @@ export class GroupChatGlue {
     const questionWork = message.type === "widget" ? referencedWork(session.db.getTranscriptEntries(), [workOnId, replyTo]) : undefined;
     const scopeVersion = questionWork ? (publication?.contextWorkVersions ? publication.contextWorkVersions[questionWork.id] : questionWork.scopeVersion) : undefined;
     const decisionContext = questionWork ? {taskId: questionWork.id, scopeVersion: scopeVersion ?? 0} : {userMessageId: decisionUserId};
-    const decisionStale = questionWork ? scopeVersion !== questionWork.scopeVersion || questionWork.state === "accepted" : decisionUserId !== (latestUser?.id ?? null);
+    const decisionStale = questionWork ? scopeVersion !== questionWork.scopeVersion || ["accepted", "completed"].includes(questionWork.state) : decisionUserId !== (latestUser?.id ?? null);
     const details = { ...(work.completion ? {completionEvent: work.completion} : {}), ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext, ...(decisionStale ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
     const author = { id: member.id, name: member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;

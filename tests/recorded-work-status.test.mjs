@@ -4,12 +4,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { continuityHarness, deferred, until } from "./helpers/continuity-harness.mjs";
 
-function offer(h, room = "room", title = "日报整理", assignee = "b") {
+function offer(h, room = "room", title = "日报整理", assignee = "b", reviewer = "self") {
   const session=h.sessions.get(room),seq=h.entries(room).length;
   const goal=`goal-${seq}`;
   session.db.appendTranscriptEntry({id:goal,kind:"message",role:"user",content:"Prepare a report, do not send it externally"});
   const message={type:"text",content:`I will prepare ${title}`,purpose:"update",collaboration:{action:"assign",
-    request_id:`assign-${seq}`,goal_message_id:goal,title,assignee,reviewer:"user",criteria:["Review content"]}};
+    request_id:`assign-${seq}`,goal_message_id:goal,title,assignee,reviewer,criteria:["Review content"]}};
   if(room==="a") {
     h.tm.ackObligations.fulfillAckObligation=()=>{};
     const prior=h.tm.turnRuntime,turn=new h.runtime.TurnRuntime(h.tm);h.tm.turnRuntime=turn;
@@ -147,11 +147,30 @@ test("querying an unclaimed work or old accepted record does not manufacture fre
   assert.equal([...h.runtime.projectCollaboration(h.entries("room"))][0][1].state,"offered");
 });
 
+test("a status answer attributes owner completion to the Bot without claiming human acceptance",async t=>{
+ const h=await continuityHarness(t),work=offer(h,"room","日报整理","b","self"),session=h.sessions.get("room");
+ const publish=(content,collaboration)=>{
+  const message={type:"text",content,reply_to:work,work_on:work,purpose:"update",...(collaboration?{collaboration}:{})};
+  return h.tm.groupChat.postGroupMemberMessage(session,{id:"b",name:"B"},content,undefined,h.runtime.prepareGroupPublication(session.dbPath,message,false));
+ };
+ publish("I will prepare the report.",{action:"claim",request_id:"status-claim",task_id:work,expected_version:1});
+ const result=publish("The completed report and its content check.");
+ const submission=publish("The report is ready to check.",{action:"submit",request_id:"status-submit",task_id:work,expected_version:2,result_ids:[result],evidence_ids:[result]});
+ publish("The report meets the requested content.",{action:"self-check",request_id:"status-check",task_id:work,expected_version:3,submission_id:submission,
+  checks:[{criterion:0,passed:true,evidence_ids:[result],note:"Checked the report content."}]});
+ const before=JSON.stringify([...h.runtime.projectCollaboration(h.entries("room"))]);
+ await h.send("《日报整理》完成了吗？","room",{awaitTurn:true});
+ const notice=notices(h,"room")[0];
+ assert.equal(notice.recordedWorkStatus.state,"completed");assert.match(notice.text,/Completed and checked by the Bot/);
+ assert.doesNotMatch(notice.text,/Acceptance recorded|User reviewed/);assert.equal(h.calls.length,0);
+ assert.equal(JSON.stringify([...h.runtime.projectCollaboration(h.entries("room"))]),before);
+});
+
 
 test("a quoted goal with multiple tasks requires a normal clarification instead of guessing progress",async t=>{
  const h=await continuityHarness(t,{runMember:async()=>["Which part of the goal?"]});
  const first=offer(h),initial=h.runtime.projectCollaboration(h.entries("room")).get(first),s=h.sessions.get("room");
- const message={type:"text",content:"Another part",purpose:"update",collaboration:{action:"assign",request_id:"second",goal_message_id:initial.goalId,title:"另一个部分",assignee:"a",reviewer:"user",criteria:["Check"]}};
+ const message={type:"text",content:"Another part",purpose:"update",collaboration:{action:"assign",request_id:"second",goal_message_id:initial.goalId,title:"另一个部分",assignee:"a",reviewer:"self",criteria:["Check"]}};
  h.tm.groupChat.postGroupMemberMessage(s,{id:"a",name:"A"},message.content,undefined,h.runtime.prepareGroupPublication(s.dbPath,message,false));
  await h.send("进度如何？","room",{replyToId:initial.goalId});await h.drain();
  assert.equal(notices(h,"room").length,0);assert.equal(h.calls.length,1);

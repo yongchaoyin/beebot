@@ -32,7 +32,7 @@ export { BotRoleStore } from "./source/host/agents/bot-role-store.ts";
       export { CollaborationControls } from './source/host/extensions/transcript/collaboration-controls.ts';
       export { projectCompletions, completionIsCurrent } from './source/host/extensions/transcript/collaboration-completion.ts';
       export { prepareCollaboration, projectCollaboration, collaborationContext, referencedWork, workDecisionCurrent } from './source/host/extensions/transcript/collaboration.ts';
-      export { workIsAccepted, workDependenciesReady } from "./source/host/extensions/transcript/collaboration-transitions.ts";
+      export { workIsAccepted, workIsCompleted, workDependenciesReady } from "./source/host/extensions/transcript/collaboration-transitions.ts";
       export { captureWorkEvidence } from "./source/host/extensions/transcript/collaboration-evidence.ts";
       export { SessionRuntime } from "./source/host/extensions/transcript/session-runtime.ts";
       export { TurnRuntime } from './source/host/extensions/transcript/turn-runtime.ts';

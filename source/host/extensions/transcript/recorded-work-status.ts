@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { readSandGroupConfig } from "../../groups/group-store.js";
 import { understandWorkMessage, projectCollaboration } from "./collaboration.js";
 import { workFocus } from "./collaboration-context.js";
-import { workDependenciesReady, workIsAccepted } from "./collaboration-transitions.js";
+import { workDependenciesReady, workIsCompleted } from "./collaboration-transitions.js";
 import { isRecordedStatusQuestion } from "./work-understanding.js";
 import { appendEntry, getTranscript } from "./transcript-store.js";
 import { publishDelivery } from "./conversation-deliveries.js";
@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
   declined: "暂未接手 / Declined",
   review: "已提交，等待检查 / Submitted for review",
   accepted: "记录中已验收 / Acceptance recorded",
+  completed: "Bot 已完成并自检 / Completed and checked by the Bot",
 };
 export interface RecordedWorkStatus {
   taskId: string;
@@ -57,9 +58,11 @@ export function recordedWorkStatus(
   if (!taskId) return;
   const tasks = projectCollaboration(entries), task = tasks.get(taskId);
   if (!task) return;
-  const recordedAcceptance = workIsAccepted(task, tasks);
-  const label = task.state === "accepted" && !recordedAcceptance
-    ? "验收依据已过期，需要重新核对 / Recorded acceptance needs rechecking"
+  const recordedCompletion = workIsCompleted(task, tasks);
+  const label = ["accepted", "completed"].includes(task.state) && !recordedCompletion
+    ? task.state === "accepted"
+      ? "验收依据已过期，需要重新核对 / Recorded acceptance needs rechecking"
+      : "成果依据已过期，需要重新核对 / Recorded result needs rechecking"
     : LABELS[task.state] ?? `记录状态 / Recorded state: ${task.state}`;
   const parts = [
     `工作记录快照 / Recorded work status: ${task.title}`,

@@ -1,3 +1,4 @@
+import {publishHistoricalUserAssignment} from "./helpers/legacy-collaboration.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dirname } from "node:path";
@@ -11,7 +12,7 @@ function work(h) {
   const tasks = () => h.runtime.projectCollaboration(h.entries("room"));
   const publish = (actor, message) => h.tm.groupChat.postGroupMemberMessage(session, { id: actor, name: actor }, message.content,
     undefined, h.runtime.prepareGroupPublication(session.dbPath, message, false));
-  const action = (actor, value) => publish(actor, { type: "text", content: "Recorded work update", purpose: "update",
+  const action = (actor, value) => publishHistoricalUserAssignment(session,message=>publish(actor,message), { type: "text", content: "Recorded work update", purpose: "update",
     collaboration: { request_id: `command-${++sequence}`, ...value } });
   const assign = (extra = {}) => action("a", { action: "assign", goal_message_id: "goal", assignee: "b", reviewer: "a",
     title: "Check the change", criteria: ["Matches the requirement"], ...extra });
@@ -46,6 +47,45 @@ test("unchanged independent review evidence permits closure and is preserved in 
   assert.deepEqual(w.tasks().get(id).review.manifest.map(item => item.id), [inspection]);
   w.finish(result);
   assert.equal(h.runtime.projectCompletions(h.entries("room")).size, 1);
+});
+
+for (const mode of ["self", "peer"]) for (const changed of ["submission", "check"]) {
+  test(`snapshot rejects changed ${mode} ${changed} evidence and dependent completion without changing history`, async t => {
+    const h = await continuityHarness(t), w = work(h), id = w.assign({reviewer:mode === "self" ? "self" : "a"});
+    const result=w.submit(id), inspection=w.result(mode === "self" ? "b" : "a", id, "Separate check passed");
+    const selfCheck=(taskId,evidence)=>w.command("b",taskId,"self-check",{submission_id:w.tasks().get(taskId).submission.id,
+      checks:[{criterion:0,passed:true,evidence_ids:[evidence],note:"Inspected this exact result"}]});
+    if(mode === "self") selfCheck(id,inspection);else w.review(id,inspection);
+    const dependent=w.assign({reviewer:"self",dependencies:[id]}), dependentResult=w.submit(dependent);selfCheck(dependent,dependentResult);
+    w.finish(dependentResult);
+    const controls=new h.runtime.CollaborationControls(h.tm);
+    const original=await controls.snapshot({agentId:"room"});
+    assert.ok(original.tasks.every(task=>task.completedForCurrentInputs));assert.equal(original.completions[0].current,true);
+    const target=changed === "submission" ? result : inspection;
+    const originalEntry=structuredClone(h.entries("room").find(entry=>entry.id===target));
+    w.session.db.updateTranscriptEntry(target,entry=>({...entry,message:{...entry.message,content:"The published material changed"}}));
+    const before=structuredClone(h.entries("room")), snapshot=await controls.snapshot({agentId:"room"});
+    const upstream=snapshot.tasks.find(task=>task.id===id), downstream=snapshot.tasks.find(task=>task.id===dependent);
+    assert.equal(upstream.completedForCurrentInputs,false);assert.equal(upstream.acceptedForCurrentInputs,false);
+    assert.equal(downstream.completedForCurrentInputs,false);assert.equal(downstream.dependenciesReady,false);
+    assert.equal(snapshot.completions[0].current,false);
+    if(changed === "check") assert.ok(upstream.evidence.every(item=>item.available),"the separate check is not part of submitted evidence");
+    assert.deepEqual(h.entries("room"),before,"reading must neither change history nor re-pin evidence");
+    assert.equal(upstream.state,mode === "self" ? "completed" : "accepted");assert.equal(downstream.state,"completed");
+    w.session.db.updateTranscriptEntry(target,()=>originalEntry);
+    assert.ok((await controls.snapshot({agentId:"room"})).tasks.every(task=>task.completedForCurrentInputs));
+  });
+}
+
+test("snapshot checks the final published result manifest without changing completed tasks", async t => {
+  const h=await continuityHarness(t),w=work(h),id=w.assign(),result=w.submit(id);w.review(id,result);
+  const final=w.result("a",id,"Combined final result");w.finish(final);
+  const controls=new h.runtime.CollaborationControls(h.tm);
+  assert.equal((await controls.snapshot({agentId:"room"})).completions[0].current,true);
+  w.session.db.updateTranscriptEntry(final,entry=>({...entry,message:{...entry.message,content:"Changed final result"}}));
+  const before=structuredClone(h.entries("room")),snapshot=await controls.snapshot({agentId:"room"});
+  assert.equal(snapshot.tasks[0].completedForCurrentInputs,true);assert.equal(snapshot.completions[0].current,false);
+  assert.deepEqual(h.entries("room"),before);
 });
 
 test("a peer cannot accept work after its assignee leaves the group", async t => {

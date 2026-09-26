@@ -14,8 +14,10 @@ async function setup(t){
  window.fixtureRuntime=runtime;window.eval(code+';RBindConversationStatus(window.fixtureRuntime);');await tick();
  return{window,document:window.document,selected,entries,other,connection,calls,stop:fn=>{stop=fn;},root:()=>window.document.getElementById("beebot-conversation-status")};
 }
-test("single and group transcript status is sourced from actual delivery records",async t=>{
- const ui=await setup(t);assert.match(ui.document.querySelector('[data-row-key="nonce:one"]').textContent,/A · Being handled；B · Waiting/);
+test("single and group chats keep routine bookkeeping quiet but show handling failures",async t=>{
+ const ui=await setup(t);assert.equal(ui.document.querySelector('[data-row-key="nonce:one"]').textContent,"User message");
+ assert.equal(ui.document.querySelectorAll('[data-bb-delivery]').length,0);
+ assert.equal(ui.root().querySelector('.bb-conversation-summary').textContent,"Colleagues are working");
  assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
  assert.equal(ui.root().parentElement.className,"sand-chat-input-dock");
  assert.equal(ui.document.querySelector('textarea').value,"Keep my draft");
@@ -45,10 +47,11 @@ test("late stop failure cannot overwrite another chat or steal its draft",async 
 test("connection loss preserves last status but never claims stop succeeded",async t=>{
  const ui=await setup(t);ui.connection.set({transport:"down"});await tick();
  assert.match(ui.root().textContent,/Disconnected/);assert.equal(ui.root().querySelector(":scope > button").disabled,true);
- assert.ok(ui.document.querySelector("[data-bb-delivery]"));assert.equal(ui.calls.length,0);
+ assert.equal(ui.document.querySelector("[data-bb-delivery]"),null);assert.equal(ui.calls.length,0);
 });
 test("virtualized rows remount their status without duplicating badges or mutating text",async t=>{
- const ui=await setup(t);ui.document.querySelector('[data-row-key="nonce:one"]').remove();
+ const ui=await setup(t);ui.entries.set({entries:[{id:"m1",kind:"message",clientNonce:"one",delivery:{state:"failed",recipients:{a:"failed"}}}]});await tick();
+ ui.document.querySelector('[data-row-key="nonce:one"]').remove();
  const row=ui.document.createElement("div");row.dataset.rowKey="nonce:one";row.textContent="Original";ui.document.querySelector("main").prepend(row);await tick();
  assert.equal(row.querySelectorAll("[data-bb-delivery]").length,1);assert.equal(row.firstChild.textContent,"Original");
  ui.entries.set(ui.entries.get());await tick();assert.equal(row.querySelectorAll("[data-bb-delivery]").length,1);
@@ -63,12 +66,14 @@ test("failed stop stays retryable and never repeats automatically",async t=>{
  assert.match(ui.root().textContent,/Stopping was not confirmed/);assert.equal(calls,1);assert.equal(ui.root().querySelector(".bb-conversation-confirm button").disabled,false);
 });
 
-test("artifact and stale-question hints are inline, truthful, and scoped to the current chat",async t=>{
+test("artifacts keep their original cards without technical banners and stale questions remain visible",async t=>{
  const ui=await setup(t);const hash="a".repeat(64);
  ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"attachment",artifact:{availability:"snapshot",bytes:100,sha256:hash}}}]});await tick();
- const badge=ui.document.querySelector("[data-bb-publication]");assert.match(badge.textContent,/Artifact snapshot/);assert.match(badge.textContent,/not an acceptance result/);assert.equal(badge.title,hash);
- ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"attachment",artifact:{availability:"external-link"}}}]});await tick();assert.match(badge.textContent,/not locally verified/);
- ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"widget"},decisionStatus:"stale"}]});await tick();assert.match(badge.textContent,/old question is inactive/);assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
+ assert.equal(ui.document.querySelector("[data-bb-publication]"),null);
+ assert.equal(ui.entries.get().entries[0].message.artifact.sha256,hash);
+ assert.equal(ui.document.querySelector('[data-row-key="handoff"]').textContent,"Bot handoff");
+ ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"attachment",artifact:{availability:"external-link"}}}]});await tick();assert.equal(ui.document.querySelector("[data-bb-publication]"),null);
+ ui.entries.set({entries:[{id:"handoff",kind:"send-message",message:{type:"widget"},decisionStatus:"stale"}]});await tick();const badge=ui.document.querySelector("[data-bb-publication]");assert.match(badge.textContent,/old question is inactive/);assert.equal(ui.document.querySelectorAll("[role=dialog]").length,0);
  ui.selected.set({currentAgentId:"other"});await tick();assert.equal(ui.document.querySelectorAll("[data-bb-publication]").length,0);
 });
 
@@ -76,25 +81,51 @@ test("a disposed status binding can mount again on the same live runtime",async 
  const ui=await setup(t);ui.window.__beebotConversationStatus.dispose();
  ui.window.eval("RBindConversationStatus(window.fixtureRuntime)");await tick();
  assert.equal(ui.document.querySelectorAll("#beebot-conversation-status").length,1);
- assert.ok(ui.document.querySelector("[data-bb-delivery]"));
+ assert.equal(ui.document.querySelector("[data-bb-delivery]"),null);
+ assert.equal(ui.root().querySelector(":scope > button").hidden,false);
 });
 
 
-test("system work status is distinct from a colleague reply and preserves other pending work",async t=>{
+test("system response receipts stay quiet while other pending work remains stoppable",async t=>{
  const ui=await setup(t);
  ui.entries.set({entries:[
   {id:"m1",kind:"message",clientNonce:"one",delivery:{state:"replied",recipients:{},systemResponse:{id:"notice-work-status-m1",kind:"recorded-work-status"}}},
   {id:"handoff",kind:"send-message",delivery:{state:"processing",recipients:{b:"processing"}}}
  ]});await tick();
- const badge=ui.document.querySelector('[data-bb-delivery="m1"]');
- assert.match(badge.textContent,/Work record returned; no new execution/);
- assert.match(ui.root().textContent,/1 message/);
+ assert.equal(ui.document.querySelector('[data-bb-delivery="m1"]'),null);
+ assert.equal(ui.root().querySelector(":scope > button").hidden,false);
+ assert.equal(ui.root().querySelector('.bb-conversation-summary').textContent,"Colleagues are working");
  assert.equal(ui.document.querySelector('textarea').value,"Keep my draft");
  assert.equal(ui.document.querySelectorAll('[role="dialog"]').length,0);
  ui.window.__sandUiLanguage="zh";ui.window.dispatchEvent(new ui.window.Event("sand-ui-language-changed"));await tick();
- assert.match(badge.textContent,/工作记录已返回，未重新执行/);
+ assert.equal(ui.document.querySelector('[data-bb-delivery="m1"]'),null);
+ assert.equal(ui.root().querySelector(":scope > button").textContent,"停止此会话的工作");
  ui.selected.set({currentAgentId:"other"});await tick();
  assert.equal(ui.document.querySelectorAll('[data-bb-delivery]').length,0);
+});
+
+test("a group member failure remains visible while a colleague is still processing",async t=>{
+ const ui=await setup(t);
+ ui.entries.set({entries:[{id:"m1",kind:"message",clientNonce:"one",delivery:{state:"processing",recipients:{a:"processing",b:"failed"}}}]});await tick();
+ const badge=ui.document.querySelector('[data-bb-delivery="m1"]');
+ assert.equal(badge.textContent,"B · Handling failed; message retained");assert.equal(badge.dataset.state,"failed");
+ assert.equal(ui.root().querySelector(":scope > button").hidden,false);
+ ui.entries.set({entries:[{id:"m1",kind:"message",clientNonce:"one",delivery:{state:"replied",recipients:{a:"replied",b:"replied"}}}]});await tick();
+ assert.equal(ui.document.querySelector('[data-bb-delivery]'),null);assert.equal(ui.root().hidden,true);
+});
+
+test("second and third sends leave the single and group composer usable without receipt clutter",async t=>{
+ for(const recipients of [{a:"processing"},{a:"processing",b:"queued"}]) {
+  const ui=await setup(t),draft=ui.document.querySelector('textarea');draft.focus();
+  const messages=[1,2,3].map(index=>({id:`m${index}`,kind:"message",clientNonce:`send-${index}`,delivery:{state:"processing",recipients}}));
+  for(let count=1;count<=3;count++){
+   ui.entries.set({entries:messages.slice(0,count)});await tick();
+   assert.equal(ui.document.querySelectorAll('[data-bb-delivery]').length,0);
+   assert.equal(ui.document.activeElement,draft);assert.equal(draft.value,"Keep my draft");
+   assert.equal(ui.root().querySelector(":scope > button").hidden,false);
+  }
+  assert.equal(ui.calls.length,0);
+ }
 });
 
 test("switching to a remote Bot fences a stale local stop confirmation before rendering",async t=>{
