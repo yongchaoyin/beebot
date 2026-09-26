@@ -1,3 +1,4 @@
+import { useSettingsText } from "./language";
 import { SettingsGroup } from "./computer-view-internals";
 import { settingsComputerPhase, useSettingsComputerController, type SettingsComputerMount } from "./computer";
 import { SandButton } from "../../../ui/sand-kit-primitives";
@@ -13,6 +14,7 @@ const RESET_COPY = "Start fresh if the computer gets stuck. It's rebuilt from yo
 const RESET_UNAVAILABLE_COPY = "Open an agent to reset the shared computer";
 
 export function SettingsComputerPanel({ state, actions }: SettingsComputerMount) {
+  const t = useSettingsText();
   const phase = settingsComputerPhase(state);
   const controller = useSettingsComputerController(state, actions);
   const updateExtraCopy = state.isRebuildBlocked
@@ -25,27 +27,27 @@ export function SettingsComputerPanel({ state, actions }: SettingsComputerMount)
   const resetExtraCopy = state.isRebuildBlocked ? BLOCKED_COPY : !state.canResetBox ? RESET_UNAVAILABLE_COPY : null;
 
   return (
-    <SettingsGroup title="BeeBot's Computer">
+    <SettingsGroup title={t("BeeBot's Computer")}>
       {phase === "up-to-date" && !state.isRebuildBlocked ? (
         <div className="sand-settings-uptodate-banner" role="status">
-          <strong>{UP_TO_DATE_COPY}</strong>
-          <span>{UPDATE_COPY}</span>
-        <SandButton className="sand-settings-reset" disabled={controller.updateDisabled} onClick={controller.requestUpdate} size="md" variant="secondary">{controller.updateLabel}</SandButton>
+          <strong>{t(UP_TO_DATE_COPY)}</strong>
+          <span>{t(UPDATE_COPY)}</span>
+        <SandButton className="sand-settings-reset" disabled={controller.updateDisabled} onClick={controller.requestUpdate} size="md" variant="secondary">{t(controller.updateLabel)}</SandButton>
         </div>
       ) : (
         <SettingsComputerRow
-          description={UPDATE_COPY}
-          extraCopy={updateExtraCopy}
-          label="Update BeeBot's Computer"
-          control={<SandButton className="sand-settings-reset" data-confirming={controller.updateConfirming || undefined} disabled={controller.updateDisabled} onClick={controller.requestUpdate} size="md" variant="secondary">{controller.updateLabel}</SandButton>}
+          description={t(UPDATE_COPY)}
+          extraCopy={updateExtraCopy == null ? null : t(updateExtraCopy)}
+          label={t("Update BeeBot's Computer")}
+          control={<SandButton className="sand-settings-reset" data-confirming={controller.updateConfirming || undefined} disabled={controller.updateDisabled} onClick={controller.requestUpdate} size="md" variant="secondary">{t(controller.updateLabel)}</SandButton>}
         />
       )}
-      {state.isDevBuild ? <SandButton className="sand-settings-force-refresh" disabled={state.isRebuildBlocked || state.isUpdateBoxPending || state.isResetBoxPending} onClick={controller.refreshAnyway} size="md" title="Test the update flow even though the computer is already up to date" variant="secondary">Refresh Anyway</SandButton> : null}
+      {state.isDevBuild ? <SandButton className="sand-settings-force-refresh" disabled={state.isRebuildBlocked || state.isUpdateBoxPending || state.isResetBoxPending} onClick={controller.refreshAnyway} size="md" title={t("Test the update flow even though the computer is already up to date")} variant="secondary">{t("Refresh Anyway")}</SandButton> : null}
       <SettingsComputerRow
-        description={RESET_COPY}
-        extraCopy={resetExtraCopy}
-        label="Reset BeeBot's Computer"
-        control={<SandButton className="sand-settings-reset" disabled={!state.canResetBox || state.isRebuildBlocked || state.isUpdateBoxPending || state.isResetBoxPending} onClick={controller.requestReset} sentiment="danger" size="md" variant="primary">{state.isResetBoxPending ? "Resetting…" : "Reset"}</SandButton>}
+        description={t(RESET_COPY)}
+        extraCopy={resetExtraCopy == null ? null : t(resetExtraCopy)}
+        label={t("Reset BeeBot's Computer")}
+        control={<SandButton className="sand-settings-reset" disabled={!state.canResetBox || state.isRebuildBlocked || state.isUpdateBoxPending || state.isResetBoxPending} onClick={controller.requestReset} sentiment="danger" size="md" variant="primary">{t(state.isResetBoxPending ? "Resetting…" : "Reset")}</SandButton>}
       />
     </SettingsGroup>
   );

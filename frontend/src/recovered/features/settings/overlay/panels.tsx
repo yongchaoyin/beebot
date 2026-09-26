@@ -1,4 +1,5 @@
 import * as React from "react";
+import { SettingsLanguageContext, useSettingsLanguage, useSettingsText } from "./language";
 import { createProductConnections, type ProductConnectionSection } from "../product-connections";
 import "../../../../presence/product-connections.css";
 import { useEffect, useState, type ReactNode } from "react";
@@ -86,19 +87,21 @@ export interface ThemePreferencePickerProps {
 }
 
 export function ThemePreferencePicker({ value, disabled = false, onChange }: ThemePreferencePickerProps) {
+  const t = useSettingsText();
   return <SandSelect
-    ariaLabel="Theme"
+    ariaLabel={t("Theme")}
     className="ui-select-trigger"
     disabled={disabled}
     menuSize="md"
     onValueChange={onChange}
-    options={THEME_PREFERENCE_OPTIONS}
+    options={THEME_PREFERENCE_OPTIONS.map(option => ({ ...option, label: t(option.label) }))}
     placement="bottom-end"
     value={value}
   />;
 }
 
-export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onOpenConnectionSection, onThemeChange, language = "en", languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
+export function GeneralSettingsPanel({ account, accountPending = false, accountError = null, theme, onAccountAction, onOpenConnectionSection, onThemeChange, language, languagePending = false, onLanguageChange, timeZone, localToolPermission, securityKey, autoReview, platform }: GeneralSettingsPanelProps) {
+  const currentLanguage = useSettingsLanguage(language), t = useSettingsText(currentLanguage);
   const [emailCopied, setEmailCopied] = useState(false);
   const [themePending, setThemePending] = useState(false);
   const signedIn = account.kind === "logged-in";
@@ -109,9 +112,9 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
     const timeout = window.setTimeout(() => setEmailCopied(false), 2000);
     return () => window.clearTimeout(timeout);
   }, [emailCopied]);
-  const title = signedIn ? account.name : account.kind === "logging-in" ? "Signing in" : "Not signed in";
-  const detail = signedIn ? account.email ?? "Existing provider session" : account.kind === "logging-in" ? "Finish signing in from your browser" : "No external provider session";
-  const action = signedIn ? "Sign Out" : account.kind === "logging-in" ? "Cancel" : "Disconnected";
+  const title = signedIn ? account.name : account.kind === "logging-in" ? t("Signing in") : t("Not signed in");
+  const detail = signedIn ? account.email ?? t("Existing provider session") : account.kind === "logging-in" ? t("Finish signing in from your browser") : t("No external provider session");
+  const action = signedIn ? t("Sign Out") : account.kind === "logging-in" ? t("Cancel") : t("Disconnected");
   // @evidence recovered/frontend/app/assets/index-BlqerJhg.js#L40-L50
   const copyEmail = async () => {
     if (!signedIn || account.email == null || typeof navigator === "undefined" || navigator.clipboard == null) return;
@@ -132,9 +135,9 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
   };
 
   return (
-    <div className="sand-settings-general">
-      <ProductConnections language={language} onOpenSection={onOpenConnectionSection} />
-      {account.kind !== "logged-out" && !(signedIn && account.isLocal) ? <SettingsGroup title={language === "zh" ? "已有外部服务会话" : "Existing external service session"}>
+    <SettingsLanguageContext.Provider value={currentLanguage}><div className="sand-settings-general">
+      <ProductConnections language={currentLanguage} onOpenSection={onOpenConnectionSection} />
+      {account.kind !== "logged-out" && !(signedIn && account.isLocal) ? <SettingsGroup title={currentLanguage === "zh" ? "已有外部服务会话" : "Existing external service session"}>
         <div className="sand-account-card" data-state={account.kind}>
           <span aria-hidden="true" className="sand-account-card__avatar">
             {signedIn && account.avatarDataUrl ? <img alt="" src={account.avatarDataUrl} /> : title.slice(0, 1).toLocaleUpperCase()}
@@ -142,40 +145,40 @@ export function GeneralSettingsPanel({ account, accountPending = false, accountE
           <span className="sand-account-card__body">
             <strong>{title}</strong>
             <span>{detail}</span>
-            {signedIn && account.email ? <SandIconButton aria-label="Copy email address" className="sand-account-card__copy-email" icon={emailCopied ? "check" : "copy"} label="Copy email address" onClick={() => void copyEmail()} platform={platform} size="sm" title="Copy email address" /> : null}
+            {signedIn && account.email ? <SandIconButton aria-label={t("Copy email address")} className="sand-account-card__copy-email" icon={emailCopied ? "check" : "copy"} label={t("Copy email address")} onClick={() => void copyEmail()} platform={platform} size="sm" title={t("Copy email address")} /> : null}
           </span>
           <SandButton disabled={isAccountPending} onClick={onAccountAction} shape="pill" size="md" variant={signedIn ? "secondary" : "primary"}>{action}</SandButton>
         </div>
         {visibleAccountError ? <p className="sand-account__error">{visibleAccountError}</p> : null}
       </SettingsGroup> : null}
 
-      <SettingsGroup title="Appearance">
+      <SettingsGroup title={t("Appearance")}>
         <label>
-          <span>Theme</span>
+          <span>{t("Theme")}</span>
           <ThemePreferencePicker disabled={themePending} onChange={handleThemeChange} value={theme} />
         </label>
         {onLanguageChange == null ? null : (
           <label>
-            <span>{language === "zh" ? "语言" : "Language"}</span>
+            <span>{currentLanguage === "zh" ? "语言" : "Language"}</span>
             <SandSelect
-              ariaLabel={language === "zh" ? "语言" : "Language"}
+              ariaLabel={currentLanguage === "zh" ? "语言" : "Language"}
               disabled={languagePending}
               onValueChange={(value) => {
                 if (value === "en" || value === "zh") void onLanguageChange(value);
               }}
               options={[{ value: "en", label: "English" }, { value: "zh", label: "中文" }]}
-              value={language ?? "en"}
+              value={currentLanguage}
             />
           </label>
         )}
       </SettingsGroup>
-      {timeZone || localToolPermission || autoReview ? <SettingsGroup title="Agent">
+      {timeZone || localToolPermission || autoReview ? <SettingsGroup title={t("Agent")}>
         {timeZone ? <TimeZoneSettingsPanel {...timeZone} /> : null}
         {localToolPermission ? <LocalToolPermissionSettingsPanel {...localToolPermission} /> : null}
         {autoReview ? <AutoReviewRulesPanel {...autoReview} /> : null}
       </SettingsGroup> : null}
       {securityKey ? <SecurityKeySettingsGroup {...securityKey} /> : null}
-    </div>
+    </div></SettingsLanguageContext.Provider>
   );
 }
 
@@ -189,24 +192,25 @@ export interface SecurityKeySettingsGroupProps {
 
 // @evidence recovered/frontend/app/assets/index-BlqerJhg.js#L519-L529
 export function SecurityKeySettingsGroup({ enabled, platform, onChange }: SecurityKeySettingsGroupProps) {
+  const t = useSettingsText();
   const action = useAsyncAction(onChange);
   const isPending = action.isPending;
   const supported = SECURITY_KEY_PLATFORMS.includes(platform);
   const description = supported
-    ? "Allow BeeBot to use a security key (such as a YubiKey) connected to your computer. You’ll be asked to approve each use."
-    : "Security keys from BeeBot's computer aren't supported on this platform yet.";
+    ? t("Allow BeeBot to use a security key (such as a YubiKey) connected to your computer. You’ll be asked to approve each use.")
+    : t("Security keys from BeeBot's computer aren't supported on this platform yet.");
   const handleChange = () => {
     if (!supported || isPending) return;
     action.dispatch(!enabled);
   };
 
   return (
-    <SettingsGroup title="Security Key">
+    <SettingsGroup title={t("Security Key")}>
       <div className="sand-settings-row">
         <SandSwitch
           checked={supported && enabled}
           disabled={isPending || !supported}
-          label={<span className="sand-settings-copy"><strong>Use hardware security keys</strong><small>{description}</small></span>}
+          label={<span className="sand-settings-copy"><strong>{t("Use hardware security keys")}</strong><small>{description}</small></span>}
           onCheckedChange={handleChange}
         />
       </div>
@@ -220,6 +224,7 @@ export interface LocalToolPermissionSettingsPanelProps {
 }
 
 export function LocalToolPermissionSettingsPanel({ state, onChange }: LocalToolPermissionSettingsPanelProps) {
+  const t = useSettingsText();
   const action = useAsyncAction(onChange);
   const isPending = action.isPending;
   const handleChange = (permission: LocalToolPermission) => {
@@ -229,16 +234,16 @@ export function LocalToolPermissionSettingsPanel({ state, onChange }: LocalToolP
   return (
     <label>
       <span>
-        <strong>Execution on Local Computer</strong>
-        <small>Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.</small>
-        {state.ceiling != null ? <small>Your team&apos;s admin allows at most &quot;{LOCAL_TOOL_PERMISSION_OPTIONS.find((option) => option.value === state.ceiling)?.label}&quot;</small> : null}
+        <strong>{t("Execution on Local Computer")}</strong>
+        <small>{t("Let the assistant open files and run tasks on your computer. Auto-review still checks everything first.")}</small>
+        {state.ceiling != null ? <small>{t("Your team’s admin allows at most")} “{t(LOCAL_TOOL_PERMISSION_OPTIONS.find((option) => option.value === state.ceiling)?.label ?? "")}”</small> : null}
       </span>
       <SandSelect
-        ariaLabel="Execution on Local Computer"
+        ariaLabel={t("Execution on Local Computer")}
         className="ui-select-trigger"
         disabled={isPending}
         onValueChange={handleChange}
-        options={LOCAL_TOOL_PERMISSION_OPTIONS.map((option) => ({ ...option, disabled: localToolPermissionExceedsCeiling(option.value, state.ceiling) }))}
+        options={LOCAL_TOOL_PERMISSION_OPTIONS.map((option) => ({ ...option, label: t(option.label), disabled: localToolPermissionExceedsCeiling(option.value, state.ceiling) }))}
         placement="bottom-end"
         value={state.permission}
       />
@@ -264,9 +269,10 @@ function supportedTimeZones(): string[] {
 }
 
 export function TimeZoneSettingsPanel({ state, onChange }: TimeZoneSettingsPanelProps) {
+  const t = useSettingsText();
   const action = useAsyncAction(onChange);
   const isPending = action.isPending;
-  const autoLabel = state.detectedTimeZone == null ? "Auto-detect" : `Auto-detect (${formatTimeZoneName(state.detectedTimeZone)})`;
+  const autoLabel = state.detectedTimeZone == null ? t("Auto-detect") : `${t("Auto-detect")} (${formatTimeZoneName(state.detectedTimeZone)})`;
   const options = supportedTimeZones();
   const values = [
     { value: "auto", label: autoLabel },
@@ -281,8 +287,8 @@ export function TimeZoneSettingsPanel({ state, onChange }: TimeZoneSettingsPanel
 
   return (
     <label>
-      <span>Timezone</span>
-      <SandSelect ariaLabel="Timezone" className="ui-select-trigger" disabled={isPending} onValueChange={handleChange} options={values} placement="bottom-end" value={state.overrideTimeZone ?? "auto"} />
+      <span>{t("Timezone")}</span>
+      <SandSelect ariaLabel={t("Timezone")} className="ui-select-trigger" disabled={isPending} onValueChange={handleChange} options={values} placement="bottom-end" value={state.overrideTimeZone ?? "auto"} />
     </label>
   );
 }
@@ -311,12 +317,13 @@ export interface UsageSettingsPanelProps {
 /** Configured model providers own their billing. Retired product trials and
  * upgrades are not BeeBot features; this panel never invokes purchase actions. */
 export function UsageSettingsPanel({ provider = DEFAULT_ROUTER_PROVIDER }: UsageSettingsPanelProps) {
+  const t = useSettingsText();
   if (!isRouterProviderId(provider)) return (
     <div className="sand-usage-section">
-      <SettingsGroup title="Model usage">
+      <SettingsGroup title={t("Model usage")}>
         <div className="sand-provider-usage-card">
-          <strong>Provider is not active</strong>
-          <span>Choose a configured model provider in Router. No BeeBot subscription is required.</span>
+          <strong>{t("Provider is not active")}</strong>
+          <span>{t("Choose a configured model provider in Router. No BeeBot subscription is required.")}</span>
         </div>
       </SettingsGroup>
     </div>
@@ -324,10 +331,10 @@ export function UsageSettingsPanel({ provider = DEFAULT_ROUTER_PROVIDER }: Usage
   const selectedProvider = routerProviderById(provider);
   return (
     <div className="sand-usage-section">
-      <SettingsGroup title={`${selectedProvider.label} usage`}>
+      <SettingsGroup title={`${selectedProvider.label} ${t("Usage")}`}>
         <div className="sand-provider-usage-card">
           <strong>{selectedProvider.label}</strong>
-          <span>{selectedProvider.usageDescription}</span>
+          <span>{t(selectedProvider.usageDescription)}</span>
         </div>
       </SettingsGroup>
     </div>
@@ -368,9 +375,10 @@ export interface RouterSettingsPanelProps {
 }
 
 function VendorAccountsPanel({ accounts }: { accounts: NonNullable<RouterSettingsPanelProps["vendorAccounts"]> }) {
-  const zh = accounts.language === "zh";
+  const language = useSettingsLanguage(accounts.language), t = useSettingsText(language);
+  const zh = language === "zh";
   const copy = zh
-    ? { title: "模型 API", add: "添加模型", save: "保存", cancel: "取消", remove: "删除", edit: "编辑", def: "默认", setDef: "设为默认", name: "名称", namePh: "例如 DeepSeek 主力", vendor: "厂商", key: "API key", keyPh: "粘贴 API key", keyReplace: "已保存 — 粘贴即可更换", base: "Base URL", model: "模型 ID", empty: "还没有保存的模型。添加后，新建 Bot 时可以为每个 Bot 选择不同的 API。", adding: "添加模型", editing: "编辑模型" }
+    ? { title: "模型 API", add: "添加模型", save: "保存", cancel: "取消", remove: "删除", edit: "编辑", def: "默认", setDef: "设为默认", name: "名称", namePh: "例如 DeepSeek 主力", vendor: "厂商", key: "API 密钥", keyPh: "粘贴 API 密钥", keyReplace: "已保存 — 粘贴即可更换", base: "接口地址", model: "模型 ID", empty: "还没有保存的模型。添加后，新建 Bot 时可以为每个 Bot 选择不同的 API。", adding: "添加模型", editing: "编辑模型" }
     : { title: "Model APIs", add: "Add model", save: "Save", cancel: "Cancel", remove: "Remove", edit: "Edit", def: "Default", setDef: "Set default", name: "Name", namePh: "e.g. DeepSeek main", vendor: "Vendor", key: "API key", keyPh: "Paste API key", keyReplace: "Saved — paste to replace", base: "Base URL", model: "Model ID", empty: "No saved models yet. Add one, then pick it when you create a bot.", adding: "Add model", editing: "Edit model" };
   const first = HTTP_ROUTER_PROVIDERS[0]!;
   const [adding, setAdding] = useState(false);
@@ -436,13 +444,13 @@ function VendorAccountsPanel({ accounts }: { accounts: NonNullable<RouterSetting
       {adding ? (
         <SettingsGroup title={editingId == null ? copy.adding : copy.editing}>
           {field(copy.name, <input aria-label={copy.name} onChange={(event) => setLabel(event.currentTarget.value)} placeholder={copy.namePh} value={label} />)}
-          {field(copy.vendor, <SandSelect ariaLabel={copy.vendor} className="ui-select-trigger" menuSize="md" onValueChange={(value) => { if (value != null) pick(value as HttpRouterProviderId); }} options={HTTP_ROUTER_PROVIDERS.map((item) => ({ value: item.id, label: item.label }))} placement="bottom-end" value={provider} />, true)}
+          {field(copy.vendor, <SandSelect ariaLabel={copy.vendor} className="ui-select-trigger" menuSize="md" onValueChange={(value) => { if (value != null) pick(value as HttpRouterProviderId); }} options={HTTP_ROUTER_PROVIDERS.map((item) => ({ value: item.id, label: t(item.label) }))} placement="bottom-end" value={provider} />, true)}
           {field(copy.key, <input aria-label={copy.key} onChange={(event) => setApiKey(event.currentTarget.value)} placeholder={hasKey ? copy.keyReplace : copy.keyPh} type="password" value={apiKey} />, true)}
           {field(copy.base, <input aria-label={copy.base} onChange={(event) => setBaseUrl(event.currentTarget.value)} placeholder={copy.base} value={baseUrl} />, true)}
           {field(copy.model, <input aria-label={copy.model} onChange={(event) => setModelId(event.currentTarget.value)} placeholder={copy.model} value={modelId} />, true)}
           <div className="sand-settings-row__actions">
             <SandButton disabled={accounts.pending} onClick={reset} size="sm" variant="secondary">{copy.cancel}</SandButton>
-            <SandButton disabled={accounts.pending || apiKey.trim().length === 0 && !hasKey} onClick={() => void Promise.resolve(accounts.onAdd({ id: editingId ?? undefined, label, provider, apiKey, baseUrl, modelId })).then(() => reset())} size="sm">{accounts.pending ? "Saving…" : copy.save}</SandButton>
+            <SandButton disabled={accounts.pending || apiKey.trim().length === 0 && !hasKey} onClick={() => void Promise.resolve(accounts.onAdd({ id: editingId ?? undefined, label, provider, apiKey, baseUrl, modelId })).then(() => reset())} size="sm">{accounts.pending ? t("Saving…") : copy.save}</SandButton>
           </div>
         </SettingsGroup>
       ) : null}
@@ -452,49 +460,50 @@ function VendorAccountsPanel({ accounts }: { accounts: NonNullable<RouterSetting
 }
 
 export function RouterSettingsPanel({ provider, pending = false, onChange, http, vendorAccounts }: RouterSettingsPanelProps) {
+  const t = useSettingsText();
   const selectedProvider = routerProviderById(provider);
   return (
     <div className="sand-router-section">
       {vendorAccounts != null ? <VendorAccountsPanel accounts={vendorAccounts} /> : null}
-      <SettingsGroup title="Provider">
+      <SettingsGroup title={t("Provider")}>
         <label className="sand-settings-row">
           <span className="sand-settings-copy">
-            <strong>Route agent requests through</strong>
-            <small>{selectedProvider.description}</small>
+            <strong>{t("Route agent requests through")}</strong>
+            <small>{t(selectedProvider.description)}</small>
           </span>
           <SandSelect
-            ariaLabel="Router provider"
+            ariaLabel={t("Router provider")}
             className="ui-select-trigger"
             disabled={pending}
             menuSize="md"
             onValueChange={(value) => void onChange(value as RouterProviderId)}
-            options={ROUTER_PROVIDERS.map((option) => ({ value: option.id, label: option.label }))}
+            options={ROUTER_PROVIDERS.map((option) => ({ value: option.id, label: t(option.label) }))}
             placement="bottom-end"
             value={provider}
           />
         </label>
       </SettingsGroup>
       {selectedProvider.kind === "http" && http != null ? (
-        <SettingsGroup title="Account">
+        <SettingsGroup title={t("Account")}>
           <label className="sand-settings-row">
-            <span className="sand-settings-copy"><strong>API key</strong></span>
-            <input aria-label="API key" disabled={pending} onChange={(event) => http.onApiKeyChange(event.currentTarget.value)} placeholder="Paste API key" type="password" value={http.apiKey} />
+            <span className="sand-settings-copy"><strong>{t("API key")}</strong></span>
+            <input aria-label={t("API key")} disabled={pending} onChange={(event) => http.onApiKeyChange(event.currentTarget.value)} placeholder={t("Paste API key")} type="password" value={http.apiKey} />
           </label>
           <label className="sand-settings-row">
-            <span className="sand-settings-copy"><strong>Base URL</strong></span>
-            <input aria-label="Base URL" disabled={pending} onChange={(event) => http.onBaseUrlChange(event.currentTarget.value)} value={http.baseUrl} />
+            <span className="sand-settings-copy"><strong>{t("Base URL")}</strong></span>
+            <input aria-label={t("Base URL")} disabled={pending} onChange={(event) => http.onBaseUrlChange(event.currentTarget.value)} value={http.baseUrl} />
           </label>
           <label className="sand-settings-row">
-            <span className="sand-settings-copy"><strong>Model ID</strong></span>
-            <input aria-label="Model ID" disabled={pending} onChange={(event) => http.onModelIdChange(event.currentTarget.value)} value={http.modelId} />
+            <span className="sand-settings-copy"><strong>{t("Model ID")}</strong></span>
+            <input aria-label={t("Model ID")} disabled={pending} onChange={(event) => http.onModelIdChange(event.currentTarget.value)} value={http.modelId} />
           </label>
-          <SandButton disabled={pending} onClick={() => void http.onSave()} size="sm">Save vendor</SandButton>
+          <SandButton disabled={pending} onClick={() => void http.onSave()} size="sm">{t("Save vendor")}</SandButton>
         </SettingsGroup>
       ) : null}
-      <SettingsGroup title="Usage">
+      <SettingsGroup title={t("Usage")}>
         <div className="sand-provider-usage-card">
           <strong>{selectedProvider.label}</strong>
-          <span>{selectedProvider.usageDescription}</span>
+          <span>{t(selectedProvider.usageDescription)}</span>
         </div>
       </SettingsGroup>
     </div>
@@ -530,6 +539,7 @@ export function UpdatesSettingsPanel({
   computer,
   egressTunnel
 }: UpdatesSettingsPanelProps) {
+  const language = useSettingsLanguage(), t = useSettingsText(language);
   const [checkPending, setCheckPending] = useState(false);
   const [installPending, setInstallPending] = useState(false);
   const [trackPending, setTrackPending] = useState(false);
@@ -542,19 +552,19 @@ export function UpdatesSettingsPanel({
   if (status == null) {
     return (
       <div className="sand-settings-beta-stack">
-        <SettingsGroup title="Updates">
+        <SettingsGroup title={t("Updates")}>
           <div className="sand-settings-beta__status" role="status">
-            <span>BeeBot couldn&apos;t load update status. Check again to retry.</span>
-            <SandButton disabled={checkPending} onClick={() => runPendingAction(onCheck, setCheckPending)} size="md" variant="secondary">{checkPending ? "Checking…" : "Check for Updates"}</SandButton>
+            <span>{t("BeeBot couldn't load update status. Check again to retry.")}</span>
+            <SandButton disabled={checkPending} onClick={() => runPendingAction(onCheck, setCheckPending)} size="md" variant="secondary">{checkPending ? t("Checking…") : t("Check for Updates")}</SandButton>
           </div>
         </SettingsGroup>
         {egressTunnel?.featureGateEnabled === true || egressTunnel?.enabled === true ? <EgressTunnelSettingsGroup
           available={egressTunnel.available}
           description={egressTunnel.enabled
-            ? egressTunnelStatusDescription(egressTunnel.status)
+            ? egressTunnelStatusDescription(egressTunnel.status, language)
             : egressTunnel.available
-              ? "Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections."
-              : "BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this."}
+              ? t("Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections.")
+              : t("BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this.")}
           enabled={egressTunnel.enabled}
           onChange={egressTunnel.onChange}
         /> : null}
@@ -562,7 +572,7 @@ export function UpdatesSettingsPanel({
       </div>
     );
   }
-  const message = updateStatusMessage(status);
+  const message = updateStatusMessage(status, language);
   const isDisabled = status.state.type === "disabled";
   const isChecking = status.state.type === "checking";
   const isTransitioning = isChecking || status.state.type === "available" || status.state.type === "downloading" || status.state.type === "staging";
@@ -571,37 +581,37 @@ export function UpdatesSettingsPanel({
   const effectiveAutoUpdateWhenIdle = status.autoUpdateWhenIdleOptIn ?? autoUpdateWhenIdle;
   const trackDescription = trackManagedByPolicy ? (
     <>
-      Update access is managed by internal release-track policy. <a href={INTERNAL_RELEASE_TRACK_CONFIG_URL} rel="noopener noreferrer" target="_blank">Open Statsig config</a>
+      {t("Update access is managed by internal release-track policy.")} <a href={INTERNAL_RELEASE_TRACK_CONFIG_URL} rel="noopener noreferrer" target="_blank">{t("Open Statsig config")}</a>
     </>
-  ) : "Stable is the safe default. Other tracks ship new builds earlier and more often. Switching checks for updates right away.";
+  ) : t("Stable is the safe default. Other tracks ship new builds earlier and more often. Switching checks for updates right away.");
   const egressVisible = egressTunnel?.featureGateEnabled === true || egressTunnel?.enabled === true;
   const egressAvailable = egressTunnel?.available === true;
   const egressDescription = egressTunnel?.enabled === true
-    ? egressTunnelStatusDescription(egressTunnel.status)
+    ? egressTunnelStatusDescription(egressTunnel.status, language)
     : egressAvailable
-      ? "Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections."
-      : "BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this.";
+      ? t("Route web traffic from BeeBot's computer out through this desktop instead of the cloud. Applies to new connections.")
+      : t("BeeBot's computer wasn't provisioned with the egress tunnel — start a new one to use this.");
   return (
     <div className="sand-settings-beta-stack">
-      <SettingsGroup title="Updates">
+      <SettingsGroup title={t("Updates")}>
         <label className="sand-settings-row">
-          <span className="sand-settings-copy"><strong>Update Track</strong><small>{trackDescription}</small></span>
-          <SandSelect ariaLabel="Update Track" className="ui-select-trigger" disabled={isDisabled || trackPending || trackManagedByPolicy} onValueChange={(track) => runPendingAction(() => onSetTrack(track), setTrackPending)} options={availableTracks.map((track) => ({ value: track, label: UPDATE_TRACK_LABELS[track] }))} placement="bottom-end" value={status.currentTrack} />
+          <span className="sand-settings-copy"><strong>{t("Update Track")}</strong><small>{trackDescription}</small></span>
+          <SandSelect ariaLabel={t("Update Track")} className="ui-select-trigger" disabled={isDisabled || trackPending || trackManagedByPolicy} onValueChange={(track) => runPendingAction(() => onSetTrack(track), setTrackPending)} options={availableTracks.map((track) => ({ value: track, label: t(UPDATE_TRACK_LABELS[track]) }))} placement="bottom-end" value={status.currentTrack} />
         </label>
         {autoUpdateGateEnabled ? <div className="sand-settings-row">
           <SandSwitch
             checked={effectiveAutoUpdateWhenIdle}
             disabled={isDisabled || autoUpdatePending}
-            label={<span className="sand-settings-copy"><strong>Auto-update when idle</strong><small>Automatically update your client while you&apos;re away.</small></span>}
+            label={<span className="sand-settings-copy"><strong>{t("Auto-update when idle")}</strong><small>{t("Automatically update your client while you're away.")}</small></span>}
             onCheckedChange={(checked) => runPendingAction(() => onSetAutoUpdateWhenIdle(checked), setAutoUpdatePending)}
           />
         </div> : null}
         <div className="sand-settings-row">
-          <span className="sand-settings-copy"><strong>BeeBot {status.currentVersion}</strong><small>Updates follow the {UPDATE_TRACK_LABELS[status.currentTrack]} track</small></span>
+          <span className="sand-settings-copy"><strong>BeeBot {status.currentVersion}</strong><small>{language === "zh" ? `通过${t(UPDATE_TRACK_LABELS[status.currentTrack])}通道获取更新` : `Updates follow the ${UPDATE_TRACK_LABELS[status.currentTrack]} track`}</small></span>
           {status.state.type === "ready" ? (
-            <SandButton disabled={installPending || onInstall == null} onClick={() => onInstall == null ? undefined : runPendingAction(onInstall, setInstallPending)} size="md" variant="primary">Restart to Update</SandButton>
+            <SandButton disabled={installPending || onInstall == null} onClick={() => onInstall == null ? undefined : runPendingAction(onInstall, setInstallPending)} size="md" variant="primary">{t("Restart to Update")}</SandButton>
           ) : (
-            <SandButton disabled={isDisabled || checkPending || isTransitioning} onClick={() => runPendingAction(onCheck, setCheckPending)} size="md" variant="secondary">{checkPending || isChecking ? "Checking…" : "Check for Updates"}</SandButton>
+            <SandButton disabled={isDisabled || checkPending || isTransitioning} onClick={() => runPendingAction(onCheck, setCheckPending)} size="md" variant="secondary">{checkPending || isChecking ? t("Checking…") : t("Check for Updates")}</SandButton>
           )}
         </div>
         <output aria-live="polite" className="sand-settings-beta__status" data-tone={message.tone}>{message.text}</output>
@@ -618,6 +628,7 @@ function EgressTunnelSettingsGroup({ available, description, enabled, onChange }
   enabled: boolean;
   onChange(enabled: boolean): void | Promise<boolean>;
 }) {
+  const t = useSettingsText();
   const [pending, setPending] = useState(false);
   const handleChange = () => {
     if (pending) return;
@@ -625,12 +636,12 @@ function EgressTunnelSettingsGroup({ available, description, enabled, onChange }
     void Promise.resolve(onChange(!enabled)).catch(() => undefined).finally(() => setPending(false));
   };
   return (
-    <SettingsGroup title="Egress">
+    <SettingsGroup title={t("Egress")}>
       <div className="sand-settings-row">
         <SandSwitch
           checked={enabled}
           disabled={pending || !available && !enabled}
-          label={<span className="sand-settings-copy"><strong>Route egress through this desktop</strong><small>{description}</small></span>}
+          label={<span className="sand-settings-copy"><strong>{t("Route egress through this desktop")}</strong><small>{description}</small></span>}
           onCheckedChange={handleChange}
         />
       </div>

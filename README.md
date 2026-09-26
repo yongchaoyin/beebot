@@ -149,8 +149,10 @@ different vendors on the same computer host.
 
 ### Language, groups, and the rest of the desktop
 
-- **Settings → Appearance → Language** chooses English or 中文 for BeeBot UI
-  copy. It follows that setting, not the operating system.
+- **Settings → General → Appearance → Language** chooses English or 中文 for
+  settings, desktop menus and conversation controls. It follows that setting,
+  not the operating system, and preserves message text and unsent drafts.
+  See [implementation and validation](docs/implementation/ui-language-completion.md).
 - **+ → New group chat** creates a group from existing bots.
 - Connected plugins, streaming, and local usage totals still work on routed
   HTTP models. Cursor-only cloud extras (web search/fetch, auto-review) stay

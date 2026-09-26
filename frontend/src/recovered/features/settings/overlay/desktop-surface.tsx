@@ -31,10 +31,11 @@ import type { SettingsComputerMount } from "./computer";
 import { SettingsNoticeView, settingsNoticeFromEvent, type SettingsNotice } from "./notice";
 import { publishSurfaceNotice, type SettingsNoticeEvent } from "../../../contracts/surface-notice";
 import { SandButton } from "../../../ui/sand-kit-primitives";
-
-const SETTINGS_FALLBACK_LABELS = { retry: "Retry" };
+import { SettingsLanguageContext, useSettingsText, type SettingsLanguage } from "./language";
 
 function ServersSettingsPanel({ onOpenBot }: { onOpenBot(): void }) {
+  const t = useSettingsText();
+  const [unavailable, setUnavailable] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const onOpenBotRef = useRef(onOpenBot);
   useEffect(() => { onOpenBotRef.current = onOpenBot; }, [onOpenBot]);
@@ -44,12 +45,12 @@ function ServersSettingsPanel({ onOpenBot }: { onOpenBot(): void }) {
       __beebotMountServersSettings?: (root: HTMLElement, options: { onOpenBot(): void }) => (() => void) | undefined;
     }).__beebotMountServersSettings;
     if (mount == null) {
-      host.current.textContent = "Server connections are not available in this build.";
+      setUnavailable(true);
       return;
     }
     return mount(host.current, { onOpenBot: () => onOpenBotRef.current() });
   }, []);
-  return <div ref={host} style={{ minWidth: 0 }} />;
+  return <><div ref={host} style={{ minWidth: 0 }} />{unavailable ? <p role="status">{t("Server connections are not available in this build.")}</p> : null}</>;
 }
 
 export interface SettingsDesktopSurfaceProps {
@@ -73,6 +74,9 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   const [routerPending, setRouterPending] = useState(false);
   const [routerHttp, setRouterHttp] = useState({ apiKey: "", baseUrl: "", modelId: "" });
   const [uiLanguage, setUiLanguage] = useState<"en" | "zh">("en");
+  const [languagePending, setLanguagePending] = useState(false);
+  const languageSerial = useRef(0);
+  const t = useSettingsText(uiLanguage);
   const [vendorAccounts, setVendorAccounts] = useState<{ vendors: { id: string; label: string; provider: string; baseUrl: string; modelId: string }[]; defaultVendorId: string | null }>({ vendors: [], defaultVendorId: null });
   const [vendorAccountsPending, setVendorAccountsPending] = useState(false);
   const [vendorAccountsError, setVendorAccountsError] = useState<string | null>(null);
@@ -80,6 +84,25 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
     setSurfaceNotice(settingsNoticeFromEvent(event));
     onNotice?.(event);
   }, [onNotice]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    const view = window as Window & { __sandUiLanguage?: SettingsLanguage };
+    const sync = () => {
+      languageSerial.current++;
+      if (view.__sandUiLanguage === "en" || view.__sandUiLanguage === "zh") setUiLanguage(view.__sandUiLanguage);
+    };
+    window.addEventListener("sand-ui-language-changed", sync);
+    const serial = languageSerial.current;
+    void bridge.agent.getUiLanguage?.().then(value => {
+      if (!active || serial !== languageSerial.current || (value?.language !== "en" && value?.language !== "zh")) return;
+      setUiLanguage(value.language);
+      view.__sandUiLanguage = value.language;
+      window.dispatchEvent(new Event("sand-ui-language-changed"));
+    }).catch(() => undefined);
+    return () => { active = false;languageSerial.current++;window.removeEventListener("sand-ui-language-changed", sync); };
+  }, [bridge, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -152,7 +175,6 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
-    void bridge.agent.getUiLanguage?.().then((value) => { if (active && value?.language === "zh") setUiLanguage("zh"); }).catch(() => undefined);
     void bridge.agent.getInferenceVendors?.().then((listed) => {
       if (!active) return;
       setVendorAccounts({ vendors: [...(listed?.vendors ?? [])], defaultVendorId: listed?.defaultVendorId ?? null });
@@ -204,9 +226,10 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
 
 
   return (
-    <>
+    <SettingsLanguageContext.Provider value={uiLanguage}>
       <SettingsNoticeView notice={surfaceNotice} onDismiss={() => setSurfaceNotice(null)} />
       <SettingsModalShell
+      language={uiLanguage}
       initialSection={initialSection}
       isOpen={isOpen}
       onClose={onClose}
@@ -214,9 +237,9 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
         if (section === "servers") return <ServersSettingsPanel onOpenBot={onClose} />;
         if (snapshot == null) return (
           <div aria-live="polite" role={error == null ? "status" : "alert"}>
-            {error == null ? null : <>
+            {error == null ? t("Loading settings…") : <>
               <span>{error}</span>
-              <SandButton aria-label="Retry" onClick={() => setReload((value) => value + 1)} size="sm" variant="secondary">{SETTINGS_FALLBACK_LABELS.retry}</SandButton>
+              <SandButton aria-label={t("Retry")} onClick={() => setReload((value) => value + 1)} size="sm" variant="secondary">{t("Retry")}</SandButton>
             </>}
           </div>
         );
@@ -264,9 +287,24 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
             }}
             theme={snapshot.theme}
             language={uiLanguage}
+            languagePending={languagePending}
             onLanguageChange={async (next) => {
-              setUiLanguage(next);
-              await bridge.agent.setUiLanguage?.(next);
+              if (languagePending || next === uiLanguage) return;
+              const previous = uiLanguage, serial = ++languageSerial.current;
+              setLanguagePending(true);setUiLanguage(next);
+              try {
+                if (bridge.agent.setUiLanguage == null) throw new Error("Language settings are unavailable");
+                const saved = await bridge.agent.setUiLanguage(next);
+                if (serial !== languageSerial.current) return;
+                const language = saved?.language === "zh" ? "zh" : "en";
+                setUiLanguage(language);
+                (window as Window & { __sandUiLanguage?: SettingsLanguage }).__sandUiLanguage = language;
+                window.dispatchEvent(new Event("sand-ui-language-changed"));
+              } catch {
+                if (serial !== languageSerial.current) return;
+                setUiLanguage(previous);
+                setSurfaceNotice({ kind: "error", text: t("Could not save the interface language. Your previous language has been restored.") });
+              } finally { setLanguagePending(false); }
             }}
           />
         );
@@ -416,6 +454,6 @@ export function SettingsDesktopSurface({ bridge, coordinatorClient = null, initi
       showUsage={snapshot != null && (routerProvider !== "cursor" || shouldShowUsageSettings(snapshot.usagePageFeatureGateEnabled, snapshot.usage))}
       iconPlatform={bridge.platform === "win32" ? "windows" : "mac"}
       />
-    </>
+    </SettingsLanguageContext.Provider>
   );
 }

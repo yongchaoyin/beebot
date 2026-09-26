@@ -216,7 +216,11 @@ test("Router settings use the trusted backend and display recorded inference usa
   assert.match(rendererPatch, /Model APIs/);
   assert.match(rendererPatch, /sand-vendor-accounts\.snippet\.js/);
   assert.match(mainEdge, /This vendor needs a Base URL and model ID/);
-  assert.match(rendererPatch, /getUiLanguage/);
+  const languageRuntime = await readFile(path.join(repoRoot, "scripts", "lib", "ui-language-runtime.snippet.js"), "utf8");
+  assert.match(languageRuntime, /desktop\.agent\.getUiLanguage\(\)/);
+  assert.match(languageRuntime, /desktop\.agent\.setUiLanguage\(next\)/);
+  assert.match(rendererPatch, /__beebotUiLanguage/);
+  assert.match(rendererPatch, /patchUiLanguageRenderer/);
   assert.match(rendererPatch, /RLanguageRow/);
   assert.match(turnShell, /inferenceProvider === "cursor"/);
   assert.match(turnShell, /resolveInferenceForAgent/);

@@ -6,6 +6,7 @@ import { SandIcon, SandIconButton } from "../../../ui/sand-kit-primitives";
 import type { SandIconPlatform } from "../../../ui/sand-icon-registry";
 import { OverlayDialog } from "../../../ui/overlay-primitives";
 import "./view.css";
+import { SettingsLanguageContext, useSettingsLanguage, useSettingsText, type SettingsLanguage } from "./language";
 
 export type SettingsSectionId = "general" | "servers" | "router" | "usage" | "beta";
 
@@ -33,6 +34,7 @@ export function settingsSectionsForUsage(
 }
 
 export interface SettingsModalShellProps {
+  language?: SettingsLanguage;
   initialSection?: string;
   isOpen: boolean;
   onClose(): void;
@@ -57,8 +59,10 @@ export function SettingsModalShell({
   closeOnBackdrop = true,
   closeOnEscape = true,
   trapFocus = true,
-  iconPlatform
+  iconPlatform,
+  language
 }: SettingsModalShellProps) {
+  const currentLanguage = useSettingsLanguage(language), t = useSettingsText(currentLanguage);
   const visibleSections = settingsSectionsForUsage(sections, showUsage);
   const firstSection = visibleSections[0]?.id ?? "general";
   const resolveSection = (candidate: string | undefined): SettingsSectionId =>
@@ -80,17 +84,17 @@ export function SettingsModalShell({
   const panelId = `sand-settings-panel-${active.id}`;
   const headingId = `${panelId}-heading`;
   return (
-    <OverlayDialog
+    <SettingsLanguageContext.Provider value={currentLanguage}><OverlayDialog
       className="sand-settings-dialog"
       closeOnBackdrop={closeOnBackdrop}
       closeOnEscape={closeOnEscape}
-      label="BeeBot settings"
+      label={t("BeeBot settings")}
       onClose={onClose}
       open={isOpen}
       trapFocus={trapFocus}
     >
       <div className="sand-settings-layout">
-        <nav aria-label="Settings sections" className="sand-settings-nav">
+        <nav aria-label={t("Settings sections")} className="sand-settings-nav">
           {visibleSections.map((section) => {
             const selected = section.id === active.id;
             return (
@@ -104,19 +108,19 @@ export function SettingsModalShell({
                 type="button"
               >
                 <SandIcon name={section.icon} platform={iconPlatform} size="sm" />
-                <span>{section.label}</span>
+                <span>{sections === SETTINGS_SECTIONS ? t(section.label) : section.label}</span>
               </button>
             );
           })}
         </nav>
 
         <section aria-labelledby={headingId} className="sand-settings-panel" id={panelId}>
-          <SandIconButton aria-label="Close" className="sand-settings-panel__close" icon="close" label="Close" onClick={onClose} size="sm" />
-          <h2 id={headingId}>{active.label}</h2>
+          <SandIconButton aria-label={t("Close")} className="sand-settings-panel__close" icon="close" label={t("Close")} onClick={onClose} size="sm" />
+          <h2 id={headingId}>{sections === SETTINGS_SECTIONS ? t(active.label) : active.label}</h2>
           <div className="sand-settings-panel__body">{renderSection(active.id, (section) => setActiveSection(resolveSection(section)))}</div>
         </section>
       </div>
-    </OverlayDialog>
+    </OverlayDialog></SettingsLanguageContext.Provider>
   );
 }
 

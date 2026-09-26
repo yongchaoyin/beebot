@@ -30,7 +30,7 @@ function RBotSvg(shape,colorId,size){
   svg.innerHTML=`<defs><linearGradient id="${id}" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="${ink.light}"/><stop offset="1" stop-color="${ink.dark}"/></linearGradient></defs><path d="${d}" fill="url(#${id})"/><g fill="#fff"><ellipse cx="85.27" cy="106.27" rx="10" ry="7"/><ellipse cx="143.27" cy="106.27" rx="10" ry="7"/></g>`;
   return svg;
 }
-async function RLang(){try{const st=await window.desktop.agent.getUiLanguage();window.__sandUiLanguage=st?.language==="zh"?"zh":"en"}catch{}}
+async function RLang(){if(window.__beebotUiLanguage){await window.__beebotUiLanguage.initialize();return;}try{const st=await window.desktop.agent.getUiLanguage();window.__sandUiLanguage=st?.language==="zh"?"zh":"en"}catch{}}
 function RSidebarLeft(){const el=document.querySelector(".sand-agents-sidebar, [class*='sand-agents-sidebar']");return el?Math.round(el.getBoundingClientRect().width):260}
 function RAgentVendorId(agentId){
   window.__sandAgentVendors=window.__sandAgentVendors||{};

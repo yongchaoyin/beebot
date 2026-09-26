@@ -339,7 +339,7 @@ function RBindMentions(){
   document.addEventListener("focusin",event=>{if(RMentionSession&&event.target!==RMentionSession.state.editor) RHideMention();},true);
   window.addEventListener("resize",RHideMention);
   window.addEventListener("beebot-node-selection",RHideMention);
-  window.addEventListener("sand-ui-language-changed",()=>{RHideMention();RPaintGroupBar();});
+  window.addEventListener("sand-ui-language-changed",()=>{RHideMention();RRefreshGroups();});
 }
 function RRefreshGroups(){
   REnsureGroupStyle();

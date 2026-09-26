@@ -1,3 +1,4 @@
+import { useSettingsText } from "./language";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { SettingsNoticeEvent as SettingsNoticeEventContract } from "../../../contracts/surface-notice";
 import { SandIcon, SandIconButton } from "../../../ui/sand-kit-primitives";
@@ -103,6 +104,7 @@ export interface SettingsNoticeViewProps {
 }
 
 export function SettingsNoticeView({ notice, onDismiss, scheduler = BROWSER_SCHEDULER }: SettingsNoticeViewProps) {
+  const t = useSettingsText();
   const expiry = useMemo(() => createSettingsNoticeExpiry(scheduler), [scheduler]);
   useEffect(() => () => expiry.dispose(), [expiry]);
   useEffect(() => { expiry.setNotice(notice); }, [expiry, notice]);
@@ -112,7 +114,7 @@ export function SettingsNoticeView({ notice, onDismiss, scheduler = BROWSER_SCHE
   return <div aria-live="polite" className={`${isError ? ERROR_CLASS : SUCCESS_CLASS} sand-settings-toast`} data-kind={notice.kind}>
     <NoticeIcon name={isError ? "close" : "check"} />
     <span className={TEXT_CLASS}>{notice.text}</span>
-    <SandIconButton aria-label="Dismiss" className={DISMISS_CLASS} icon="close" label="Dismiss" onClick={onDismiss} size="sm" />
+    <SandIconButton aria-label={t("Dismiss")} className={DISMISS_CLASS} icon="close" label={t("Dismiss")} onClick={onDismiss} size="sm" />
   </div>;
 }
 

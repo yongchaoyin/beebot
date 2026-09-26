@@ -1,4 +1,5 @@
 import type { DesktopUpdateTrack } from "../../../contracts/desktop-bridge";
+import { settingsText, type SettingsLanguage } from "./language";
 // @evidence src/app/dist/renderer/assets/index-BlqerJhg.js#L1
 
 export type UpdateTrack = DesktopUpdateTrack;
@@ -47,49 +48,51 @@ export interface UpdateStatusMessage {
   tone: UpdateTone;
 }
 
-export function updateTrackOption(track: UpdateTrack): { value: UpdateTrack; label: string } {
-  return { value: track, label: UPDATE_TRACK_LABELS[track] };
+export function updateTrackOption(track: UpdateTrack, language: SettingsLanguage = "en"): { value: UpdateTrack; label: string } {
+  return { value: track, label: settingsText(language, UPDATE_TRACK_LABELS[track]) };
 }
 
-export function disabledUpdateMessage(status: UpdateStatus): string {
+export function disabledUpdateMessage(status: UpdateStatus, language: SettingsLanguage = "en"): string {
+  const t = (text: string) => settingsText(language, text);
   if (status.state.type !== "disabled") return "";
   switch (status.state.reason) {
     case "not-packaged":
-      return "Updates are disabled in dev builds";
+      return t("Updates are disabled in dev builds");
     case "lab-build":
-      return "BeeBot Lab is a one-off test build and never auto-updates";
+      return t("BeeBot Lab is a one-off test build and never auto-updates");
     case "unsupported-platform":
-      return "Updates aren't available on this platform";
+      return t("Updates aren't available on this platform");
     case "disabled-by-env":
-      return "Updates are disabled by SAND_DISABLE_UPDATES";
+      return t("Updates are disabled by SAND_DISABLE_UPDATES");
   }
 }
 
-export function updateStatusMessage(status: UpdateStatus): UpdateStatusMessage {
+export function updateStatusMessage(status: UpdateStatus, language: SettingsLanguage = "en"): UpdateStatusMessage {
+  const zh = language === "zh", t = (text: string) => settingsText(language, text);
   const state = status.state;
   switch (state.type) {
     case "disabled":
-      return { text: disabledUpdateMessage(status), tone: "default" };
+      return { text: disabledUpdateMessage(status, language), tone: "default" };
     case "checking":
-      return { text: "Checking for updates…", tone: "default" };
+      return { text: t("Checking for updates…"), tone: "default" };
     case "available":
-      return { text: `BeeBot ${state.version} is available`, tone: "default" };
+      return { text: zh ? `BeeBot ${state.version} 已可更新` : `BeeBot ${state.version} is available`, tone: "default" };
     case "downloading": {
       const progress = state.progress != null ? ` (${Math.round(state.progress * 100)}%)` : "";
-      return { text: `Downloading BeeBot ${state.version}…${progress}`, tone: "default" };
+      return { text: zh ? `正在下载 BeeBot ${state.version}…${progress}` : `Downloading BeeBot ${state.version}…${progress}`, tone: "default" };
     }
     case "staging":
-      return { text: `Preparing BeeBot ${state.version}…`, tone: "default" };
+      return { text: zh ? `正在准备 BeeBot ${state.version}…` : `Preparing BeeBot ${state.version}…`, tone: "default" };
     case "ready":
       return state.lastCheck?.result === "error"
-        ? { text: `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}. BeeBot ${state.version} is still ready. Restart to apply.`, tone: "error" }
-        : { text: `BeeBot ${state.version} is ready. Restart to apply.`, tone: "ready" };
+        ? { text: zh ? `检查更新失败：${state.lastCheck.errorMessage ?? t("unknown error")}。BeeBot ${state.version} 仍已准备就绪，重启即可应用。` : `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}. BeeBot ${state.version} is still ready. Restart to apply.`, tone: "error" }
+        : { text: zh ? `BeeBot ${state.version} 已准备就绪，重启即可应用。` : `BeeBot ${state.version} is ready. Restart to apply.`, tone: "ready" };
     case "idle":
       return state.lastCheck == null
         ? { text: "", tone: "default" }
         : state.lastCheck.result === "up-to-date"
-          ? { text: "You're up to date", tone: "default" }
-          : { text: `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}`, tone: "error" };
+          ? { text: t("You're up to date"), tone: "default" }
+          : { text: zh ? `检查更新失败：${state.lastCheck.errorMessage ?? t("unknown error")}` : `Update check failed: ${state.lastCheck.errorMessage ?? "unknown error"}`, tone: "error" };
   }
 }
 
@@ -98,15 +101,16 @@ export type EgressTunnelStatus =
   | { state: "connecting" }
   | { state: "off" };
 
-export function egressTunnelStatusDescription(status: EgressTunnelStatus): string {
+export function egressTunnelStatusDescription(status: EgressTunnelStatus, language: SettingsLanguage = "en"): string {
+  const zh = language === "zh", t = (text: string) => settingsText(language, text);
   switch (status.state) {
     case "connected":
       return status.activeStreams > 0
-        ? `Connected — routing ${status.activeStreams} connection${status.activeStreams === 1 ? "" : "s"} (${status.relayedStreams} total this session).`
-        : `Connected — this desktop is ready to route web traffic from BeeBot's computer (${status.relayedStreams} routed this session).`;
+        ? zh ? `已连接，正在转发 ${status.activeStreams} 个连接（本次会话共 ${status.relayedStreams} 个）。` : `Connected — routing ${status.activeStreams} connection${status.activeStreams === 1 ? "" : "s"} (${status.relayedStreams} total this session).`
+        : zh ? `已连接，本机已准备好转发 BeeBot 电脑的网络请求（本次会话已转发 ${status.relayedStreams} 个）。` : `Connected — this desktop is ready to route web traffic from BeeBot's computer (${status.relayedStreams} routed this session).`;
     case "connecting":
-      return "Connecting to BeeBot's computer…";
+      return t("Connecting to BeeBot's computer…");
     case "off":
-      return "Enabled, but not routing yet — waiting for BeeBot's computer to connect with egress enabled.";
+      return t("Enabled, but not routing yet — waiting for BeeBot's computer to connect with egress enabled.");
   }
 }
