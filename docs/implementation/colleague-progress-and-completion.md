@@ -91,8 +91,9 @@ The displaced package is retained under the ignored workspace backup directory
 macOS keychain access before creating a window; one normal process restart
 recovered it. No keychain item, credential, user data or security setting was
 changed. Subsequent installed-app inspection used the real English/light/wide
-window; Chinese labels, selection/error behavior and narrow styling have
-component coverage, not a complete native visual matrix.
+window; Chinese labels and selection/error behavior have component coverage.
+Dark appearance and narrow-window layout were not visually verified; this is
+not a complete native visual matrix.
 
 Component tests use controlled stores; real-runtime tests use deterministic
 model/OS fixtures and actual SQLite. Single-Bot and Group regressions exercise
