@@ -22,10 +22,23 @@ export function avatarExpressionFromAgent(input: AvatarActivity): AvatarExpressi
   if (state !== "thinking") return state;
   const activity = input.currentActivity;
   if (!activity || typeof activity !== "object" || Array.isArray(activity)) return state;
-  const { verb, tool } = activity as { verb?: unknown; tool?: unknown };
-  if (tool === "SendToAgent" || verb === "sending") return "handoff";
-  if (tool === "WebSearch" || verb === "searching") return "searching";
-  if (tool === "WebFetch" || verb === "reading" || verb === "browsing") return "reading";
+  const { kind, verb, tool } = activity as { kind?: unknown; verb?: unknown; tool?: unknown };
+  if (kind != null && kind !== "tool") return state;
+  // The local Host and Group tracker publish named tool facts. Do not infer
+  // writing from a shell command, filename, MCP name or an activity description.
+  switch (tool) {
+    case "SendToAgent": return "handoff";
+    case "WebSearch": return "searching";
+    case "Read": case "ExternalRead": case "WebFetch": return "reading";
+    case "Shell": case "ExternalShell": case "AwaitShell": case "ExternalAwaitShell":
+    case "Computer": case "GenerateImage": return "working";
+  }
+  if (kind === "tool") return state;
+  // Retain the older renderer's explicit activity verbs, only when a typed
+  // Host activity has not already supplied a different authoritative meaning.
+  if (verb === "sending") return "handoff";
+  if (verb === "searching") return "searching";
+  if (verb === "reading" || verb === "browsing") return "reading";
   if (verb === "writing" || verb === "coding") return "writing";
   if (verb === "running-commands") return "working";
   return state;

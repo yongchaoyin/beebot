@@ -1,6 +1,7 @@
 import { AVATAR_SHAPES } from "./avatar-shapes.ts";
 import { expressionFromState, expressionPose, paintExpression, mixPose, settleProgress, blinkDelay, identitySeed, faceFit, bounded, type AvatarExpression, type ExpressionPose } from "./avatar-expression.ts";
 import { normalizeAvatarState, selectMotionCandidates, type AvatarState } from "./avatar-state.ts";
+import { activityChoreography, activityDelay } from "./avatar-choreography.ts";
 
 export type AvatarMotionPreference = "auto" | "subtle" | "off";
 const KEY = "beebot.avatar-motion.v1";
@@ -43,10 +44,11 @@ export type AvatarGesture = "nod" | "greet" | "ack" | "celebrate";
 export interface AvatarMotionHandle { update(options: AvatarMotionOptions): void; gesture(kind: AvatarGesture): void; reset(): void; destroy(): void }
 interface Actor {
   id: number; svg: SVGSVGElement; state: AvatarState; paused: boolean; priority: number; size: number;
-  visible: boolean; pointer: boolean; identity?: string; nextAt: number; animations: Set<Animation>;
-  expression: AvatarExpression; shape: string; pose: ExpressionPose; cycle: number;
+  visible: boolean; pointer: boolean; identity?: string; nextBlinkAt: number; nextActivityAt: number; animations: Map<SVGElement, Animation>;
+  expression: AvatarExpression; shape: string; pose: ExpressionPose; blinkCycle: number; activityCycle: number;
   transition?: { from: ExpressionPose; to: ExpressionPose; start: number; duration: number };
-  accentUntil?: number; gaze: { x: number; y: number; tx: number; ty: number };
+  scheduledPoses: {at: number; pose: ExpressionPose; duration: number}[];
+  gaze: { x: number; y: number; tx: number; ty: number };
 }
 const coordinators = {
   get: (document: Document) => shared(document).coordinator,
@@ -55,7 +57,7 @@ const coordinators = {
 };
 const INACTIVE = new Set<AvatarState>(["offline", "paused", "error", "waiting", "needs_user"]);
 const priorityFromSurface = (svg: SVGSVGElement): number => svg.closest(".bb-avatar-preview,.bb-avatar-picker__preview,.sand-chat-header,[data-avatar-priority='primary']") ? 100 : svg.closest(".sand-message") ? 80 : 50;
-const moving = (a: Actor) => a.transition != null || a.accentUntil != null || Math.abs(a.gaze.x-a.gaze.tx) + Math.abs(a.gaze.y-a.gaze.ty) > .004;
+const moving = (a: Actor) => a.transition != null || Math.abs(a.gaze.x-a.gaze.tx) + Math.abs(a.gaze.y-a.gaze.ty) > .004;
 
 /** One coordinator per document. Sparse scheduling for idle life; a shared rAF
  * runs ONLY while a pose/gaze is settling. React and business state never tick. */
@@ -71,12 +73,14 @@ class MotionCoordinator {
   private lastFrame = 0;
   private nextId = 1;
   private focused = true;
+  private wasLowPower = false;
   private selected = new Set<number>();
   private stopPreference: () => void;
   private pointerPosition?: { x: number; y: number };
   constructor(document: Document) {
     this.document = document; this.win = document.defaultView;
     this.preference = getAvatarMotionPreference(document);
+    this.wasLowPower = this.lowPower();
     this.focused = document.hasFocus?.() ?? true;
     this.reduced = this.win?.matchMedia?.("(prefers-reduced-motion: reduce)");
     const Observer = (this.win as (Window & { IntersectionObserver?: typeof IntersectionObserver }) | null)?.IntersectionObserver;
@@ -106,9 +110,9 @@ class MotionCoordinator {
     paintExpression(actor.svg,p,actor.shape,actor.size);
   }
   private clear(actor: Actor, paint = true): void {
-    for (const animation of actor.animations) animation.cancel();
+    for (const animation of actor.animations.values()) animation.cancel();
     actor.animations.clear();
-    actor.transition = undefined; actor.accentUntil = undefined;
+    actor.transition = undefined; actor.scheduledPoses = [];
     actor.gaze = { x:0,y:0,tx:0,ty:0 };
     actor.pose = expressionPose(actor.expression);
     actor.svg.querySelector<SVGGElement>(".bb-character__face")?.style.removeProperty("transform");
@@ -117,35 +121,41 @@ class MotionCoordinator {
   private animate(actor: Actor, selector: string, frames: Keyframe[], duration: number): void {
     if (!this.allowed() || !this.selected.has(actor.id) || !actor.visible || actor.paused || actor.size < 24) return;
     const node = actor.svg.querySelector<SVGElement>(selector);
-    if (!node?.animate || actor.animations.size >= 4) return;
+    if (!node?.animate) return;
+    // One owner for each transform. A second blink/gesture must replace, rather
+    // than add to, the animation already driving the same SVG node.
+    const previous=actor.animations.get(node);
+    if (previous) { actor.animations.delete(node);previous.cancel(); }
+    if (actor.animations.size >= 4) return;
     const animation = node.animate(frames, { duration, easing: "cubic-bezier(.22,.61,.36,1)", iterations: 1 });
-    actor.animations.add(animation);
-    animation.onfinish = () => { actor.animations.delete(animation); animation.cancel(); };
-    animation.oncancel = () => { actor.animations.delete(animation); };
+    actor.animations.set(node,animation);
+    const release = () => { if (actor.animations.get(node)===animation) actor.animations.delete(node); };
+    animation.onfinish = () => { release(); animation.cancel(); };
+    animation.oncancel = release;
   }
   private blink(actor: Actor): void {
     // Independent, repeatable timing. Occasional double blinks, never a shared
     // fixed interval; the pause and reopening have deliberately unequal lengths.
-    const twice = !this.lowPower() && identitySeed(`${actor.identity ?? actor.id}:${actor.cycle}:blink`) % 9 === 0;
+    const twice = !this.lowPower() && identitySeed(`${actor.identity ?? actor.id}:${actor.blinkCycle}:blink`) % 9 === 0;
     const frames: Keyframe[] = [{transform:"scaleY(1)",offset:0},{transform:"scaleY(.09)",offset:.22},{transform:"scaleY(.09)",offset:.32},{transform:"scaleY(1.035)",offset:.7},{transform:"scaleY(1)",offset:1}];
-    if (twice) this.animate(actor,".bb-character__eyes",[{transform:"scaleY(1)"},{transform:"scaleY(.09)",offset:.12},{transform:"scaleY(1)",offset:.4},{transform:"scaleY(.15)",offset:.63},{transform:"scaleY(1)",offset:1}],490);
+    if (this.lowPower()) this.animate(actor,".bb-character__eyes",[{transform:"scaleY(1)"},{transform:"scaleY(.35)",offset:.35},{transform:"scaleY(1)"}],220);
+    else if (twice) this.animate(actor,".bb-character__eyes",[{transform:"scaleY(1)"},{transform:"scaleY(.09)",offset:.12},{transform:"scaleY(1)",offset:.4},{transform:"scaleY(.15)",offset:.63},{transform:"scaleY(1)",offset:1}],490);
     else this.animate(actor,".bb-character__eyes",frames,245);
   }
   private perform(actor: Actor): void {
-    this.blink(actor);
     if (this.lowPower()) return;
-    if (actor.state === "speaking") {
-      this.animate(actor,".bb-character__body",[{transform:"none"},{transform:"translateY(-.8px) rotate(-1deg)",offset:.45},{transform:"none"}],650);
-      this.animate(actor,".bb-character__mouth",[{transform:"scaleY(1)"},{transform:"scaleY(1.2)",offset:.35},{transform:"scaleY(.8)",offset:.7},{transform:"scaleY(1)"}],600);
-    } else if (["reading","searching","writing","handoff"].includes(actor.expression)) {
-      // Gaze is part of the same compositor as pointer input, not a competing
-      // transform animation on the face. Return is finite and cancellable.
-      const target = expressionPose(actor.expression);
-      target.lookX = actor.cycle % 2 ? 1.5 : -1.5;
-      this.moveTo(actor,target,540); actor.accentUntil = this.now()+1150;
-    } else {
-      this.animate(actor,".bb-character__body",[{transform:"none"},{transform:"translateY(-.65px) scale(1.012)",offset:.5},{transform:"none"}],2100);
-    }
+    const plan=activityChoreography(actor.expression,actor.identity ?? String(actor.id),actor.activityCycle++);
+    let at=this.now();
+    actor.scheduledPoses=plan.steps.map(step=>{const scheduled={at,pose:step.pose,duration:step.duration};at+=step.duration+step.hold;return scheduled;});
+    if (plan.body) this.animate(actor,".bb-character__body",plan.body.frames,plan.body.duration);
+    actor.nextActivityAt=Math.max(at,this.now()+(plan.body?.duration ?? 0))+activityDelay(actor.expression,actor.identity ?? String(actor.id),actor.activityCycle);
+    this.advancePoses(actor,this.now());
+  }
+  private advancePoses(actor: Actor, now: number): void {
+    let latest: Actor["scheduledPoses"][number] | undefined;
+    // A delayed timer skips elapsed accents instead of rapidly replaying them.
+    while (actor.scheduledPoses.length && actor.scheduledPoses[0]!.at<=now) latest=actor.scheduledPoses.shift();
+    if (latest) this.moveTo(actor,latest.pose,latest.duration);
   }
   private moveTo(actor: Actor, target: ExpressionPose, duration = 360): void {
     if (!this.allowed() || !this.selected.has(actor.id) || this.lowPower()) { actor.pose=target; this.render(actor); return; }
@@ -161,7 +171,7 @@ class MotionCoordinator {
     const dt = this.lastFrame ? Math.max(0,Math.min(80,now-this.lastFrame)) : 16;
     this.lastFrame=now;
     const pointer=this.pointerPosition; this.pointerPosition=undefined;
-    let pending=false;
+    let pending=false, completedTransition=false;
     for (const actor of this.actors.values()) {
       if (!this.selected.has(actor.id)) continue;
       if (pointer && actor.pointer && !this.lowPower()) {
@@ -171,12 +181,11 @@ class MotionCoordinator {
         actor.gaze.tx=near ? bounded((pointer.x-box.left-box.width/2)/Math.max(1,box.width)*3,-fit.gazeX,fit.gazeX) : 0;
         actor.gaze.ty=near ? bounded((pointer.y-box.top-box.height/2)/Math.max(1,box.height)*2,-fit.gazeY,fit.gazeY) : 0;
       }
-      if (actor.accentUntil !== undefined && now>=actor.accentUntil) { actor.accentUntil=undefined; this.moveTo(actor,expressionPose(actor.expression)); }
       const transition=actor.transition;
       if (transition) {
         const progress=settleProgress(now-transition.start,transition.duration);
         actor.pose=mixPose(transition.from,transition.to,progress);
-        if (progress>=1) actor.transition=undefined;
+        if (progress>=1) { actor.transition=undefined;completedTransition=true; }
       }
       const convergence=1-Math.exp(-dt/90);
       actor.gaze.x+=(actor.gaze.tx-actor.gaze.x)*convergence;
@@ -186,31 +195,62 @@ class MotionCoordinator {
       this.render(actor); pending ||= moving(actor);
     }
     if (pending) this.requestFrame(); else this.lastFrame=0;
+    if (completedTransition) this.schedule();
   };
   refresh = (): void => {
     if (this.timer !== undefined) { this.win?.clearTimeout(this.timer); this.timer=undefined; }
-    this.selected = new Set(this.allowed() ? selectMotionCandidates([...this.actors.values()], this.lowPower()) : []);
+    const previouslySelected=this.selected;
+    const lowPower=this.lowPower(), resumingNatural=this.wasLowPower && !lowPower;
+    this.wasLowPower=lowPower;
+    this.selected = new Set(this.allowed() ? selectMotionCandidates([...this.actors.values()], lowPower) : []);
     for (const actor of this.actors.values()) {
       const active=this.selected.has(actor.id);
       actor.svg.dataset.motion=active ? this.preference : "still";
-      if (!active || this.lowPower()) this.clear(actor);
+      if (!active || lowPower) this.clear(actor);
+      if (active && !previouslySelected.has(actor.id)) this.restartCadence(actor);
+      else if (active && resumingNatural) this.restartCadence(actor,true);
     }
-    if (!this.selected.size || this.lowPower()) {
+    if (!this.selected.size || lowPower) {
       if (this.frame!==undefined) this.win?.cancelAnimationFrame(this.frame);
       this.frame=undefined;this.pointerPosition=undefined;this.lastFrame=0;
     }
-    if (this.selected.size) this.timer=this.win?.setTimeout(this.tick,650);
+    this.schedule();
   };
+  private restartCadence(actor: Actor, keepBlink = false): void {
+    const identity=actor.identity ?? String(actor.id), now=this.now();
+    if (!keepBlink || actor.nextBlinkAt<=0) actor.nextBlinkAt=now+900+identitySeed(`${identity}:blink-entry`)%1500;
+    actor.nextActivityAt=now+550+identitySeed(`${identity}:activity-entry`)%900;
+  }
+  private schedule(): void {
+    if (this.timer!==undefined) this.win?.clearTimeout(this.timer);
+    this.timer=undefined;
+    if (!this.allowed() || !this.selected.size) return;
+    let due=Infinity;
+    for (const actor of this.actors.values()) if (this.selected.has(actor.id)) {
+      due=Math.min(due,actor.nextBlinkAt);
+      if (!this.lowPower()) {
+        due=Math.min(due,actor.scheduledPoses[0]?.at ?? Infinity);
+        // A frame-delayed morph must not cause 16ms timeout polling. Its final
+        // rAF reschedules activity once the actor can actually start it.
+        if (!actor.transition && !actor.scheduledPoses.length) due=Math.min(due,actor.nextActivityAt);
+      }
+    }
+    if (Number.isFinite(due)) this.timer=this.win?.setTimeout(this.tick,Math.max(16,due-this.now()));
+  }
   private tick = (): void => {
     this.timer=undefined;
     if (!this.allowed()) { this.refresh(); return; }
     const now=this.now();
     for (const actor of this.actors.values()) {
-      if (!this.selected.has(actor.id) || now<actor.nextAt) continue;
-      this.perform(actor); actor.cycle++;
-      actor.nextAt=now+blinkDelay(actor.identity ?? String(actor.id),actor.cycle);
+      if (!this.selected.has(actor.id)) continue;
+      this.advancePoses(actor,now);
+      if (now>=actor.nextBlinkAt) {
+        this.blink(actor);actor.blinkCycle++;
+        actor.nextBlinkAt=now+blinkDelay(actor.identity ?? String(actor.id),actor.blinkCycle);
+      }
+      if (!this.lowPower() && now>=actor.nextActivityAt && !actor.transition && !actor.scheduledPoses.length) this.perform(actor);
     }
-    if (this.selected.size) this.timer=this.win?.setTimeout(this.tick,650);
+    this.schedule();
   };
   private onPointer = (event: PointerEvent): void => {
     if (event.pointerType === "touch" || !this.allowed() || this.lowPower()) return;
@@ -224,21 +264,21 @@ class MotionCoordinator {
     if ([...this.actors.values()].some(moving)) this.requestFrame();
   };
   register(svg: SVGSVGElement, options: AvatarMotionOptions): AvatarMotionHandle {
-    const actor: Actor = {id:this.nextId++,svg,state:"idle",paused:false,priority:50,size:32,visible:!this.observer,pointer:false,nextAt:0,animations:new Set(),expression:"idle",shape:"blob",pose:expressionPose("idle"),cycle:0,gaze:{x:0,y:0,tx:0,ty:0}};
+    const actor: Actor = {id:this.nextId++,svg,state:"idle",paused:false,priority:50,size:32,visible:!this.observer,pointer:false,nextBlinkAt:0,nextActivityAt:0,animations:new Map(),expression:"idle",shape:"blob",pose:expressionPose("idle"),blinkCycle:0,activityCycle:0,scheduledPoses:[],gaze:{x:0,y:0,tx:0,ty:0}};
     this.actors.set(svg,actor); this.observer?.observe(svg);
     let destroyed=false;
     const update = (value: AvatarMotionOptions) => {
       if (destroyed) return;
       const previous=actor.expression, oldShape=actor.shape, oldIdentity=actor.identity;
-      const priorPose=actor.pose;
+      const priorPose={...actor.pose,lookX:actor.pose.lookX+actor.gaze.x,lookY:actor.pose.lookY+actor.gaze.y};
       actor.state=normalizeAvatarState(value.state);actor.expression=expressionFromState(value.state);actor.paused=value.paused===true;
       actor.size=Number.isFinite(value.size) ? Math.max(1,Math.min(1024,value.size!)) : (svg.getBoundingClientRect().width || 32);
       actor.shape=(AVATAR_SHAPES as readonly string[]).includes(value.shape ?? "") ? value.shape! : AVATAR_SHAPES[Number(svg.dataset.variant)] ?? "blob";
       actor.priority=value.priority ?? priorityFromSurface(svg);actor.pointer=value.followingPointer===true;actor.identity=value.identity;
       svg.dataset.state=actor.state;svg.dataset.expression=actor.expression;
-      if (oldIdentity!==actor.identity) { actor.cycle=0;actor.nextAt=0; }
+      if (oldIdentity!==actor.identity) { actor.blinkCycle=0;actor.activityCycle=0; }
       if (previous!==actor.expression || oldShape!==actor.shape || oldIdentity!==actor.identity) {
-        this.clear(actor);actor.nextAt=this.now()+300+identitySeed(actor.identity ?? String(actor.id))%1800;
+        this.clear(actor);this.restartCadence(actor,oldShape===actor.shape && oldIdentity===actor.identity);
         this.refresh();
         if (oldShape===actor.shape && oldIdentity===actor.identity && !INACTIVE.has(actor.state)) {
           actor.pose=priorPose;this.moveTo(actor,expressionPose(actor.expression));
@@ -247,7 +287,7 @@ class MotionCoordinator {
       if (!actor.pointer) { actor.gaze.tx=0;actor.gaze.ty=0; if (moving(actor)) this.requestFrame(); }
     };
     update(options);
-    return { update, gesture: kind => { if (!destroyed) this.gesture(actor,kind); }, reset: () => { if (!destroyed) { this.clear(actor);this.refresh(); } }, destroy: () => {
+    return { update, gesture: kind => { if (!destroyed) this.gesture(actor,kind); }, reset: () => { if (!destroyed) { this.clear(actor);this.restartCadence(actor);this.refresh(); } }, destroy: () => {
       if (destroyed) return;destroyed=true;this.clear(actor,false);this.observer?.unobserve(svg);this.actors.delete(svg);
       if (this.actors.size) this.refresh(); else this.dispose();
     }};
@@ -257,8 +297,12 @@ class MotionCoordinator {
     this.clear(actor);
     const transform=kind==="greet" ? "rotate(-4deg)" : kind==="nod" ? "translateY(1.2px) scaleY(.97)" : "translateY(-.9px) scale(1.025)";
     this.animate(actor,".bb-character__body",[{transform:"none"},{transform,offset:.4},{transform:"none"}],420);
-    if (kind==="celebrate") { this.moveTo(actor,expressionPose("happy"));actor.accentUntil=this.now()+850; }
-    actor.nextAt=this.now()+2600;
+    if (kind==="celebrate") {
+      this.moveTo(actor,expressionPose("happy"));
+      actor.scheduledPoses=[{at:this.now()+850,pose:expressionPose(actor.expression),duration:360}];
+    }
+    actor.nextActivityAt=this.now()+2600;
+    this.schedule();
   }
   gestureIdentity(identity: string, kind: AvatarGesture): void {
     const actor=[...this.actors.values()].filter(a=>a.identity===identity && this.selected.has(a.id)).sort((a,b)=>b.priority-a.priority)[0];

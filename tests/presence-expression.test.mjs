@@ -23,6 +23,24 @@ test('safety and real delivery facts outrank stale active tool hints',()=>{
   assert.equal(expressionFromState('done'),'idle','prose-like success names cannot trigger celebration');
   assert.equal(avatarExpressionFromAgent({...active,currentActivity:'{"emotionId":"done"}'}),'thinking');
 });
+test('real Host and Group activity producers drive tool-specific faces without parsing tool details',async()=>{
+  const built=await build({entryPoints:['source/host/sand-activity.ts'],bundle:true,write:false,platform:'node',format:'esm',target:'node26'});
+  const {deriveActivityFromUpdate,createGroupMemberActivityTracker}=await import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].text).toString('base64'));
+  const cases={Read:'reading',ExternalRead:'reading',webFetchToolCall:'reading',webSearchToolCall:'searching',
+    Shell:'working',ExternalShell:'working',AwaitShell:'working',ExternalAwaitShell:'working',
+    computerUseToolCall:'working',generateImageToolCall:'working',SendToAgent:'handoff',CallMcpTool:'thinking'};
+  for(const project of [deriveActivityFromUpdate,createGroupMemberActivityTracker()])for(const [name,want] of Object.entries(cases)){
+    const {type,activity}=project({type:'tool-call',id:'active-tool',name,status:'pending',args:JSON.stringify({command:'echo writing > report.md',path:'/tmp/searching.md'})});
+    assert.equal(type,'set');assert.equal(activity.kind,'tool');
+    assert.equal(avatarExpressionFromAgent({isRunning:true,currentActivity:activity}),want,name);
+    assert.equal(avatarExpressionFromAgent({currentActivity:activity}),'idle','historic tool facts stay inactive');
+    for(const [facts,face] of [[{isTransportDown:true},'offline'],[{workPhase:'uncertain'},'offline'],[{hasError:true},'error'],[{waiting:{kind:'user'}},'needs_user'],[{isPaused:true},'paused'],[{workPhase:'succeeded'},'idle'],[{isComposingMessage:true},'speaking']])
+      assert.equal(avatarExpressionFromAgent({isRunning:true,currentActivity:activity,...facts}),face);
+  }
+  assert.equal(avatarExpressionFromAgent({isRunning:true,currentActivity:{kind:'tool',tool:'Unknown',detail:'WebSearch',verb:'searching'}}),'thinking');
+  assert.equal(avatarExpressionFromAgent({isRunning:true,currentActivity:{kind:'thinking',tool:'Read'}}),'thinking');
+  assert.equal(avatarExpressionFromAgent({isRunning:true,currentActivity:{kind:'tool',tool:'Read',verb:'sending'}}),'reading');
+});
 test('all expression geometry is finite, immutable and fixed-topology across 8 shapes and 11 colors',()=>{
   for(const shape of AVATAR_SHAPES)for(const {id} of AVATAR_PALETTE)for(const exp of AVATAR_EXPRESSIONS){
     const layers=characterLayers(shape,id,exp,28);
