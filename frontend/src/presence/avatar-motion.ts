@@ -1,7 +1,7 @@
 import { AVATAR_SHAPES } from "./avatar-shapes.ts";
 import { expressionFromState, expressionPose, paintExpression, mixPose, settleProgress, blinkDelay, identitySeed, faceFit, bounded, type AvatarExpression, type ExpressionPose } from "./avatar-expression.ts";
 import { normalizeAvatarState, selectMotionCandidates, type AvatarState } from "./avatar-state.ts";
-import { activityChoreography, activityDelay } from "./avatar-choreography.ts";
+import { activityChoreography, activityDelay, ambientChoreography, ambientDelay, type ActivityChoreography } from "./avatar-choreography.ts";
 
 export type AvatarMotionPreference = "auto" | "subtle" | "off";
 const KEY = "beebot.avatar-motion.v1";
@@ -39,12 +39,13 @@ export function subscribeAvatarMotionPreference(document: Document, listener: ()
 }
 export interface AvatarMotionOptions {
   state?: string; paused?: boolean; priority?: number; followingPointer?: boolean; size?: number; identity?: string; shape?: string;
+  ambient?: boolean;
 }
 export type AvatarGesture = "nod" | "greet" | "ack" | "celebrate";
 export interface AvatarMotionHandle { update(options: AvatarMotionOptions): void; gesture(kind: AvatarGesture): void; reset(): void; destroy(): void }
 interface Actor {
   id: number; svg: SVGSVGElement; state: AvatarState; paused: boolean; priority: number; size: number;
-  visible: boolean; pointer: boolean; identity?: string; nextBlinkAt: number; nextActivityAt: number; animations: Map<SVGElement, Animation>;
+  visible: boolean; pointer: boolean; ambient: boolean; identity?: string; nextBlinkAt: number; nextActivityAt: number; animations: Map<SVGElement, Animation>;
   expression: AvatarExpression; shape: string; pose: ExpressionPose; blinkCycle: number; activityCycle: number;
   transition?: { from: ExpressionPose; to: ExpressionPose; start: number; duration: number };
   scheduledPoses: {at: number; pose: ExpressionPose; duration: number}[];
@@ -57,6 +58,7 @@ const coordinators = {
 };
 const INACTIVE = new Set<AvatarState>(["offline", "paused", "error", "waiting", "needs_user"]);
 const priorityFromSurface = (svg: SVGSVGElement): number => svg.closest(".bb-avatar-preview,.bb-avatar-picker__preview,.sand-chat-header,[data-avatar-priority='primary']") ? 100 : svg.closest(".sand-message") ? 80 : 50;
+const ambientSurfaceExcluded = (svg: SVGSVGElement): boolean => !!svg.closest(".sand-message,.sand-group-avatar,.sand-shared-room-avatar,[data-avatar-kind='group'],[data-avatar-kind='shared-room']");
 const moving = (a: Actor) => a.transition != null || Math.abs(a.gaze.x-a.gaze.tx) + Math.abs(a.gaze.y-a.gaze.ty) > .004;
 
 /** One coordinator per document. Sparse scheduling for idle life; a shared rAF
@@ -75,6 +77,12 @@ class MotionCoordinator {
   private focused = true;
   private wasLowPower = false;
   private selected = new Set<number>();
+  private ambientActor?: Actor;
+  private ambientUntil = 0;
+  private ambientNextAt?: number;
+  private ambientCycle = 0;
+  private lastAmbientIdentity = "";
+  private ambientHistory = new Map<string, number>();
   private stopPreference: () => void;
   private pointerPosition?: { x: number; y: number };
   constructor(document: Document) {
@@ -145,11 +153,15 @@ class MotionCoordinator {
   private perform(actor: Actor): void {
     if (this.lowPower()) return;
     const plan=activityChoreography(actor.expression,actor.identity ?? String(actor.id),actor.activityCycle++);
-    let at=this.now();
+    const end=this.playPlan(actor,plan);
+    actor.nextActivityAt=end+activityDelay(actor.expression,actor.identity ?? String(actor.id),actor.activityCycle);
+  }
+  private playPlan(actor: Actor, plan: ActivityChoreography): number {
+    const now=this.now();let at=now;
     actor.scheduledPoses=plan.steps.map(step=>{const scheduled={at,pose:step.pose,duration:step.duration};at+=step.duration+step.hold;return scheduled;});
     if (plan.body) this.animate(actor,".bb-character__body",plan.body.frames,plan.body.duration);
-    actor.nextActivityAt=Math.max(at,this.now()+(plan.body?.duration ?? 0))+activityDelay(actor.expression,actor.identity ?? String(actor.id),actor.activityCycle);
-    this.advancePoses(actor,this.now());
+    this.advancePoses(actor,now);
+    return Math.max(at,now+(plan.body?.duration ?? 0));
   }
   private advancePoses(actor: Actor, now: number): void {
     let latest: Actor["scheduledPoses"][number] | undefined;
@@ -197,24 +209,70 @@ class MotionCoordinator {
     if (pending) this.requestFrame(); else this.lastFrame=0;
     if (completedTransition) this.schedule();
   };
-  refresh = (): void => {
-    if (this.timer !== undefined) { this.win?.clearTimeout(this.timer); this.timer=undefined; }
+  private ambientIdentity(actor: Actor): string { return actor.identity ?? `surface:${actor.id}`; }
+  private stopAmbient(paint = true): void {
+    if (this.ambientActor) this.clear(this.ambientActor,paint);
+    this.ambientActor=undefined;this.ambientUntil=0;this.ambientNextAt=undefined;
+  }
+  private refreshSelection(startAmbient = false): void {
     const previouslySelected=this.selected;
     const lowPower=this.lowPower(), resumingNatural=this.wasLowPower && !lowPower;
     this.wasLowPower=lowPower;
-    this.selected = new Set(this.allowed() ? selectMotionCandidates([...this.actors.values()], lowPower) : []);
+    const allowed=this.allowed(), now=this.now(), actors=[...this.actors.values()];
+    // Idle list faces borrow one free slot briefly. They never join the regular
+    // activity loop; actual work and the existing main-avatar budget come first.
+    const base=new Set(allowed ? selectMotionCandidates(actors.filter(a=>!(a.ambient && a.state==="idle")),lowPower) : []);
+    const occupied=new Set(actors.filter(a=>base.has(a.id)).map(a=>this.ambientIdentity(a)));
+    const byIdentity=new Map<string,Actor>();
+    if (allowed && !lowPower && base.size<2) for (const actor of actors) {
+      if (!actor.ambient || actor.state!=="idle" || actor.expression!=="idle" || !actor.visible || actor.paused || actor.size<24 || ambientSurfaceExcluded(actor.svg)) continue;
+      const identity=this.ambientIdentity(actor);
+      if (occupied.has(identity)) continue;
+      const previous=byIdentity.get(identity);
+      if (!previous || actor.priority>previous.priority) byIdentity.set(identity,actor);
+    }
+    const candidates=[...byIdentity.values()];
+    if (this.ambientActor && (now>=this.ambientUntil || !candidates.includes(this.ambientActor))) this.stopAmbient();
+    let starting: Actor | undefined;
+    if (!candidates.length) this.ambientNextAt=undefined;
+    else if (!this.ambientActor) {
+      this.ambientNextAt ??= now+ambientDelay(this.lastAmbientIdentity || this.ambientIdentity(candidates[0]!),this.ambientCycle);
+      if (startAmbient && now>=this.ambientNextAt) {
+        // Serve everyone before repeating, with identity-based variation for
+        // ties. DOM order and frequent surface refreshes cannot starve a Bot.
+        candidates.sort((a,b)=>{
+          const ai=this.ambientIdentity(a), bi=this.ambientIdentity(b);
+          return (this.ambientHistory.get(ai) ?? -1)-(this.ambientHistory.get(bi) ?? -1)
+            || identitySeed(`${ai}:ambient-select:${this.ambientCycle}`)-identitySeed(`${bi}:ambient-select:${this.ambientCycle}`);
+        });
+        starting=candidates[0]!;this.ambientActor=starting;
+        this.lastAmbientIdentity=this.ambientIdentity(starting);
+        this.ambientHistory.set(this.lastAmbientIdentity,this.ambientCycle++);
+        this.ambientNextAt=undefined;
+      }
+    }
+    this.selected=base;
+    if (this.ambientActor) this.selected.add(this.ambientActor.id);
     for (const actor of this.actors.values()) {
       const active=this.selected.has(actor.id);
       actor.svg.dataset.motion=active ? this.preference : "still";
       if (!active || lowPower) this.clear(actor);
+      if (active && actor===this.ambientActor) continue;
       if (active && !previouslySelected.has(actor.id)) this.restartCadence(actor);
       else if (active && resumingNatural) this.restartCadence(actor,true);
+    }
+    if (starting) {
+      const plan=ambientChoreography(this.lastAmbientIdentity,this.ambientCycle-1);
+      this.ambientUntil=Math.max(now+1120,this.playPlan(starting,plan));
+      if (plan.blink) { this.blink(starting);starting.blinkCycle++; }
     }
     if (!this.selected.size || lowPower) {
       if (this.frame!==undefined) this.win?.cancelAnimationFrame(this.frame);
       this.frame=undefined;this.pointerPosition=undefined;this.lastFrame=0;
     }
-    this.schedule();
+  }
+  refresh = (): void => {
+    this.refreshSelection();this.schedule();
   };
   private restartCadence(actor: Actor, keepBlink = false): void {
     const identity=actor.identity ?? String(actor.id), now=this.now();
@@ -224,9 +282,13 @@ class MotionCoordinator {
   private schedule(): void {
     if (this.timer!==undefined) this.win?.clearTimeout(this.timer);
     this.timer=undefined;
-    if (!this.allowed() || !this.selected.size) return;
-    let due=Infinity;
+    if (!this.allowed()) return;
+    let due=this.ambientNextAt ?? Infinity;
     for (const actor of this.actors.values()) if (this.selected.has(actor.id)) {
+      if (actor===this.ambientActor) {
+        due=Math.min(due,this.ambientUntil,actor.scheduledPoses[0]?.at ?? Infinity);
+        continue;
+      }
       due=Math.min(due,actor.nextBlinkAt);
       if (!this.lowPower()) {
         due=Math.min(due,actor.scheduledPoses[0]?.at ?? Infinity);
@@ -241,9 +303,11 @@ class MotionCoordinator {
     this.timer=undefined;
     if (!this.allowed()) { this.refresh(); return; }
     const now=this.now();
+    this.refreshSelection(true);
     for (const actor of this.actors.values()) {
       if (!this.selected.has(actor.id)) continue;
       this.advancePoses(actor,now);
+      if (actor===this.ambientActor) continue;
       if (now>=actor.nextBlinkAt) {
         this.blink(actor);actor.blinkCycle++;
         actor.nextBlinkAt=now+blinkDelay(actor.identity ?? String(actor.id),actor.blinkCycle);
@@ -264,7 +328,7 @@ class MotionCoordinator {
     if ([...this.actors.values()].some(moving)) this.requestFrame();
   };
   register(svg: SVGSVGElement, options: AvatarMotionOptions): AvatarMotionHandle {
-    const actor: Actor = {id:this.nextId++,svg,state:"idle",paused:false,priority:50,size:32,visible:!this.observer,pointer:false,nextBlinkAt:0,nextActivityAt:0,animations:new Map(),expression:"idle",shape:"blob",pose:expressionPose("idle"),blinkCycle:0,activityCycle:0,scheduledPoses:[],gaze:{x:0,y:0,tx:0,ty:0}};
+    const actor: Actor = {id:this.nextId++,svg,state:"idle",paused:false,priority:50,size:32,visible:!this.observer,pointer:false,ambient:false,nextBlinkAt:0,nextActivityAt:0,animations:new Map(),expression:"idle",shape:"blob",pose:expressionPose("idle"),blinkCycle:0,activityCycle:0,scheduledPoses:[],gaze:{x:0,y:0,tx:0,ty:0}};
     this.actors.set(svg,actor); this.observer?.observe(svg);
     let destroyed=false;
     const update = (value: AvatarMotionOptions) => {
@@ -275,9 +339,11 @@ class MotionCoordinator {
       actor.size=Number.isFinite(value.size) ? Math.max(1,Math.min(1024,value.size!)) : (svg.getBoundingClientRect().width || 32);
       actor.shape=(AVATAR_SHAPES as readonly string[]).includes(value.shape ?? "") ? value.shape! : AVATAR_SHAPES[Number(svg.dataset.variant)] ?? "blob";
       actor.priority=value.priority ?? priorityFromSurface(svg);actor.pointer=value.followingPointer===true;actor.identity=value.identity;
+      actor.ambient=(value.ambient ?? !!svg.closest(".sand-agent-item")) && !ambientSurfaceExcluded(svg);
       svg.dataset.state=actor.state;svg.dataset.expression=actor.expression;
       if (oldIdentity!==actor.identity) { actor.blinkCycle=0;actor.activityCycle=0; }
       if (previous!==actor.expression || oldShape!==actor.shape || oldIdentity!==actor.identity) {
+        if (actor===this.ambientActor) this.stopAmbient();
         this.clear(actor);this.restartCadence(actor,oldShape===actor.shape && oldIdentity===actor.identity);
         this.refresh();
         if (oldShape===actor.shape && oldIdentity===actor.identity && !INACTIVE.has(actor.state)) {
@@ -287,8 +353,10 @@ class MotionCoordinator {
       if (!actor.pointer) { actor.gaze.tx=0;actor.gaze.ty=0; if (moving(actor)) this.requestFrame(); }
     };
     update(options);
-    return { update, gesture: kind => { if (!destroyed) this.gesture(actor,kind); }, reset: () => { if (!destroyed) { this.clear(actor);this.restartCadence(actor);this.refresh(); } }, destroy: () => {
+    return { update, gesture: kind => { if (!destroyed) this.gesture(actor,kind); }, reset: () => { if (!destroyed) { if (actor===this.ambientActor) this.stopAmbient();this.clear(actor);this.restartCadence(actor);this.refresh(); } }, destroy: () => {
       if (destroyed) return;destroyed=true;this.clear(actor,false);this.observer?.unobserve(svg);this.actors.delete(svg);
+      if (actor===this.ambientActor) this.stopAmbient(false);
+      if (![...this.actors.values()].some(a=>this.ambientIdentity(a)===this.ambientIdentity(actor))) this.ambientHistory.delete(this.ambientIdentity(actor));
       if (this.actors.size) this.refresh(); else this.dispose();
     }};
   }

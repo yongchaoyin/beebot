@@ -11,7 +11,7 @@ test("BeeBot Dock icon is the original Presence artwork, never the upstream blob
   const svg = await readFile(path.join(repoRoot, "branding", "beebot-app-icon.svg"), "utf8");
   const shapes = JSON.parse(await readFile(path.join(repoRoot, "scripts", "lib", "persona-shape-paths.json"), "utf8"));
   assert.equal(svg, presenceIconSvg(), "tracked artwork must regenerate exactly");
-  assert.match(svg, /fill="#F6F7F8"/); assert.match(svg, /fill="#ADC3EA"/);
+  assert.match(svg, /fill="#F6F7F8"/); assert.match(svg, /fill="#00C972"/);
   for (const shape of Object.values(shapes)) assert.ok(!svg.includes(shape), "no upstream mascot geometry");
   assert.doesNotMatch(svg, /#07C160|linearGradient/);
 });

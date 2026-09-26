@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { Window } from "happy-dom";
+import { createCharacterSvg } from "../frontend/src/presence/avatar-art.ts";
+import { registerAvatarMotion } from "../frontend/src/presence/avatar-motion.ts";
 
 const snippet = await readFile(path.resolve(import.meta.dirname, "../scripts/lib/beebot-node-sidebar.snippet.js"), "utf8");
 const cacheKey = "beebot.server-bot-catalog.v1";
@@ -11,10 +13,21 @@ const tick = () => new Promise(resolve => setTimeout(resolve, 15));
 const server = (id, status = "online") => ({ id: `connection-${id}`, nodeId: `node-${id}`, name: `Server ${id.toUpperCase()}`, baseUrl: `https://${id}.example`, status });
 const bot = (id, name) => ({ id, name, description: "Server-owned work", avatarColor: "blue", avatarShape: "hex" });
 
-async function boot(t, { initialProfiles = [server("a"), server("b")], initialCache, snapshot, create } = {}) {
+async function boot(t, { initialProfiles = [server("a"), server("b")], initialCache, snapshot, create, presence = false } = {}) {
   const window = new Window({ url: "https://beebot.local" });
   t.after(() => window.happyDOM.close());
   const { document } = window;
+  const motions = [];
+  if(presence) {
+    document.hasFocus = () => true;
+    window.RBotSvg = (shape, color, size) => createCharacterSvg(document, shape, color, size);
+    window.RPresenceUI = { registerAvatarMotion(svg, options) {
+      const handle = registerAvatarMotion(svg, options), record = { svg, options, destroyed: false };
+      motions.push(record);
+      t.after(() => handle.destroy());
+      return { update(next) { record.options = next;handle.update(next); }, destroy() { record.destroyed = true;handle.destroy(); } };
+    } };
+  }
   let profiles = copy(initialProfiles);
   const calls = { requests: [], opened: [], closed: 0, observerBatches: 0, observerLoop: false };
   const snapshots = new Map([
@@ -54,7 +67,7 @@ async function boot(t, { initialProfiles = [server("a"), server("b")], initialCa
   await window.__beebotServerBots.refresh();
   await tick();
   return {
-    window, document, target, calls, snapshots,
+    window, document, target, calls, snapshots, motions,
     rows: () => [...document.querySelectorAll(".bb-server-bot")],
     cache: () => JSON.parse(window.localStorage.getItem(cacheKey) || "{}"),
     setProfiles(next) { profiles = copy(next); },
@@ -208,4 +221,38 @@ test("only selecting a local sidebar Bot closes the remote conversation", async 
   ui.rows()[0].click();await tick();assert.equal(ui.calls.closed,0);
   ui.target.querySelector('[data-agent-id="local-existing"]').click();
   assert.equal(ui.calls.closed,1,"local sidebar selection returns to its original conversation");
+});
+
+test("remote sidebar faces share the motion controller with scoped identities and stop on disconnection", async t => {
+  const ui = await boot(t, { presence: true });
+  assert.equal(ui.motions.length, 2);
+  const [a, b] = ui.motions;
+  assert.notEqual(a.options.identity, b.options.identity, "equal Bot IDs on different Nodes are different colleagues");
+  assert.equal(a.options.ambient, true);assert.equal(b.options.ambient, true);
+  assert.equal(a.svg.dataset.state, "idle");
+  const row = ui.rows()[0];row.focus();
+  ui.setProfiles([server("a", "reconnecting"), server("b")]);
+  await ui.window.__beebotServerBots.listServers();
+  assert.equal(ui.rows()[0], row);assert.equal(ui.document.activeElement, row);
+  assert.equal(a.svg.dataset.state, "offline");assert.equal(a.svg.dataset.motion, "still");
+  assert.equal(b.svg.dataset.state, "idle");assert.equal(ui.motions.length, 2);
+  ui.setProfiles([server("a"), server("b")]);await ui.window.__beebotServerBots.listServers();
+  assert.equal(a.svg.dataset.state, "idle");assert.equal(ui.motions.length, 2, "reconnect updates existing face without duplicate clocks");
+  ui.setProfiles([server("a", "signed-out"), server("b")]);await ui.window.__beebotServerBots.listServers();
+  assert.equal(a.destroyed, true);assert.equal(a.svg.isConnected, false);assert.equal(b.destroyed, false);
+  assert.equal(ui.calls.opened.length, 0, "presentation never opens a conversation or starts work");
+});
+
+test("remote appearance and Node identity changes dispose old avatar controllers", async t => {
+  const ui = await boot(t, { presence: true });
+  const first = ui.motions[0], second = ui.motions[1], row = ui.rows()[0];
+  ui.snapshots.get("connection-a").bots[0].avatarColor = "green";
+  await ui.refresh();
+  assert.equal(ui.rows()[0], row);assert.equal(first.destroyed, true);assert.equal(first.svg.isConnected, false);
+  assert.equal(second.destroyed, false);assert.equal(ui.motions.length, 3);
+  const replacement = ui.motions[2];assert.equal(replacement.options.identity, first.options.identity);
+  ui.setProfiles([{ ...server("a"), nodeId: "replacement-node" }, server("b")]);
+  await ui.refresh();
+  assert.equal(replacement.destroyed, true);assert.equal(replacement.svg.isConnected, false);
+  assert.equal(ui.rows().length, 1);assert.equal(ui.calls.observerLoop, false);
 });

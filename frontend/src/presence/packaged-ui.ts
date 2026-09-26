@@ -29,3 +29,4 @@ export { createConversationNotice } from "./conversation-notice";
 
 export { avatarExpressionFromAgent } from "./avatar-expression";
 export { createPresenceAvatarPreview } from "./avatar-preview";
+export { registerAvatarMotion } from "./avatar-motion";

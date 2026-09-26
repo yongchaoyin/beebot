@@ -7,6 +7,28 @@ export interface ActivityChoreography {
   steps: ActivityStep[];
   body?: { frames: Keyframe[]; duration: number };
 }
+export function ambientDelay(identity: string, cycle: number): number {
+  return 3000 + identitySeed(`${identity}:ambient-pause:${cycle}`) % 3001;
+}
+/** An idle colleague's brief mannerism, independent of any task/expression
+ * selection. Every pose returns to the same idle baseline within this episode. */
+export function ambientChoreography(identity: string, cycle: number): ActivityChoreography & { blink: boolean } {
+  const seed = identitySeed(`${identity}:ambient:${cycle}`), variant = seed % 4;
+  const pose = expressionPose("idle"), direction = (seed >>> 8) % 2 ? 1 : -1;
+  let body: ActivityChoreography["body"];
+  if (variant === 0) { pose.lookX = .9 * direction; pose.lookY = -.2; }
+  if (variant === 1) {
+    pose.left.height -= .65; pose.right.height -= .65;
+    pose.left.bend -= .45; pose.right.bend -= .45; pose.mouth.bend += .7;
+  }
+  if (variant === 2) {
+    pose.lookY = .45; pose.left.height -= .25; pose.right.height -= .25;
+    body = {frames:[{transform:"none"},{transform:"translateY(.6px) scaleY(.986)",offset:.36},{transform:"none"}],duration:1120};
+  }
+  // A blink-only episode has no pose/rAF work, but still owns its finite slot.
+  const steps = variant === 3 ? [] : [{pose,duration:300,hold:460},{pose:expressionPose("idle"),duration:360,hold:0}];
+  return {steps,blink:variant === 3,...(body ? {body} : {})};
+}
 export function activityDelay(expression: AvatarExpression, identity: string, cycle: number): number {
   const spread = identitySeed(`${identity}:${expression}:activity:${cycle}`);
   return expression === "speaking" ? 1900 + spread % 1400 : 3600 + spread % 2600;

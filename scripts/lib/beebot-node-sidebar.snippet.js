@@ -96,7 +96,7 @@
     const signature=JSON.stringify([entries,active,[...opening],[...openErrors],t("服务器 Bot","Server Bots")]);
     if(section.dataset.signature===signature)return;section.dataset.signature=signature;
     const wanted=new Set(entries.map(({p,b})=>rowKey(p,b)));
-    for(const [key,item] of rows)if(!wanted.has(key)){item.row.remove();item.error.remove();rows.delete(key);openErrors.delete(key);}
+    for(const [key,item] of rows)if(!wanted.has(key)){item.motion?.destroy();item.row.remove();item.error.remove();rows.delete(key);openErrors.delete(key);}
     section.hidden=!entries.length;
     entries.forEach(({p,b},index)=>{
       const key=rowKey(p,b);let item=rows.get(key);
@@ -126,9 +126,16 @@
       item.row.setAttribute("aria-busy",String(opening.has(key)));
       const avatarSignature=JSON.stringify([b.avatarShape,b.avatarColor,typeof RBotSvg]);
       if(item.avatarSignature!==avatarSignature){
+        item.motion?.destroy();item.motion=null;
         item.avatarSignature=avatarSignature;item.avatar.replaceChildren();
         if(typeof RBotSvg==="function")item.avatar.append(RBotSvg(b.avatarShape||"blob",b.avatarColor||"green",36));else item.avatar.textContent="◉";
       }
+      // Pure presentation: a connected catalog is not model or task readiness.
+      // Connection/node scope keeps equal Bot IDs on different servers distinct.
+      const motionOptions={state:p.status==="online"?"idle":"offline",shape:b.avatarShape||"blob",size:36,priority:50,ambient:true,identity:"server-bot:"+key};
+      const svg=item.avatar.querySelector("svg.bb-character");
+      if(!item.motion&&svg&&typeof RPresenceUI!=="undefined"&&typeof RPresenceUI.registerAvatarMotion==="function")item.motion=RPresenceUI.registerAvatarMotion(svg,motionOptions);
+      else item.motion?.update(motionOptions);
       item.name.textContent=b.name;
       item.preview.textContent=opening.has(key)?t("正在核验会话…","Checking conversation…"):p.name+(p.status==="online"?"":t(" · 未连接"," · Offline"));
       item.row.title=`${b.name} · ${p.name}`;

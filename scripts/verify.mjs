@@ -5,6 +5,7 @@ import path from "node:path";
 import { extractFile, listPackage } from "@electron/asar";
 
 import {
+  cachedRuntimeApp,
   outputApp,
   reconstructedBundleId,
   reconstructedName,
@@ -13,6 +14,7 @@ import {
   upstreamAsarSha256,
 } from "./lib/config.mjs";
 import { prepareReconstructedElectronMainArtifactFallback } from "./lib/build-asar.mjs";
+import { verifyChecksumPinnedRendererPackage } from "./lib/macos-package-verification.mjs";
 import { resolvePackagedAppArtifacts } from "./lib/packaged-app.mjs";
 import { capture, run } from "./lib/process.mjs";
 import { SYSTEM_TOOLS } from "./lib/system-tools.mjs";
@@ -83,12 +85,6 @@ for (const required of [
 
 const rendererRuntimeManifest = JSON.parse(await readFile(path.join(repoRoot, "frontend/manifests/renderer-runtime-assets.json"), "utf8"));
 const rendererAssets = [...(rendererRuntimeManifest.assets ?? []), ...(rendererRuntimeManifest.immutableAssets ?? [])];
-const icon = rendererAssets.find(asset => asset.file === "app-icon-C7NKj2u7.png");
-if (icon == null || typeof icon.sha256 !== "string") throw new Error("Renderer runtime manifest has no exact app icon record");
-const iconPath = `dist/renderer/assets/${icon.file}`;
-if (!listing.has(`/${iconPath}`)) throw new Error(`ASAR is missing ${iconPath}`);
-const packagedIcon = extractFile(builtAsar, iconPath);
-if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) throw new Error("Packaged app icon differs from its renderer runtime manifest");
 
 const rendererListing = [...listing].map(entry => entry.replace(/^\/+/, ""));
 const rendererMaps = rendererListing.filter(entry => entry.startsWith("dist/renderer/") && entry.endsWith(".map"));
@@ -157,6 +153,14 @@ const rendererProvenance = JSON.parse(extractFile(builtAsar, rendererProvenanceP
 const packagedRendererIndex = extractFile(builtAsar, "dist/renderer/index.html").toString("utf8");
 if (!/src="\.\/assets\//.test(packagedRendererIndex)) throw new Error("Packaged renderer index is not file-relative.");
 if (rendererComposition?.mode === "clean-source") {
+  // copyRuntimeAssets still includes this immutable compatibility asset in clean
+  // builds. The Presence/pinned path instead verifies its owned icon by rebuilding.
+  const icon = rendererAssets.find(asset => asset.file === "app-icon-C7NKj2u7.png");
+  if (icon == null || typeof icon.sha256 !== "string") throw new Error("Renderer runtime manifest has no exact app icon record");
+  const iconPath = `dist/renderer/assets/${icon.file}`;
+  if (!listing.has(`/${iconPath}`)) throw new Error(`ASAR is missing ${iconPath}`);
+  const packagedIcon = extractFile(builtAsar, iconPath);
+  if ((icon.bytes != null && packagedIcon.byteLength !== icon.bytes) || sha256(packagedIcon) !== icon.sha256) throw new Error("Packaged app icon differs from its renderer runtime manifest");
   const forbiddenRendererAssets = rendererListing.filter(entry => entry === "dist/renderer/assets/index-UbX-y3il.js" || entry === "dist/renderer/assets/mermaid.core-CYC_FcEu.js");
   if (forbiddenRendererAssets.length > 0) throw new Error(`Packaged clean renderer contains forbidden opaque assets: ${forbiddenRendererAssets.join(", ")}`);
   if (compositionAudit.rendererComposition?.productionActivation?.verified !== true) throw new Error("Renderer composition audit did not verify the clean production entry graph.");
@@ -176,17 +180,17 @@ if (rendererComposition?.mode === "clean-source") {
   const acceptance = compositionAudit.rendererComposition?.artifactRuntimeAcceptance;
   if (rendererProvenance.schemaVersion !== 1 || rendererProvenance.mode !== rendererComposition.mode || rendererProvenance.upstreamAppAsarSha256 !== upstreamAsarSha256) throw new Error("Packaged artifact renderer provenance has the wrong identity.");
   if (acceptance?.verdict !== "verified" || acceptance.provenance !== rendererProvenancePath || acceptance.fileCount !== rendererProvenance.fileCount || acceptance.inventorySha256 !== rendererProvenance.inventorySha256) throw new Error("Packaged artifact renderer acceptance does not match its provenance.");
-  if (!Array.isArray(rendererProvenance.files) || rendererProvenance.files.length !== rendererProvenance.fileCount) throw new Error("Packaged artifact renderer provenance has an invalid file inventory.");
-  const declaredPaths = new Set();
-  for (const file of rendererProvenance.files) {
-    if (typeof file.path !== "string" || declaredPaths.has(file.path)) throw new Error("Packaged artifact renderer provenance contains a missing or duplicate path.");
-    declaredPaths.add(file.path);
-    const bytes = extractFile(builtAsar, `dist/renderer/${file.path}`);
-    if (bytes.byteLength !== file.bytes || sha256(bytes) !== file.sha256) throw new Error(`Packaged artifact renderer differs from its checksum inventory: ${file.path}`);
-  }
-  const packagedPaths = rendererListing.filter(entry => entry.startsWith("dist/renderer/")).map(entry => entry.slice("dist/renderer/".length)).filter(Boolean);
-  const undeclaredFiles = packagedPaths.filter(candidate => !declaredPaths.has(candidate) && ![...declaredPaths].some(file => file.startsWith(`${candidate}/`)));
-  if (undeclaredFiles.length > 0 || [...declaredPaths].some(file => !packagedPaths.includes(file))) throw new Error("Packaged artifact renderer contains undeclared or missing files.");
+  // Current BeeBot must reproduce its adapters; the shared helper also supports
+  // historical manifests whose patched chunk hashes alone are not sufficient.
+  const rendererExtension = JSON.parse(extractFile(builtAsar, "dist/renderer-router-extension.json").toString("utf8"));
+  if (rendererExtension?.presence?.version !== 1) throw new Error("Packaged BeeBot renderer requires Presence adapter provenance version 1.");
+  // The provenance inventory authenticates the immutable input. Reconstruct the
+  // declared adapters before comparing the packaged output, just as packaging does.
+  await verifyChecksumPinnedRendererPackage({
+    archivePath: builtAsar,
+    sourceRendererRoot: path.join(sourceAppDir, "dist", "renderer"),
+    officialArchivePath: path.join(cachedRuntimeApp, "Contents", "Resources", "app.asar"),
+  });
 } else {
   throw new Error(`Unsupported packaged renderer mode: ${rendererComposition?.mode}`);
 }

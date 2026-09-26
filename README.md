@@ -110,7 +110,7 @@ from talking together to delivering together.
 
 ## Neutral appearance and expressive avatars
 
-The interface uses neutral light/dark surfaces and a restrained blue accent, not an insect-themed visual identity. Six original avatar silhouettes share one state-driven motion engine in editable and packaged renderers. In the avatar editor, **Avatar motion** offers **Natural**, **Subtle**, and **Off**. System reduced-motion, window visibility and focus take priority; historical messages and group collages stay still. Custom photos and saved persona preferences are retained. See [implementation and validation](docs/implementation/presence-theme.md).
+The interface uses neutral light/dark surfaces and a restrained blue accent. Eight avatar silhouettes share one state-driven motion engine in editable and packaged renderers. In the avatar editor, **Avatar motion** offers **Natural**, **Subtle**, and **Off**. In Natural mode, visible idle Bots in the sidebar take turns making brief expressions, with working colleagues taking priority. System reduced-motion, window visibility and focus take priority; historical messages and group collages stay still. Custom photos and saved persona preferences are retained. The application icon uses the same green as the green Bot identity. See [implementation and validation](docs/implementation/sidebar-presence-and-green-icon.md).
 
 ## Current features
 
