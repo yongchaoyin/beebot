@@ -43,7 +43,10 @@ The old container is renamed and retained; it is never deleted as a prerequisite
 for starting the replacement. A separate home-state volume is populated while the
 replacement is stopped, then copied back and compared with the recorded manifest.
 The checked-in bootstrap prepares only those fixed home paths and permissions,
-installs the saved assignment once, and executes the validated upstream entrypoint.
+installs the saved assignment once as `box:box` with mode `0600` inside its
+`0700` private directory, and executes the validated upstream entrypoint. The
+staged assignment is then removed, so restarting cannot overwrite newer Host
+assignments with the original imported copy.
 It clears only Chromium's stale SingletonLock/SingletonSocket/SingletonCookie
 symlinks after the stopped snapshot has been verified, preserving browser databases
 and intentional login links. It does not execute arbitrary saved shell configuration

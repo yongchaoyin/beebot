@@ -28,10 +28,11 @@ done
 # process/hostname singleton links cannot name a live process in this new one.
 # Keep databases, WAL and the intentional shared login links unchanged.
 find "$state/chrome-profile" -maxdepth 2 -type l '(' -name SingletonLock -o -name SingletonSocket -o -name SingletonCookie ')' -delete
+assignments_directory=/home/box/sand-data/local-linux-state
+install -d -m 700 -o box -g box "$assignments_directory"
 if [ -f "$state/window-assignments.json" ]; then
-  mkdir -p /home/box/sand-data/local-linux-state
-  cp "$state/window-assignments.json" /home/box/sand-data/local-linux-state/window-assignments.json.bootstrap
-  mv /home/box/sand-data/local-linux-state/window-assignments.json.bootstrap /home/box/sand-data/local-linux-state/window-assignments.json
+  install -m 600 -o box -g box "$state/window-assignments.json" "$assignments_directory/window-assignments.json.bootstrap"
+  mv "$assignments_directory/window-assignments.json.bootstrap" "$assignments_directory/window-assignments.json"
   rm "$state/window-assignments.json"
 fi
 exec /usr/local/bin/start-sand-box "$@"
