@@ -104,12 +104,16 @@ services still require their corresponding upstream session.
 
 | Deployment | Execution and model configuration |
 | --- | --- |
-| Local computer | Bots share a persistent Linux Docker computer on this Mac. Each has its own desktop; files, installed tools and browser logins are shared. Local Bots can use different saved model APIs. |
-| Independent Node | The Node runs its own Host processes, Bot workspaces and server-configured model. Credentials are managed on the server. Closing the Mac client does not stop the server. |
+| Local computer | Bots share a Linux Docker computer on this Mac, with assigned desktops and saved workspaces. System tools and legacy browser logins remain shared. Local Bots can use different saved model APIs. |
+| Independent Node | The Node runs its own Host processes, Bot workspaces, shell/file tools and server-configured model; it does not provide a graphical desktop. Credentials are managed on the server. Closing the Mac client does not stop the server. |
 
 Local shared files are not isolated between Bots. Separate Node work directories
 also do not establish a security sandbox. See the [server guide](docs/node-server.md)
-for deployment and trust boundaries.
+for deployment and trust boundaries. Managed local updates preserve desktop and
+browser state with a retained recovery container. System packages added outside
+persistent storage still require a reproducible image/setup. See
+[Linux execution reliability](docs/implementation/linux-execution-reliability.md)
+for migration, execution permissions and validation boundaries.
 
 ## Quick start
 
@@ -145,9 +149,10 @@ update this source checkout and rebuild to use a newer BeeBot version.
 3. Choose **+ → New bot**, set its name, avatar, primary job and model API, and chat.
 4. Use **+ → New group chat** to bring existing local Bots together.
 
-In this mode, the team shares `/workspace`; each Bot has its own desktop and
-persistent identity. The Mac itself is a separate execution surface governed by
-its existing permissions.
+New local Bot assignments use `/workspace/bots/<Bot-ID hash>`; team handoffs use
+`/workspace/shared`. Existing assignments retain `/workspace` so ongoing work and
+old paths stay valid. Each Bot keeps its desktop and persistent identity. The Mac
+itself is a separate execution surface governed by its existing permissions.
 
 ### Connect an independent Node
 
