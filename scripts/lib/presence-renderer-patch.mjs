@@ -66,6 +66,10 @@ export function patchPresenceRenderer(source) {
     'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse(),r=bNe(),',
     'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse();S.useLayoutEffect(()=>RPresenceUI.installNativeWindowLayout(document,s,e),[s,e]);const r=bNe(),',
     "native caption safe-area lifecycle");
+  // Anchor each author run at its first message, including the first row and
+  // a run that is still receiving replies. Group-end avatars jump as it grows.
+  result = once(result, 'showsAuthorAvatar:_.isGroupEnd,showsAuthorName:_.isRunStart',
+    'showsAuthorAvatar:_.isRunStart,showsAuthorName:_.isRunStart', "message author at run start");
   result = patchPresenceCreatePicker(result);
   result = patchPresenceAvatarCache(result);
   // S is the renderer React binding and is assigned later in the same file.
