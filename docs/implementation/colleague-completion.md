@@ -56,6 +56,27 @@ The compatibility human-review API remains available for historical work, but
 there is no new natural-language action that pretends to be authenticated human
 acceptance. Existing explicitly required human gates are not auto-converted.
 
+## Goal delivery and exclusive claims
+
+A final `finish` result must be one of the current submissions' published results,
+or a new summary published after the goal's current submissions and quoted to that
+goal or one of its assignments. Another goal's result, a superseded result/summary,
+an unlinked message, and a work-control receipt cannot stand in for delivery.
+Current results from earlier tasks in the same goal remain usable; they do not
+need to be republished merely because another colleague submitted later. Existing
+history is not rewritten and exact successful command retries remain idempotent.
+These checks establish provenance and version identity, not semantic correctness.
+
+The existing single-Host publication path reads the current ledger, checks the
+designated assignee and expected version, and appends the visible commitment and
+state in one synchronous SQLite publication section. Two same-version claims
+therefore produce only one durable winner. An already-claimed task cannot be
+claimed again by using its newer version, and another Bot cannot take it over.
+This is a task-record ownership guard, not a distributed lease or an OS execution
+lock. Different task IDs may still describe overlapping work; title matching is
+not used to guess semantic equivalence. Real peer handoffs continue to require
+current group membership and successful durable SendMessage publication.
+
 ## Validation scope
 
 `tests/collaboration-self-check.test.mjs` exercises the actual publication,
@@ -67,3 +88,16 @@ and second/third user sends while work is running. Historical review regression
 fixtures explicitly represent pre-upgrade events rather than creating removed
 user-review workflows. These tests do not establish production-model quality,
 real Electron installation, or Node service integration by themselves.
+
+`tests/collaboration-goal-integrity.test.mjs` additionally covers final-result
+provenance, obsolete summaries and simultaneous claim publication in both the
+actual single-Bot update handler and Group publication path, backed by SQLite.
+Only model choices and the observation following a winning claim are simulated;
+the tests do not execute external operations.
+
+Focused validation on Node 26.5.0: 104/104 tests passed across goal integrity,
+completion, evidence integrity, responsibilities, reassignment, self-check,
+four-colleague division, user requests and group attention; no skips. Source
+typechecking and `git diff --check` passed. Before the fix, four new single/Group
+provenance assertions failed against the old implementation; the two claim-race
+checks already passed. This stage did not run native UI or model-quality tests.
