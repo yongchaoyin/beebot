@@ -338,6 +338,7 @@ test("real HTTP Host separates ordinary dialogue, executed delivery and requeste
       const task = input.tools.find(tool => tool.function.name === "Task");
       assert.doesNotMatch(JSON.stringify(task ?? {}), /computerUse|browserUse|computer-use|browser-use/);
       assert.match(JSON.stringify(input.messages), /has no graphical desktop/, "actual Host prompt must describe its capability truthfully");
+      assert.doesNotMatch(JSON.stringify(input.messages), /Your own computer also gives you a Linux desktop|The box has a desktop and browser|your read-only Screenshot tool|the box's signed-in browser|the box's desktop and GUI apps/, "the complete inference prompt must not contradict the headless capability");
     }
   } finally { await runtime.close(); await rm(dataDir, { recursive: true, force: true }); }
 });

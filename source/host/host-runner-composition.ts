@@ -115,7 +115,7 @@ import {
   createShellWatchReadAccessor,
   type ShellTerminalWatchHost,
 } from "./runner/shell-terminal-watch.js";
-import { DEFAULT_SAND_SYSTEM_PROMPT } from "./runner/system-prompt.js";
+import { buildSandBaseSystemPrompt, DEFAULT_SAND_SYSTEM_PROMPT } from "./runner/system-prompt.js";
 import {
   createSystemPromptAssembly,
   type PromptSnapshotStore,
@@ -1345,6 +1345,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
       || productionRequestContext === undefined
       ? undefined
       : createSystemPromptAssembly({
+          remoteBoxHasDesktop: () => boxHasDesktop(remoteBox),
           basePrompt: typeof overrides.systemPrompt === "string"
             ? overrides.systemPrompt
             : DEFAULT_SAND_SYSTEM_PROMPT,
@@ -2529,7 +2530,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
               isSubagentRunner: false,
               isSharedRoomRunner: isSharedRoomTurn,
               sandSendMessageDeliveryOwed: method(experiments, "isSendMessageDeliveryOwedEnabled")?.() ?? false,
-              systemPromptGenerator: () => productionSystemPromptAssembly?.getSystemPrompt() ?? DEFAULT_SAND_SYSTEM_PROMPT,
+              systemPromptGenerator: () => productionSystemPromptAssembly?.getSystemPrompt() ?? buildSandBaseSystemPrompt({ cloudAgentsEnabled: method(experiments, "isCloudAgentsDisabledByTeam")?.() !== true, remoteBoxHasDesktop: boxHasDesktop(remoteBox) }),
             },
             emitUpdate,
             interactionObservers: {},

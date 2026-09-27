@@ -25,6 +25,7 @@ import {
   SAND_CLOUD_AGENTS_DISABLED_PROMPT_SECTION,
   SAND_MCP_MULTI_ACCOUNT_PROMPT_SECTION,
   SAND_SYSTEM_PROMPT_CLOUD_AGENTS_DISABLED,
+  buildSandBaseSystemPrompt,
 } from "./system-prompt.js";
 import { renderAutomationsSystemPrompt, type AutomationRecord } from "../automations/automation.js";
 import { renderTimeZoneSystemPrompt } from "../../shared/timezone.js";
@@ -58,6 +59,8 @@ export interface MemoryPromptStore {
 
 export interface SystemPromptAssemblyDependencies {
   readonly basePrompt: string;
+  /** Actual backend capability, re-read for every generated prompt. */
+  readonly remoteBoxHasDesktop?: () => boolean;
   readonly isSubagentRunner: boolean;
   readonly isSharedRoomRunner: boolean;
   readonly isSystemPromptOverridden: boolean;
@@ -250,7 +253,9 @@ export function createSystemPromptAssembly(deps: SystemPromptAssemblyDependencie
 
   function getSystemPrompt(snapshot?: AgentProfilePromptSnapshot): string {
     const cloudDisabled = deps.isCloudAgentsDisabledByTeam?.() === true;
-    const base = !deps.isSystemPromptOverridden && cloudDisabled ? SAND_SYSTEM_PROMPT_CLOUD_AGENTS_DISABLED : deps.basePrompt;
+    const base = deps.isSystemPromptOverridden ? deps.basePrompt
+      : deps.remoteBoxHasDesktop != null ? buildSandBaseSystemPrompt({ cloudAgentsEnabled: !cloudDisabled, remoteBoxHasDesktop: deps.remoteBoxHasDesktop() })
+      : cloudDisabled ? SAND_SYSTEM_PROMPT_CLOUD_AGENTS_DISABLED : deps.basePrompt;
     const sections = [base];
     if (deps.isSpotlightEnabled?.() !== false) sections.push(spotlightPromptSection({ canSendMessage: !deps.isSubagentRunner }));
     const profile = deps.isSharedRoomRunner ? profileSection(resolveProfileForPrompt(), true) : snapshot?.profileSection ?? profileSection(resolveProfileForPrompt(), false);
