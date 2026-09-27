@@ -1,3 +1,4 @@
+import { localShellApprovalTarget, resolveLocalShellDirectory } from "./node/local-shell-directory.js";
 import { createKey, type ContextKey } from "../packages/context/core.js";
 import type { SandLocalToolAction } from "./local-tool-permission.js";
 
@@ -63,11 +64,13 @@ export function isTerminalFile(path: string, terminalsFolder: string): boolean {
 }
 
 export type LocalExecMessage = { readonly case?: string; readonly value: Record<string, unknown> };
-export function describeLocalExec(serverMessage: { readonly message: LocalExecMessage }, terminalsFolder: string): SandLocalToolRequest | undefined {
+export function describeLocalExec(serverMessage: { readonly message: LocalExecMessage }, terminalsFolder: string, localRoot?: string): SandLocalToolRequest | undefined {
   const message = serverMessage.message; const value = message.value;
   switch (message.case) {
     case "shellStreamArgs": case "backgroundShellSpawnArgs": {
-      return { action: "run-command", target: value.command as string, resourcePath: terminalsFolder, ...((message.case === "backgroundShellSpawnArgs" || value.isBackground) ? { outlivesScope: true } : {}) };
+      const cwd = resolveLocalShellDirectory(localRoot, typeof value.workingDirectory === "string" ? value.workingDirectory : "");
+      if (typeof value.command !== "string" || cwd == null) return undefined;
+      return { action: "run-command", target: localShellApprovalTarget(value.command, cwd), resourcePath: terminalsFolder, ...((message.case === "backgroundShellSpawnArgs" || value.isBackground) ? { outlivesScope: true } : {}) };
     }
     case "forceBackgroundShellArgs": return { action: "run-command", target: "a command already running", attachToResourcePath: terminalsFolder, outlivesScope: true };
     case "writeShellStdinArgs": return { action: "send-input", target: value.chars as string };

@@ -34,7 +34,6 @@ import { BaseShellCoreExecutor } from "../packages/local-exec/shell-core.js";
 import { LocalShellStreamExecutor } from "../packages/local-exec/shell-stream.js";
 import { MockIgnoreService, MockPermissionsService } from "../packages/local-exec/tests/common.js";
 import { ReadError, ReadResult } from "../packages/proto/generated/agent/v1/read_exec_pb.js";
-import { ShellStream, ShellStreamStderr } from "../packages/proto/generated/agent/v1/shell_exec_pb.js";
 import type { SandboxPolicy as ProtoSandboxPolicy } from "../packages/proto/generated/agent/v1/sandbox_pb.js";
 import { createDefaultTerminalExecutor } from "../packages/shell-exec/index.js";
 
@@ -281,14 +280,6 @@ export function createDefaultProductionLocalExecExecutor(options: {
           const requested = args.workingDirectory ?? "";
           const resolution = await guards.resolveShellWorkingDirectory({ root, requested });
           args.workingDirectory = resolution.workingDirectory;
-          if (resolution.fellBackToRoot) {
-            yield new ShellStream({
-              event: {
-                case: "stderr",
-                value: new ShellStreamStderr({ data: guards.missingWorkingDirectoryNotice({ requested, root }) }),
-              },
-            });
-          }
           yield* shellStreamExecutor.execute(ctx, args);
         })(),
       });

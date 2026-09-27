@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
+import { resolveLocalShellDirectory } from "../../shared/node/local-shell-directory.js";
 import { realpathNearestExisting } from "../../shared/node/paths.js";
 
 export class SandLocalExecPathError extends Error {}
@@ -17,27 +18,19 @@ export async function regularFileSizeBytes(path: string): Promise<number | undef
 
 export function resolveLocalExecRoot(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.SAND_LOCAL_EXEC_ROOT?.trim() || env.SAND_AGENT_PROJECT_DIR?.trim();
-  return configured != null && configured.length > 0 ? configured : homedir();
+  return resolve(configured != null && configured.length > 0 ? configured : homedir());
 }
 
 async function isDirectory(path: string): Promise<boolean> {
   return (await statOrUndefined(path))?.isDirectory() ?? false;
 }
 
-function resolvePath(path: string, root: string): string {
-  return isAbsolute(path) ? resolve(path) : resolve(root, path);
-}
-
-export async function resolveShellWorkingDirectory(args: { readonly root: string; readonly requested: string }): Promise<{ workingDirectory: string; fellBackToRoot: boolean }> {
-  const requested = args.requested.trim();
-  if (requested.length === 0) return { workingDirectory: requested, fellBackToRoot: false };
-  const resolved = resolvePath(requested, args.root);
-  if (await isDirectory(resolved)) return { workingDirectory: resolved, fellBackToRoot: false };
-  return { workingDirectory: args.root, fellBackToRoot: true };
-}
-
-export function missingWorkingDirectoryNotice(args: { readonly requested: string; readonly root: string }): string {
-  return `working directory ${args.requested} does not exist on this machine; running in ${args.root} instead\n`;
+export async function resolveShellWorkingDirectory(args: { readonly root: string; readonly requested: string }): Promise<{ workingDirectory: string }> {
+  const resolved = resolveLocalShellDirectory(args.root, args.requested);
+  if (resolved == null || !await isDirectory(resolved)) {
+    throw new SandLocalExecPathError(`The requested working directory does not exist or is not a directory: ${args.requested || args.root}. Nothing ran. Choose an existing directory and retry.`);
+  }
+  return { workingDirectory: resolved };
 }
 
 export function escapesRoot(base: string, target: string): boolean {
@@ -70,11 +63,10 @@ export interface LocalExecManagerRuntime<Manager> {
     readonly containPath: typeof containPath;
     readonly regularFileSizeBytes: typeof regularFileSizeBytes;
     readonly resolveShellWorkingDirectory: typeof resolveShellWorkingDirectory;
-    readonly missingWorkingDirectoryNotice: typeof missingWorkingDirectoryNotice;
   }): Manager;
 }
 
 export function buildLocalExecManager<Manager>(root: string, maxFileBytes: number, runtime: LocalExecManagerRuntime<Manager>): Manager {
-  return runtime.build(root, maxFileBytes, { containPath, regularFileSizeBytes, resolveShellWorkingDirectory, missingWorkingDirectoryNotice });
+  return runtime.build(root, maxFileBytes, { containPath, regularFileSizeBytes, resolveShellWorkingDirectory });
 }
 

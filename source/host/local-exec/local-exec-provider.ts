@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { JsonValue } from "@bufbuild/protobuf";
 
@@ -85,6 +85,7 @@ export function isSameLocalExecConnection(a: LocalExecConnection, b: LocalExecCo
 export class SandLocalExecProvider {
   readonly root: string; readonly terminalsFolder: string; readonly computerId: string; readonly computerLabel: string; readonly maxFileBytes: number; readonly maxUploadFrameBytes: number;
   private readonly fetcher: typeof fetch; private closed = false; private abortController?: AbortController; private nextExecId = 1; private readonly inflight = new Map<string, { execId: number; controller: AbortController }>();
+  private readonly pendingAuthorizations = new Map<string, AbortController>();
   private readonly outbox: LocalExecResponseFrame[] = []; private flushing = false; private providerId: string | undefined;
   private readonly dataPostDeadline = createDeadlinePolicy(realClock, { name: "local-exec-data-post", timeoutMs: SAND_LOCAL_EXEC_DATA_POST_TIMEOUT_MS });
   private readonly controlPostDeadline = createDeadlinePolicy(realClock, { name: "local-exec-control-post", timeoutMs: SAND_LOCAL_EXEC_CONTROL_POST_TIMEOUT_MS });
@@ -94,12 +95,12 @@ export class SandLocalExecProvider {
   private readonly heartbeat = createPollingPolicy(realClock, { name: "local-exec-heartbeat", intervalMs: SAND_LOCAL_EXEC_HEARTBEAT_INTERVAL_MS });
 
   constructor(private readonly options: SandLocalExecProviderOptions) {
-    this.root = options.root ?? resolveLocalExecRoot(); this.terminalsFolder = join(this.root, "terminals");
+    this.root = resolve(options.root ?? resolveLocalExecRoot()); this.terminalsFolder = join(this.root, "terminals");
     const host = hostname().trim(); this.computerId = options.computerId?.trim() || host || DEFAULT_SAND_COMPUTER_ID; this.computerLabel = options.computerLabel?.trim() || host || "this computer";
     this.maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_LOCAL_EXEC_FILE_BYTES; this.maxUploadFrameBytes = maxLocalExecUploadFrameBytes(this.maxFileBytes); this.fetcher = options.fetch ?? fetch;
   }
   start(): void { void this.runLoop(); }
-  close(): void { this.closed = true; this.abortController?.abort(); for (const entry of this.inflight.values()) entry.controller.abort(); }
+  close(): void { this.closed = true; this.abortController?.abort(); for (const controller of this.pendingAuthorizations.values()) controller.abort(); for (const entry of this.inflight.values()) entry.controller.abort(); }
   private enqueue(frame: LocalExecResponseFrame): void { this.outbox.push(frame); void this.flush(); }
   private async postBatch(frames: readonly LocalExecResponseFrame[], deadline = this.dataPostDeadline): Promise<boolean> {
     try { return await this.postRetry.runWithRetry(async () => { const connection = await this.options.resolveConnection(); const response = await deadline.run((signal) => this.fetcher(`${connection.baseUrl}${GATEWAY_LOCAL_EXEC_RESPONSES_PATH}`, { method: "POST", headers: withLocalExecAuth({ "content-type": "application/json" }, connection), body: JSON.stringify({ providerId: this.providerId, frames }), signal })); if (!response.ok) { const failure = new Error("response POST failed") as Error & { code?: string }; failure.code = `http_${response.status}`; throw failure; } return true; }); }
@@ -123,13 +124,32 @@ export class SandLocalExecProvider {
   private dispatchEventBlock(block: string): void { const lines = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()); if (lines.length === 0) return; try { void this.handleRequest(JSON.parse(lines.join("\n")) as LocalExecRequestFrame); } catch (error) { console.error(`[local-exec-provider] dropping unparseable request frame: ${errorLogTag(error)}`); } }
   async handleRequest(frame: LocalExecRequestFrame): Promise<void> {
     if (frame.kind === "retire-approval") { await this.options.onApprovalRetired?.(frame.approvalId); return; }
-    if (frame.kind === "exec" || frame.kind === "upload" || frame.kind === "download") { const described = this.describeFrame(frame); const blocked = await this.options.isLocalUseBlocked?.({ ...(frame.approvalId === undefined ? {} : { approvalId: frame.approvalId }), ...(described === undefined ? {} : { describes: described }), terminalsFolder: this.terminalsFolder }); if (blocked !== undefined) { this.refuse(frame.requestId, frame.kind, blocked); return; } }
-    switch (frame.kind) { case "welcome": this.providerId = frame.providerId; return; case "exec": return this.handleExec(frame.requestId, frame.serverMessage); case "upload": return this.handleUpload(frame.requestId, frame.path, frame.bytesBase64); case "download": return this.handleDownload(frame.requestId, frame.path); case "cancel": return this.handleCancel(frame.requestId); }
+    if (frame.kind === "exec" || frame.kind === "upload" || frame.kind === "download") {
+      if (this.closed || this.pendingAuthorizations.has(frame.requestId) || this.inflight.has(frame.requestId)) return;
+      // Cancellation must cover the asynchronous permission check as well as the
+      // executor. SSE dispatch does not await one frame before reading the next.
+      const cancellation = new AbortController();
+      this.pendingAuthorizations.set(frame.requestId, cancellation);
+      try {
+        const described = this.describeFrame(frame);
+        const blocked = await this.options.isLocalUseBlocked?.({ ...(frame.approvalId === undefined ? {} : { approvalId: frame.approvalId }), ...(described === undefined ? {} : { describes: described }), terminalsFolder: this.terminalsFolder });
+        if (cancellation.signal.aborted || this.closed) return;
+        if (blocked !== undefined) { this.refuse(frame.requestId, frame.kind, blocked); return; }
+        switch (frame.kind) {
+          case "exec": return await this.handleExec(frame.requestId, frame.serverMessage);
+          case "upload": return await this.handleUpload(frame.requestId, frame.path, frame.bytesBase64);
+          case "download": return await this.handleDownload(frame.requestId, frame.path);
+        }
+      } finally {
+        if (this.pendingAuthorizations.get(frame.requestId) === cancellation) this.pendingAuthorizations.delete(frame.requestId);
+      }
+    }
+    switch (frame.kind) { case "welcome": this.providerId = frame.providerId; return; case "cancel": return this.handleCancel(frame.requestId); }
   }
-  private describeFrame(frame: Extract<LocalExecRequestFrame, { kind: "exec" | "upload" | "download" }>): SandLocalToolRequest | undefined { if (frame.kind === "upload") return { action: "write-file", target: frame.path }; if (frame.kind === "download") return { action: "read-file", target: frame.path, attachToResourcePath: frame.path }; try { const decoded = this.options.executor.decodeServerMessage(frame.serverMessage); const normalized = normalizeDescribableMessage(decoded); return normalized === undefined ? undefined : describeLocalExec(normalized, this.terminalsFolder); } catch { return undefined; } }
+  private describeFrame(frame: Extract<LocalExecRequestFrame, { kind: "exec" | "upload" | "download" }>): SandLocalToolRequest | undefined { if (frame.kind === "upload") return { action: "write-file", target: frame.path }; if (frame.kind === "download") return { action: "read-file", target: frame.path, attachToResourcePath: frame.path }; try { const decoded = this.options.executor.decodeServerMessage(frame.serverMessage); const normalized = normalizeDescribableMessage(decoded); return normalized === undefined ? undefined : describeLocalExec(normalized, this.terminalsFolder, this.root); } catch { return undefined; } }
   private refuse(requestId: string, kind: "exec" | "upload" | "download", reason: string): void { if (kind === "exec") this.enqueue({ kind: "control", requestId, message: this.options.executor.throwControl(reason) }); else this.enqueue({ kind: "file-error", requestId, error: reason }); }
   private async handleExec(requestId: string, json: JsonValue): Promise<void> { let message: LocalExecDecodedMessage; try { message = this.options.executor.decodeServerMessage(json); } catch (error) { this.enqueue({ kind: "control", requestId, message: this.options.executor.throwControl(errorMessage(error)) }); return; } const execId = this.nextExecId++; message.id = execId; const controller = new AbortController(); this.inflight.set(requestId, { execId, controller }); this.options.onInflightChange?.(this.inflight.size); try { for await (const output of this.options.executor.execute(message, controller.signal)) this.enqueue({ kind: output.kind, requestId, message: output.message }); } finally { this.inflight.delete(requestId); this.options.onInflightChange?.(this.inflight.size); } }
-  private handleCancel(requestId: string): void { const entry = this.inflight.get(requestId); if (entry == null) return; this.options.executor.cancel(entry.execId); entry.controller.abort(); }
+  private handleCancel(requestId: string): void { this.pendingAuthorizations.get(requestId)?.abort(); const entry = this.inflight.get(requestId); if (entry == null) return; this.options.executor.cancel(entry.execId); entry.controller.abort(); }
   private async handleUpload(requestId: string, path: string, bytesBase64: string): Promise<void> { try { const approximate = Math.floor(bytesBase64.length * 3 / 4); if (approximate > this.maxFileBytes) { this.enqueue({ kind: "file-error", requestId, error: localExecFileTooLargeMessage(approximate, this.maxFileBytes) }); return; } const target = await containPath({ root: this.root, path }); await writeFileAtomic(target, Buffer.from(bytesBase64, "base64")); this.enqueue({ kind: "file", requestId }); } catch (error) { this.enqueue({ kind: "file-error", requestId, error: errorMessage(error) }); } }
   private async handleDownload(requestId: string, path: string): Promise<void> { try { const target = await containPath({ root: this.root, path }); const size = await regularFileSizeBytes(target); if (size !== undefined && size > this.maxFileBytes) { this.enqueue({ kind: "file-error", requestId, error: localExecFileTooLargeMessage(size, this.maxFileBytes) }); return; } const data = await readFile(target); this.enqueue({ kind: "file", requestId, bytesBase64: data.toString("base64") }); } catch (error) { this.enqueue({ kind: "file-error", requestId, error: errorMessage(error) }); } }
 }

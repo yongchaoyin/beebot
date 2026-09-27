@@ -38,7 +38,7 @@ export class GatewayLocalExecManager<Client = unknown> {
   private nextId = 0;
   constructor(private readonly bridge: SandLocalExecBridge, private readonly gate: GatewayLocalToolGate, private readonly getTerminalsFolder: () => string, private readonly codec: GatewayLocalExecCodec<Client>, private readonly reportFailure?: (report: LocalExecFailureReport) => void) {}
   async *createExecInstance(context: SandBoxContext, argsSerializer: (id: number) => GatewayExecServerMessage): AsyncGenerator<Client> {
-    const serverMessage = argsSerializer(this.nextId++); const normalized = normalizeDescribableMessage(serverMessage); const described = normalized === undefined ? undefined : describeLocalExec(normalized, this.getTerminalsFolder()); const scope = context.get(sandLocalToolScopeKey); const blocked = this.gate.blockedReason();
+    const serverMessage = argsSerializer(this.nextId++); const normalized = normalizeDescribableMessage(serverMessage); const described = normalized === undefined ? undefined : describeLocalExec(normalized, this.getTerminalsFolder(), this.bridge.getProviderInfo()?.localRoot); const scope = context.get(sandLocalToolScopeKey); const blocked = this.gate.blockedReason();
     if (blocked !== undefined) throw new SandLocalToolPermissionDeniedError(blocked); if (described === undefined && this.gate.requiresApproval()) throw new SandLocalToolPermissionDeniedError(SAND_LOCAL_TOOLS_UNDESCRIBABLE_MESSAGE);
     this.bridge.assertComputerAvailable(undefined, { site: "exec", ...(scope?.agentId === undefined ? {} : { agentId: scope.agentId }) });
     const approvalId = described === undefined ? undefined : await authorizeLocalToolAction(this.gate, scope, { ...described, signal: context.signal });

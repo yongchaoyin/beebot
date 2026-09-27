@@ -72,10 +72,11 @@ export class SandLocalExecBridge {
   private providerForBatch(providerId?: string): Provider | undefined { return (providerId === undefined ? undefined : this.byId.get(providerId)) ?? [...this.providers].at(-1); }
   retireApproval(approvalId: string): void { for (const provider of this.providers) { try { provider.send({ kind: "retire-approval", requestId: this.deps.randomId?.() ?? randomUUID(), approvalId }); } catch {} } }
   async *request(context: LocalExecBridgeContext, frame: LocalExecBridgeFrame, computerId?: string, options?: { readonly watchResponse?: boolean }): AsyncGenerator<LocalExecBridgeFrame> {
+    if (context.signal.aborted) return;
     const blocked = this.deps.blockedReason(); if (blocked !== undefined) throw new SandLocalExecError(blocked); const provider = this.requireProvider(computerId, { site: frame.kind, ...(context.agentId === undefined ? {} : { agentId: context.agentId }) }); const requestId = this.deps.randomId?.() ?? randomUUID(); const queue = new FrameQueue(); this.pending.set(requestId, queue);
     const sendCancel = () => { try { provider.send({ kind: "cancel", requestId }); } catch {} }; const onAbort = () => { sendCancel(); queue.close(); }; if (context.signal.aborted) onAbort(); else context.signal.addEventListener("abort", onAbort, { once: true }); let timedOut = false; let responseWatchdog: ReturnType<IdleWatchdogPolicy["arm"]> | undefined;
     const armResponseWatchdog = () => { if (options?.watchResponse !== true) return; if (responseWatchdog === undefined) responseWatchdog = this.deps.responseWatchdog.arm(() => { timedOut = true; sendCancel(); queue.close(); }); else responseWatchdog.kick(); };
-    try { provider.send({ requestId, ...frame }); armResponseWatchdog(); for await (const response of queue) { armResponseWatchdog(); yield response; } if (timedOut) throw new SandLocalExecError(sandComputerUnavailableMessage(provider.label)); }
+    try { if (context.signal.aborted) return; provider.send({ requestId, ...frame }); armResponseWatchdog(); for await (const response of queue) { armResponseWatchdog(); yield response; } if (timedOut) throw new SandLocalExecError(sandComputerUnavailableMessage(provider.label)); }
     finally { responseWatchdog?.dispose(); this.pending.delete(requestId); queue.close(); context.signal.removeEventListener("abort", onAbort); if (!context.signal.aborted) sendCancel(); }
   }
 }
