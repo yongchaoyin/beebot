@@ -60,13 +60,37 @@ ${uiRuntime}
 const re=(...values)=>values.filter(Boolean).join(' '),aht=({children})=>children,q6n=({children})=>children,BLn=()=>null;
 ${uiFunctions.get('qLn')}
 ${uiFunctions.get('RLocalChatLayout')}
+${uiFunctions.get('es')}
+${uiFunctions.get('SNe')}
+${uiFunctions.get('zan')}
+${uiFunctions.get('pOn')}
+${uiFunctions.get('bOn')}
+${uiFunctions.get('yOn')}
+// Keep real selection projection, transcript activity derivation and screen-prop
+// assembly. Control transport/presence and content leaves, not the route decision.
+const Qe=()=>window.__emptyRouteScope;
+const emptyTranscript={entries:[],loadState:'ready',hasOlder:false,isLoadingOlder:false,loadOlder:async()=>{},retry(){},installGeneration:0};
+const PBe=()=>emptyTranscript,GMt=()=>null,jSn=()=>[],FSn=()=>({isRunning:false,isComposing:false,isRetrying:false,presence:null,activity:null}),LMt=()=>false;
+const N_n=entries=>({visibleEntries:entries,threadSummaries:new Map}),oht=({agentId})=>'fixture:'+agentId,WGe=()=>null,Ipt=()=>()=>{},Cr=S.useEffect;
+const aSn=({agent})=>p.jsx('header',{'data-selected-agent':agent?.id??'','data-fixture-header':true,children:agent?.name??'No selected recipient'});
+const $an=()=>null,c_n=()=>p.jsx('div',{'data-transcript':true}),nSn=()=>null,lme=({children})=>children,vt=({children})=>p.jsx('span',{children}),As=({children})=>p.jsx('button',{children});
+const hve=props=>p.jsx('textarea',{'data-composer':props.isHero?'hero':'existing','data-group':String(props.isGroupChat),'data-fixture-recipient':window.__emptyRouteScope.selection.readCurrentAgentId()??'',defaultValue:props.initialPrompt??''});
+let actualRouteObserved;
+function ActualSelectedRoute(){
+ const current=SNe(),scope=Qe(),currentAgentId=es(scope.selection.snapshots).currentAgentId,agents=es(scope.roster.snapshots).agents.rows;
+ const transcript=bOn({currentAgentId,currentAgent:current,agents,composerAgentKey:currentAgentId,isGatewayConnected:true,isCursorSignedIn:true,openAgentChat(){}});
+ const composer={draftSeed:{prompt:current?.isGroup?'Group draft 用户原文':'Single draft 用户原文'},composerKey:currentAgentId,composerPlaceholder:'Fixture prompt',getMentionMembers:()=>current?.memberIds??[]};
+ const props=yOn({currentAgentId,currentAgent:current,isCurrentGroup:current?.isGroup===true,isNewChatOpen:false,isNewAgentOpen:false,isNewChatPreviewActive:false,isCurrentSharedRoom:false,isCurrentSharedRoomRevoked:false,isGatewayConnected:true,isCursorSignedIn:true,transcript,composer,findInChat:{isOpen:false},trays:p.jsx('div',{'data-fixture-trays':true}),onComposerSubmit(){}});
+ actualRouteObserved={current,transcript,props};return p.jsx(qLn,props);
+}
+export function mountSelected(host){const root=createRoot(host);return{render:()=>flushSync(()=>root.render(p.jsx(ActualSelectedRoute,{}))),observed:()=>actualRouteObserved,unmount:()=>flushSync(()=>root.unmount())};}
 let observed;const originalLayout=RLocalChatLayout;RLocalChatLayout=props=>{observed=props;return p.jsx(originalLayout,props)};
 export function mount(host){const root=createRoot(host),entries=[],header=p.jsx('header',{'data-fixture-header':true,children:'General 用户原文'}),trays=p.jsx('div',{'data-fixture-trays':true});let last;
- const render=mode=>{last={isChatActive:mode==='single'||mode==='group',isNewChatOpen:mode==='new-chat',isNewAgentOpen:mode==='new-agent',isNewChatPreviewActive:false,isReadOnlyExchange:false,isCurrentGroup:mode==='group',surface:'transcript',entries,chatHeader:header,trays,heroComposer:p.jsx('textarea',{'data-composer':'hero'}),composer:p.jsx('textarea',{'data-composer':'existing',defaultValue:mode}),newChatComposer:p.jsx('textarea',{'data-composer':'new-chat'}),newAgentPane:p.jsx('section',{'data-management':'new-agent',children:'Create explicit Bot'}),renderTranscriptBoundary:children=>children,transcript:p.jsx('p',{'data-transcript':true,children:'Synthetic conversation'})};flushSync(()=>root.render(p.jsx(qLn,last)))};
+ const render=mode=>{last={hasCurrentAgent:mode==='single'||mode==='group',isChatActive:mode==='single'||mode==='group',isNewChatOpen:mode==='new-chat',isNewAgentOpen:mode==='new-agent',isNewChatPreviewActive:false,isReadOnlyExchange:false,isCurrentGroup:mode==='group',surface:'transcript',entries,chatHeader:header,trays,heroComposer:p.jsx('textarea',{'data-composer':'hero'}),composer:p.jsx('textarea',{'data-composer':'existing',defaultValue:mode}),newChatComposer:p.jsx('textarea',{'data-composer':'new-chat'}),newAgentPane:p.jsx('section',{'data-management':'new-agent',children:'Create explicit Bot'}),renderTranscriptBoundary:children=>children,transcript:p.jsx('p',{'data-transcript':true,children:'Synthetic conversation'})};if(mode==='unspecified')delete last.hasCurrentAgent;flushSync(()=>root.render(p.jsx(qLn,last)))};
  return{render,observed:()=>observed,last:()=>last,unmount:()=>flushSync(()=>root.unmount())};}
 `}});
 const settle=async window=>{await Promise.resolve();await setImmediate();await window.happyDOM.whenAsyncComplete()};
-async function uiFixture(t){const window=new Window({url:'https://beebot.test',settings:{enableJavaScriptEvaluation:true}});window.console.timeStamp=()=>{};const errors=[];window.addEventListener('error',event=>errors.push(event.message));window.desktop={agent:{getUiLanguage:async()=>({language:'en'}),setUiLanguage:async language=>({language})}};window.__beebotNodeChat={subscribe:()=>()=>{},getSnapshot:()=>({active:false})};window.document.body.innerHTML='<main></main>';window.eval(uiBundle.outputFiles[0].text+';window.EmptyRosterUI=EmptyRosterUI');const host=window.document.querySelector('main'),app=window.EmptyRosterUI.mount(host);t.after(async()=>{app.unmount();await window.happyDOM.close()});return{window,host,app,errors}}
+async function uiFixture(t,{selectedScope}={}){const window=new Window({url:'https://beebot.test',settings:{enableJavaScriptEvaluation:true}});window.console.timeStamp=()=>{};const errors=[];window.addEventListener('error',event=>errors.push(event.message));window.desktop={agent:{getUiLanguage:async()=>({language:'en'}),setUiLanguage:async language=>({language})}};window.__beebotNodeChat={subscribe:()=>()=>{},getSnapshot:()=>({active:false})};window.document.body.innerHTML='<main></main>';window.eval(uiBundle.outputFiles[0].text+';window.EmptyRosterUI=EmptyRosterUI');const host=window.document.querySelector('main');window.__emptyRouteScope=selectedScope;const app=selectedScope?window.EmptyRosterUI.mountSelected(host):window.EmptyRosterUI.mount(host);t.after(async()=>{app.unmount();await window.happyDOM.close()});return{window,host,app,errors}}
 
 
 test('actual pinned cold start accepts and persists authoritative [] without inventing a Bot',{timeout:3000},async t=>{
@@ -115,16 +139,51 @@ test('actual empty local route has no composer or placeholder avatar and switche
 });
 test('actual wrapper preserves explicit New chat/New Bot routes and existing individual/Group conversation props',async t=>{
   const {window,host,app,errors}=await uiFixture(t);
-  for(const mode of['new-chat','new-agent','single','group','empty','single','empty']){app.render(mode);await settle(window);const observed=app.observed(),last=app.last();
+  for(const mode of['new-chat','new-agent','single','group','empty','single','empty','unspecified']){app.render(mode);await settle(window);const observed=app.observed(),last=app.last();
     for(const key of Object.keys(last))if(mode!=='empty'||!['heroComposer','chatHeader'].includes(key))assert.equal(observed[key],last[key],`${mode} forwards ${key}`);
-    assert.equal(host.querySelectorAll('.sand-empty').length,mode==='empty'?1:0);
+    assert.equal(host.querySelectorAll('.sand-empty').length,mode==='empty'||mode==='unspecified'?1:0);
     assert.equal(host.querySelector('[data-management="new-agent"]')!=null,mode==='new-agent');
     assert.equal(host.querySelector('[data-composer="new-chat"]')!=null,mode==='new-chat');
     assert.equal(host.querySelector('[data-composer="existing"]')!=null,mode==='single'||mode==='group');
-    assert.equal(host.querySelector('[data-composer="hero"]'),null);
+    assert.equal(host.querySelector('[data-composer="hero"]')!=null,mode==='unspecified','missing recipient discriminator preserves the upstream hero composer');
   }
   assert.deepEqual(errors,[]);
 });
+for(const isGroup of[false,true])test(`actual selected empty ${isGroup?'Group':'individual Bot'} keeps its hero composer and header despite inactive transcript`,async t=>{
+  const f=await fixture(t),agent=row(isGroup?'existing-empty-group':'existing-empty-single',{name:isGroup?'真实空群聊':'真实空同事',isGroup});
+  await f.roster.restore('fixture-account');f.roster.ingestAgentsEvent({agents:[agent],activeAgentId:agent.id});
+  assert.equal(f.selection.readCurrentAgentId(),agent.id);assert.equal(f.project().id,agent.id);
+  const {window,host,app,errors}=await uiFixture(t,{selectedScope:f});app.render();await settle(window);assert.deepEqual(errors,[]);
+  for(const language of['zh','en','zh']){
+    await window.__beebotUiLanguage.set(language);await settle(window);
+    const {current,transcript,props}=app.observed();
+    assert.equal(current.id,agent.id);assert.equal(transcript.entries.length,0);assert.equal(transcript.isChatActive,false,'upstream activity is not the existence of a selected recipient');
+    assert.equal(props.hasCurrentAgent,true,'actual yOn must carry the resolved recipient separately');assert.equal(props.isChatActive,false);
+    assert.equal(host.querySelector('[data-selected-agent]')?.getAttribute('data-selected-agent'),agent.id);
+    const input=host.querySelector('[data-composer="hero"]');assert.ok(input,'an existing empty conversation uses the upstream hero composer');
+    assert.equal(input.getAttribute('data-group'),String(isGroup));assert.equal(input.getAttribute('data-fixture-recipient'),agent.id);assert.equal(input.value,isGroup?'Group draft 用户原文':'Single draft 用户原文');
+    assert.equal(host.querySelector('.sand-empty p'),null,'the no-recipient message must not replace a real empty conversation');
+  }
+  // The same mounted route must stop exposing the composer when the last real
+  // recipient disappears, then restore it when a real recipient is selected.
+  f.roster.ingestAgentsEvent({agents:[],activeAgentId:''});await settle(window);
+  assert.equal(app.observed().current,null);assert.equal(app.observed().props.hasCurrentAgent,false);assert.equal(host.querySelector('textarea'),null);
+  assert.equal(host.querySelector('[data-fixture-header]'),null);assert.equal(host.querySelector('.sand-empty p')?.textContent,'还没有聊天');
+  f.roster.ingestAgentsEvent({agents:[agent],activeAgentId:agent.id});await settle(window);
+  assert.equal(app.observed().props.hasCurrentAgent,true);assert.ok(host.querySelector('[data-composer="hero"]'));assert.deepEqual(errors,[]);
+});
+test('actual caller exposes no current recipient for an authoritative empty roster and ignores a stale selected ID',async t=>{
+  const f=await fixture(t);await f.roster.restore('fixture-account');f.roster.ingestAgentsEvent({agents:[],activeAgentId:''});
+  const {window,host,app,errors}=await uiFixture(t,{selectedScope:f});app.render();await settle(window);assert.deepEqual(errors,[]);
+  for(const currentAgentId of[null,'deleted-old-recipient']){
+    f.selection.snapshots.set({currentAgentId,isLoadPending:false});await settle(window);
+    const observed=app.observed();assert.equal(observed.current,null);assert.equal(observed.transcript.isChatActive,false);assert.equal(observed.props.hasCurrentAgent,false);
+    assert.equal(host.querySelector('textarea,[data-fixture-header]'),null);
+    for(const language of['en','zh']){await window.__beebotUiLanguage.set(language);await settle(window);assert.equal(host.querySelector('.sand-empty p')?.textContent,language==='zh'?'还没有聊天':'No chats yet')}
+  }
+  assert.deepEqual(errors,[]);
+});
+
 test('actual wrapper keeps active remote Node route separate from local empty handling',()=>{
   const window={__beebotNodeChat:{subscribe(){},getSnapshot:()=>({active:true})}};
   const S={useSyncExternalStore:(subscribe,get)=>get(),useRef:()=>({current:null}),useEffect(){},createElement:(type,props)=>({type,props})};

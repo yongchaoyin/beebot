@@ -23,6 +23,22 @@ notices and explicit New Bot/New Group flows remain in place. Remote conversatio
 still use their existing route. The text follows the existing Chinese/English UI
 catalog; no Bot name or message text is rewritten.
 
+### Existing conversations without messages
+
+An existing Bot or Group remains a valid send target even when its transcript is
+empty. The pinned renderer's `isChatActive` means that the transcript has entries,
+is running, is starting, is loading, or has failed; it does not mean that a Bot is
+selected. Its normal idle empty conversation uses `heroComposer` for the first
+message.
+
+The initial empty-workspace adapter incorrectly hid that composer. Its tests had
+modeled all existing conversations as active, so they missed an idle empty Group.
+The adapter now passes `hasCurrentAgent` from the caller's actual resolved
+`currentAgent` separately. Only an explicitly absent recipient with no active
+transcript and no creation flow gets the empty workspace body. Existing empty
+single-Bot and Group conversations retain their original header, draft, mention
+list and first-message composer; transcript activity itself is unchanged.
+
 The independent Node already handles an empty Host by explicitly creating its own
 configured Bot and persisting that identity. Existing mappings and the narrow
 creation/mapping crash-recovery path retain their original checks. No connection,
@@ -88,3 +104,56 @@ sent and no production Bots were deleted to exercise the empty state.
 The post-commit `npm run publication:check` passed, preserving the complete source
 export. Empty-workspace behavior was exercised in the isolated fixtures above;
 the installed production workspace was checked only for startup and continuity.
+
+## Empty-conversation composer regression validation
+
+The follow-up uses the same pinned Node 26.5.0 toolchain. The expanded renderer
+suite passed 13/13 with no skips. Its new cases execute the actual
+`SNe → bOn → yOn → qLn → RLocalChatLayout` chain with real roster/selection stores,
+React and language updates, while transport, presence and editor content leaves
+are controlled. They verify idle empty single-Bot and Group conversations, their
+initial draft and header, deletion/reselection, stale IDs, both languages and the
+strict-false fallback for callers without the new property. Replaying the previous
+wrapper in an ignored in-memory fixture makes both selected-empty regressions
+fail, demonstrating that the tests catch the reported defect.
+
+The first full package check passed 1,347 tests and failed one existing Node-client
+login case: its fixed 30 ms wait observed `connecting` rather than `online`. There
+were 15 opt-in skips. The unchanged `tests/node-client.test.mjs` then passed all
+16 tests in isolation. No production connection code, timing, assertion or test
+concurrency configuration was changed to hide this failure. The readable frontend
+build passed with its existing dynamic-import warnings.
+
+The unchanged full `npm run package` rerun passed both TypeScript checks and all
+1,348 enabled tests (1,363 total, 15 opt-in skips, zero failures). The continuity
+suite includes second/third sends in individual and Group conversations. The
+opt-in real Node integration suite was not rerun for this renderer-only fix.
+
+A separate native Electron fixture passed 90 checks across single-Bot/Group,
+Chinese/English and light/dark at 680×620. It renders the actual staged wrapper
+and local layout with real React, CSS, recovered ConversationComposer/TipTap and
+submission queue. Controlled transport/roster/history replace the account and
+Host; the full pinned caller is covered by the unit chain above. Native text,
+Enter and button input verified visible editable empty composers, draft/focus
+retention during language switches, draft/recipient continuity into populated
+layout, second and third submissions while the first remains pending, and a cleared
+editable draft after submission. A truly absent recipient still has no composer. Renderer errors were zero,
+and all fixture windows closed.
+
+Initial native-fixture attempts had a JSX assembly error, missing shell styling
+and a caret-position assumption; those fixture issues were corrected while keeping
+the visibility, overflow and input assertions. They did not require production
+changes. Screenshots and original failure evidence remain in ignored `.build`.
+
+`npm run verify` passed for the final package, including all 14 clean-source
+runtimes, deterministic ASAR, native dependencies, bundle identity and signature.
+It was installed at `/Applications/BeeBot.app` with the previous bundle retained.
+Installed ASAR SHA-256:
+`5760688300fb6a15bbd42aeb842a44dc675f92fe15b1aacdf7f240342e8cfea5`.
+
+The installed production window reopened on the existing empty Group and visibly
+restored its header, four members and first-message composer. No production
+messages were sent or Bots removed. Native automation did not reliably expose the
+renderer accessibility tree or confirm production text focus; actual typing was
+therefore separately requested from the user. The isolated native input/queue
+checks above are complete and are not presented as production message delivery.

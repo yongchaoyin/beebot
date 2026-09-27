@@ -15,9 +15,9 @@ function qLn(props){
     return()=>{disposed=true;cleanup?.();};
   },[active]);
   if(!active){
-    // A workspace without a selected colleague has no valid send target. Keep
-    // the ordinary layout and explicit creation routes, with a true empty body.
-    const empty=!props.isChatActive&&!props.isNewChatOpen&&!props.isNewAgentOpen;
+    // An existing colleague can have no messages and still needs its first-send
+    // composer. Only a genuinely absent recipient gets the empty workspace body.
+    const empty=props.hasCurrentAgent===false&&!props.isChatActive&&!props.isNewChatOpen&&!props.isNewAgentOpen;
     return S.createElement(RLocalChatLayout,empty?{...props,chatHeader:null,heroComposer:S.createElement("p",{children:language?.text("No chats yet")??"No chats yet"})}:props);
   }
   return S.createElement("div",{id:"beebot-node-chat",ref:mount,style:{display:"flex",flexDirection:"column",flex:"1 1 0",minWidth:0,minHeight:0,width:"100%",height:"100%",overflow:"hidden"}});
