@@ -95,6 +95,8 @@ export interface ProductionTurnRunShellAdapterInput {
   readonly isAwaitingUserSelection: () => boolean;
   readonly emitRunLifecycle: TurnRunShellHost["emitRunLifecycle"];
   readonly emitUpdate: (update: ForwardedUpdate) => void;
+  /** When present, a public send must return a fresh durable message receipt. */
+  readonly lastSentMessageId?: () => string | undefined;
   readonly lastReactionApplied?: () => boolean;
   readonly cancelThisRun: ProductionTurnAgentOwner["runContext"]["scope"]["cancelThisRun"];
   readonly onRunUnwind?: () => void;
@@ -237,13 +239,19 @@ export function createProductionTurnRunShellAdapter(
       const linked = linkTurnRunContext(input.context(), context.signal);
       const updateRelay: ProductionTurnRunShellPreparedTurn["updateRelay"] = {};
       const emitUpdate = (update: ForwardedUpdate): void => {
+        const previousMessageId = update.type === "send-message" ? input.lastSentMessageId?.() : undefined;
+        // Validation/persistence can reject a send. Do not count or remember
+        // its content before the transport actually accepts it.
+        input.emitUpdate(update);
+        const messageId = update.type === "send-message" ? input.lastSentMessageId?.() : undefined;
+        const delivered = input.lastSentMessageId === undefined || (!!messageId && messageId !== previousMessageId);
         const callbacks = activePrepared === updateRelay.prepared
           ? updateRelay.callbacks
           : undefined;
         if (callbacks !== undefined) {
           if (update.type === "text-delta" && typeof update.text === "string") {
             callbacks.collectText(update.text);
-          } else if (update.type === "send-message") {
+          } else if (update.type === "send-message" && delivered) {
             callbacks.collectSendMessage();
             const message = update.message;
             if (
@@ -256,7 +264,6 @@ export function createProductionTurnRunShellAdapter(
             }
           }
         }
-        input.emitUpdate(update);
         if (
           callbacks !== undefined
           && update.type === "react-to-message"

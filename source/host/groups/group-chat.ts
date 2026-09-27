@@ -5,7 +5,7 @@ export const GROUP_CONFIG_VERSION = 1; export const GROUP_MAX_MEMBER_TURNS = 10;
 // self-check and finish, plus one conversational update. Keep a finite ceiling.
 export const GROUP_MAX_MESSAGES_PER_TURN = 12;
 export const SHARED_ROOM_HISTORY_LIMIT = 24; export const GROUP_CHAT_TAG_PREFIX = "[Group chat: "; export const SAND_HIDDEN_PROMPT_MARKER = "[SAND_HIDDEN_PROMPT]";
-export interface GroupMember { id: string; name: string; description: string; role?: BotRoleRecord | null } export interface GroupDescription { name: string; description: string } export type GroupMessage = { id?: string; responseTargetId?: string; purpose?: "update" | "request" | "discussion"; recipientIds?: readonly string[]; replyToId?: string; replyToMemberId?: string; workOnId?: string; awaitingUser?: boolean; speaker: { kind: "user"; name?: string } | { kind: "member"; id: string; name: string }; content: string };
+export interface GroupMember { id: string; name: string; description: string; role?: BotRoleRecord | null } export interface GroupDescription { name: string; description: string } export type GroupMessage = { id?: string; responseTargetId?: string; purpose?: "update" | "request" | "discussion"; recipientIds?: readonly string[]; replyToId?: string; replyToMemberId?: string; /** Derived from a validated room-local quote, never model input. */ replyToUser?: boolean; workOnId?: string; awaitingUser?: boolean; speaker: { kind: "user"; name?: string } | { kind: "member"; id: string; name: string }; content: string };
 export function orderRoundSpeakers<T>(memberIds: readonly T[], round: number): T[] { if (memberIds.length === 0) return []; const offset = (round % memberIds.length + memberIds.length) % memberIds.length; return [...memberIds.slice(offset), ...memberIds.slice(0, offset)]; }
 export function isSameMemberSet(a: readonly string[], b: readonly string[]): boolean { if (a.length !== b.length) return false; const set = new Set(a); return b.every((id) => set.has(id)); }
 export class SandGroupNestingError extends Error { readonly nestedGroupIds: string[]; constructor(ids: readonly string[]) { super(`A group chat can only contain individual agents, not other group chats. Remove the group chat${ids.length === 1 ? "" : "s"} from the member list.`); this.name = "SandGroupNestingError"; this.nestedGroupIds = [...ids]; } }
@@ -23,6 +23,14 @@ export class GroupMentionError extends Error {
       ? `The mention @${handle} matches more than one Bot. Use the full name or @{member-id}.`
       : `The addressed Bot ${handle} is not a member of this group.`) + (members ? ` Nothing was published. Current Bot members: ${members.map(member => `${JSON.stringify(member.name)} (@{${member.id}})`).join(", ") || "none"}. Use a current member address; address the user as you, without inventing an @name.` : ""));
     this.name = "GroupMentionError";
+  }
+}
+
+export class GroupRecipientRequiredError extends Error {
+  readonly code = "group_recipient_required";
+  constructor() {
+    super("This request has no recipient. Nothing was published. To ask a colleague, @ a current member or reply_to their message. To ask the user, reply_to the actual user message. Do not invent a name or broadcast the request.");
+    this.name = "GroupRecipientRequiredError";
   }
 }
 
@@ -116,7 +124,12 @@ export function resolveMessageResponders<T extends Pick<GroupMember, "id" | "nam
     if (message.speaker.kind === "member" && message.purpose === "update") continue;
     const targets = parseGroupMentions(message.content, members);
     if (!targets.isEveryone && targets.memberIds.length === 0 && message.replyToMemberId && members.some(member => member.id === message.replyToMemberId)) targets.memberIds.push(message.replyToMemberId);
-    if (message.speaker.kind === "member" && message.purpose === "request" && !targets.isEveryone && !targets.memberIds.length) throw new GroupMentionError("unknown_group_member", "Use @ or quote the colleague who can answer this request");
+    if (message.speaker.kind === "member" && message.purpose === "request" && !targets.isEveryone && !targets.memberIds.length) {
+      // A direct question to the human stays in the conversation. It is not a
+      // request to all colleagues and does not require a decision widget.
+      if (message.replyToUser) continue;
+      throw new GroupRecipientRequiredError();
+    }
     for (const member of members) {
       if (message.speaker.kind === "member" && member.id === message.speaker.id) continue;
       if (targets.isEveryone || targets.memberIds.length === 0 || targets.memberIds.includes(member.id)) selected.add(member.id);

@@ -446,6 +446,7 @@ export class GroupChatGlue {
         speaker: { kind: "member", id: member.id, name: member.name }, content: text,
         ...(purpose === "update" || purpose === "request" || purpose === "discussion" ? { purpose } : {}),
         ...(parent?.speaker.kind === "member" ? { replyToMemberId: parent.speaker.id } : {}),
+        ...(parent?.speaker.kind === "user" ? { replyToUser: true } : {}),
         ...(publication?.awaitingUser ? { awaitingUser: true } : {}),
       }]);
     }
@@ -881,11 +882,18 @@ export class GroupChatGlue {
         String(entry.content ?? "").trim()
       ) {
         const name = (entry.fromUser as any)?.name;
+        // Peer messages can use the model's user role in historical storage.
+        // Preserve their real author, including removed members, so quoting
+        // them cannot masquerade as a direct question to the human.
+        const fromAgent = entry.fromAgent as { id?: unknown; name?: unknown } | null | undefined;
+        if (fromAgent != null && (typeof fromAgent.id !== "string" || !fromAgent.id.trim())) continue;
         messages.push({
           id: entry.id,
           ...(typeof entry.replyTo === "string" ? { replyToId: entry.replyTo } : {}),
           ...(typeof entry.workOnId === "string" ? { workOnId: entry.workOnId } : {}),
-          speaker: name == null ? { kind: "user" } : { kind: "user", name },
+          speaker: fromAgent != null
+            ? { kind: "member", id: fromAgent.id as string, name: typeof fromAgent.name === "string" ? fromAgent.name : fromAgent.id as string }
+            : name == null ? { kind: "user" } : { kind: "user", name },
           content: String(entry.content),
         });
       } else if (entry.kind === "user-attachment") {

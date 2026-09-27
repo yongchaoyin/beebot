@@ -62,7 +62,7 @@ test("local attention chooses listeners without assigning work or weakening rout
     assert.deepEqual(ids(user("v","@{b} Please inspect",{replyToMemberId:"removed"})),["b"]);
   });
   await t.test("request without a valid recipient still fails, never broadens", () => {
-    assert.throws(()=>ids(peer("m","Please check",{purpose:"request"})),{code:"unknown_group_member"});
+    assert.throws(()=>ids(peer("m","Please check",{purpose:"request"})),{code:"group_recipient_required"});
     assert.throws(()=>ids(user("u","@{removed} Continue")),{code:"unknown_group_member"});
   });
 });

@@ -286,6 +286,7 @@ export class GroupChatOrchestrator {
         ...(item.message?.purpose ? {purpose:item.message.purpose as NonNullable<GroupMessage["purpose"]>} : {}),
         ...(item.awaitingUser ? {awaitingUser:true} : {}),
         ...(parent?.speaker.kind === "member" ? {replyToMemberId:parent.speaker.id} : {}),
+        ...(this.deps.localAttention && !this.deps.isSharedRoom && parent?.speaker.kind === "user" ? {replyToUser:true} : {}),
       }]);
       const key = JSON.stringify([member.id, item.content, item.replyToId, item.workOnId, item.message ?? null]);
       if (published.has(key) && !item.message?.collaboration) return;

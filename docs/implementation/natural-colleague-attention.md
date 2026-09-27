@@ -134,3 +134,47 @@ Native startup restored the existing group, composer and collaboration panel wit
 an active connection. No test messages or financial requests were sent to the
 user's real Bots. This is a local ad-hoc installation, not a notarized release or
 full native conversation execution test.
+
+
+## Stage: human questions and rejected-publication recovery
+
+A local Bot may ask an ordinary text question by replying to an actual user
+message. The room validates that quote before applying the human-recipient
+exception; no model-supplied recipient flag is trusted. Explicit colleague
+mentions and peer quotes still route to those colleagues. A missing recipient
+has its own actionable error rather than treating an instruction sentence as a
+Bot name. Unknown or ambiguous colleague mentions remain unpublished. Historical
+user-role records with `fromAgent` retain the peer author; removed or malformed
+peer identities cannot acquire the human-recipient exception.
+
+SendMessage transport validation and persistence run before public-message
+collection or sent-count updates. Where the transport exposes a durable receipt,
+a missing or unchanged receipt cannot count as a new public send. A rejected
+question widget cannot put the runner into a waiting-for-user state. Legacy
+transports without receipt access retain their successful-return contract.
+These checks do not retry failed work or replay external operations.
+
+Regression fixtures exercise ordinary human questions, real peer requests,
+invented mentions, second/third sends during work and correction within the same
+turn. The tool-error wrapper and both runner paths are exercised separately from
+the real room/SQLite/queue tests; model choices and OS work remain controlled.
+
+Pinned Node 26.5.0 `npm ci`, both typechecks and the full package suite passed:
+1,316 tests total, 1,301 passed and 15 conditional integration skips. The editable
+frontend build passed with the existing dynamic-import warnings. Packaged ASAR
+verification passed all 14 executable clean-source runtimes, deterministic hash
+reconstruction, native dependencies, bundle identity and ad-hoc signing. The new
+regressions passed without loosening existing assertions or skipping failures.
+
+The opt-in real Node/Host integration suite passed 14/14 with controlled model
+I/O, including persistent SendMessage delivery, Shell execution, cancellation
+fences and restart behavior. No messages were sent to the user's real Bots.
+
+The verified bundle was installed at `/Applications/BeeBot.app`; its previous
+bundle is preserved as a recovery backup. Installed bytes and signature match
+the verified package, and the installed Host contains the recipient fix:
+`ba45c8f4101e60d8230c5a8765ddb79a0f843a9fbce4f6a6212c77c121fdedc2`.
+Native startup is awaiting the user's macOS Keychain prompt: process sampling
+shows a synchronous Keychain read, and computer-use access to SecurityAgent is
+blocked. This update does not change Keychain access controls. A successful
+post-install native conversation/window check is not yet claimed.

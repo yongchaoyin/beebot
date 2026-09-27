@@ -72,7 +72,7 @@ test("the actual publication boundary rejects ghost names for every purpose befo
 test("direct legacy publication callers also cannot save unknown mentions or untargeted requests", async t => {
   const h = await continuityHarness(t), room = h.sessions.get("room"), author = { id: "a", name: "A", description: "" };
   assert.throws(() => h.tm.groupChat.postGroupMemberMessage(room, author, "@小鱼 please act"), { code: "unknown_group_member" });
-  assert.throws(() => h.tm.groupChat.postGroupMemberMessage(room, author, "Please act", undefined, { content: "Please act", message: { type: "text", content: "Please act", purpose: "request" } }), { code: "unknown_group_member" });
+  assert.throws(() => h.tm.groupChat.postGroupMemberMessage(room, author, "Please act", undefined, { content: "Please act", message: { type: "text", content: "Please act", purpose: "request" } }), { code: "group_recipient_required" });
   assert.equal(publicEntries(h).length, 0);
 });
 

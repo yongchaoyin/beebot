@@ -2567,6 +2567,9 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
         isAwaitingUserSelection: () => false,
         emitRunLifecycle: event => hooks.onRunLifecycle?.(event),
         emitUpdate: update => hooks.transport.onUpdate(update),
+        ...(hooks.transport.lastSentMessageId === undefined
+          ? {}
+          : { lastSentMessageId: () => hooks.transport.lastSentMessageId?.() }),
         ...(hooks.transport.lastReactionApplied === undefined
           ? {}
           : { lastReactionApplied: () => hooks.transport.lastReactionApplied?.() === true }),

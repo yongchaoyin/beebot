@@ -481,6 +481,9 @@ export class SandAgentRunner<T = unknown> {
         isAwaitingUserSelection: () => this.#awaitingUserSelection,
         emitRunLifecycle: event => this.emitRunLifecycle(event),
         emitUpdate: update => this.options.transport?.onUpdate(update),
+        ...(this.options.transport?.lastSentMessageId === undefined
+          ? {}
+          : { lastSentMessageId: () => this.options.transport?.lastSentMessageId?.() }),
         onRunUnwind: () => {
           this.#activeTurnRequestSource = undefined;
           this.#activeTurnAutomationId = undefined;
@@ -1076,6 +1079,7 @@ export class SandAgentRunner<T = unknown> {
 
   emitUpdate(update: RunnerUpdate): void {
     const active = this.#activeRun;
+    const previousMessageId = update.type === "send-message" ? this.options.transport?.lastSentMessageId?.() : undefined;
     if (
       active != null
       && (
@@ -1097,16 +1101,6 @@ export class SandAgentRunner<T = unknown> {
     if (active != null) {
       if (update.type === "text-delta") {
         active.text += update.text;
-      } else if (update.type === "send-message") {
-        active.sentMessageCount += 1;
-        if (
-          update.message.type === "widget"
-          || update.message.type === "secret-request"
-          || update.message.type === "auto-review-approval"
-        ) {
-          active.awaitingUserSelection = true;
-          this.#awaitingUserSelection = true;
-        }
       }
     }
 
@@ -1115,6 +1109,17 @@ export class SandAgentRunner<T = unknown> {
     }
 
     this.options.transport?.onUpdate(update);
+    if (active != null && this.#activeRun === active && update.type === "send-message") {
+      const messageId = this.options.transport?.lastSentMessageId?.();
+      const delivered = this.options.transport?.lastSentMessageId === undefined || (!!messageId && messageId !== previousMessageId);
+      if (delivered) {
+        active.sentMessageCount += 1;
+        if (["widget", "secret-request", "auto-review-approval"].includes(update.message.type)) {
+          active.awaitingUserSelection = true;
+          this.#awaitingUserSelection = true;
+        }
+      }
+    }
     if (
       active != null
       && update.type === "react-to-message"
