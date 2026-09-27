@@ -20,6 +20,14 @@ export class AgentGoneError extends Error {
   }
 }
 
+export class NoActiveSessionError extends Error {
+  readonly code = "no_active_session";
+  constructor() {
+    super("No Bot is selected. Create or select a Bot first.");
+    this.name = "NoActiveSessionError";
+  }
+}
+
 export interface TranscriptWindow {
   readonly entries: TranscriptEntry[];
   readonly [key: string]: unknown;
@@ -90,8 +98,15 @@ export class SessionRuntime {
   }
 
   async ensureLoaded(): Promise<TranscriptEntry[]> {
-    const session = await this.ensureSession();
-    if (!this.loaded) {
+    const session = await this.tryEnsureSession();
+    if (session == null) {
+      if (!this.loaded) {
+        this.clearActiveSession();
+        this.tm.roster.emit({ type: "snapshot", activeAgentId: "", entries: [] });
+      }
+      return [];
+    }
+    if (!this.loaded || this.inMemoryTranscriptAgentId !== session.id) {
       const entries = (await this.tm.sessionStore.getTranscriptEntries(
         session,
       )) as TranscriptEntry[];
@@ -288,6 +303,7 @@ export class SessionRuntime {
     readLive: (db: Record<string, any>) => TranscriptWindow,
     readCold: () => TranscriptWindow,
   ): Promise<TranscriptWindow> {
+    if (this.isAgentGone(agentId)) throw new AgentGoneError(agentId);
     const live = this.liveSessions.get(agentId);
     if (this.activeSession?.id === agentId && live != null) {
       this.invalidateDeferredActivation();
@@ -428,7 +444,7 @@ export class SessionRuntime {
     try {
       return await this.ensureSession();
     } catch (error) {
-      if (isSandAgentLimitError(error)) return null;
+      if (error instanceof NoActiveSessionError || isSandAgentLimitError(error)) return null;
       throw error;
     }
   }
@@ -453,10 +469,15 @@ export class SessionRuntime {
         ...recordIds,
       ]),
     ];
+    // An explicit selection/create may finish while the disk roster is read.
+    if (this.activeSession != null) return this.activeSession;
     let session: LiveTranscriptSession | null = null;
     for (const id of orderedIds) {
+      if (this.deletedAgentIds.has(id)) continue;
       try {
-        session = await this.openSessionOnce(id);
+        const restored = await this.openSessionOnce(id);
+        if (this.deletedAgentIds.has(id)) continue;
+        session = restored;
         break;
       } catch (error) {
         console.error(
@@ -464,15 +485,24 @@ export class SessionRuntime {
         );
       }
     }
-    const resolvedSession =
-      session ??
-      ((await this.tm.sessionStore.createFallbackSession((id: string) =>
-        this.openSessionOnce(id),
-      )) as LiveTranscriptSession);
-    this.setActiveSession(resolvedSession);
-    await this.tm.sessionStore.markSessionViewed(resolvedSession);
-    this.tm.runLifecycle.watchActiveSession(resolvedSession);
-    return resolvedSession;
+    // Reading the roster or restoring the selected conversation must never
+    // create a colleague. A new identity belongs to explicit createAgent only.
+    if (this.activeSession != null) return this.activeSession;
+    if (session == null) throw new NoActiveSessionError();
+    this.setActiveSession(session);
+    await this.tm.sessionStore.markSessionViewed(session);
+    this.tm.runLifecycle.watchActiveSession(session);
+    return session;
+  }
+
+  clearActiveSession(): void {
+    this.invalidateDeferredActivation();
+    this.activeSession = undefined;
+    this.tm.unwatchActiveSession();
+    this.tm.roster.invalidateActiveOutline();
+    this.clearActiveTranscript(null);
+    this.loaded = true;
+    this.tm.sessionStore.writeActiveAgentId(null);
   }
 
   setActiveSession(session: LiveTranscriptSession): void {

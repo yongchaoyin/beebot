@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { SandAgentDb, type TranscriptEntry } from "./agent-db.js";
 import { cacheBlobReads } from "./session-recovery.js";
 import { conversationStructureFullyResolves } from "./conversation-recovery.js";
@@ -12,7 +13,7 @@ export class SandSessionConversationState{
   async getTranscriptEntries(session:Pick<ConversationSession,"db">):Promise<TranscriptEntry[]>{return session.db.getTranscriptEntries()}
   async getSessionOutline(session:Pick<ConversationSession,"agentStore">):Promise<unknown>{return this.host.deriveOutline(await session.agentStore.getFullConversation(this.host.ctx))}
   async getAgentOutline(id:string):Promise<unknown>{const session=await this.host.openSession(id);try{return await this.getSessionOutline(session)}finally{await session.agentStore.dispose();session.db.close()}}
-  private readDb<T>(agentId:string,read:(db:SandAgentDb)=>T,fallback:T):T{let db:SandAgentDb|undefined;try{db=new SandAgentDb(getAgentDbPath(this.host.rootDir,agentId),{recoverOnCorruption:false});return read(db)}catch{return fallback}finally{db?.close()}}
+  private readDb<T>(agentId:string,read:(db:SandAgentDb)=>T,fallback:T):T{const path=getAgentDbPath(this.host.rootDir,agentId);if(!existsSync(path))return fallback;let db:SandAgentDb|undefined;try{db=new SandAgentDb(path,{recoverOnCorruption:false});return read(db)}catch{return fallback}finally{db?.close()}}
   readAgentTranscriptEntries(agentId:string){return this.readDb(agentId,(db)=>db.getTranscriptEntries(),[])}
   readAgentTranscriptPage(agentId:string,query:{beforeSeq?:number;sinceMs?:number;untilMs:number;limit:number}){return this.readDb(agentId,(db)=>db.getTranscriptPage(query),{entries:[]})}
   readAgentTranscriptWindow(agentId:string,query:{beforeSeq?:number;limit:number}){return this.readDb(agentId,(db)=>db.getTranscriptWindow(query),{entries:[],threadCounts:{}})}

@@ -275,8 +275,8 @@ export class RosterProjection {
       this.emitOutline({ type: "snapshot", agentId, items });
       return items;
     }
-    const session = await this.tm.sessions.ensureSession();
-    if (session.id === agentId) {
+    const session = await this.tm.sessions.tryEnsureSession();
+    if (session?.id === agentId) {
       const generation = this.activeOutlineGeneration;
       const items = await this.loadActiveOutline(session);
       if (this.activeOutlineGeneration === generation) {
