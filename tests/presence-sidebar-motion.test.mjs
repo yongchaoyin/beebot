@@ -85,6 +85,45 @@ test("visible idle sidebar colleagues receive fair, staggered accents without ch
   assert.equal(r.observers.length, 1);
 });
 
+test("Natural at 36px has readable smile, wink, glance and nod episodes with finite quiet gaps", t => {
+  const r = rig(t), actor = r.avatar({ size: 36, identity: "visible-sidebar-colleague" });
+  const original = face(actor.svg), body = actor.svg.querySelector("[data-part=body]");
+  const originalShape = body.getAttribute("d"), originalColor = body.getAttribute("fill");
+  const numbers = value => value.match(/-?\d+(?:\.\d+)?/g).map(Number);
+  const pixelsPerUnit = 36 / 64;
+  const delta = (path, baseline) => Math.max(...numbers(path).map((value, index) => Math.abs(value - numbers(baseline)[index]))) * pixelsPerUnit;
+  let smile = false, wink = false, gazePixels = 0, maxEyeDelta = 0;
+  for (let i = 0; i < 2400; i++) {
+    r.advance(20);
+    const current = face(actor.svg), left = delta(current.left, original.left), right = delta(current.right, original.right);
+    maxEyeDelta = Math.max(maxEyeDelta, left, right);
+    smile ||= left > 2 && right > 2 && current.mouth !== original.mouth;
+    wink ||= Math.max(left, right) > 2 && Math.min(left, right) < .1 && current.mouth !== original.mouth;
+    gazePixels = Math.max(gazePixels, Math.abs(numbers(current.gaze)[0]) * pixelsPerUnit);
+  }
+  assert.ok(smile, "both eyes visibly curve and narrow with a smile, beyond subpixel geometry changes");
+  assert.ok(wink, "one eye visibly closes while the other remains open");
+  assert.ok(gazePixels >= .8, "a glance moves the face at actual sidebar scale");
+  const transforms = r.animations.flatMap(animation => animation.keyframes.map(frame => frame.transform ?? ""));
+  const nodPixels = Math.max(0, ...transforms.map(value => Math.abs(Number(/translateY\((-?[\d.]+)px\)/.exec(value)?.[1] ?? 0)) * pixelsPerUnit));
+  const tiltDegrees = Math.max(0, ...transforms.map(value => Math.abs(Number(/rotate\((-?[\d.]+)deg\)/.exec(value)?.[1] ?? 0))));
+  assert.ok(nodPixels >= 1 && nodPixels <= 2, "a short nod has a visible but bounded screen-space displacement");
+  assert.ok(tiltDegrees >= 3 && tiltDegrees <= 6, "glancing includes a restrained, readable body tilt");
+  const episodes = [];
+  for (const sample of r.samples) {
+    if (sample.moving.includes(actor.id) && (!episodes.length || episodes.at(-1).end != null)) episodes.push({ start: sample.at });
+    if (!sample.moving.includes(actor.id) && episodes.length && episodes.at(-1).end == null) episodes.at(-1).end = sample.at;
+  }
+  const completed = episodes.filter(episode => episode.end != null);
+  assert.ok(completed.length >= 9, "Natural gives the list regular visible accents");
+  assert.ok(completed.every(episode => episode.end - episode.start >= 1250 && episode.end - episode.start <= 1500), "every observed action returns to idle within about 1.4 seconds");
+  const gaps = episodes.slice(1).map((episode, index) => episode.start - episodes[index].end);
+  assert.ok(gaps.every(gap => gap >= 1550 && gap <= 3250), "quiet gaps stay near 1.6–3.2 seconds without polling");
+  assert.ok(r.samples.every(sample => sample.states.every(([, state, expression]) => state === "idle" && expression === "idle")));
+  assert.equal(body.getAttribute("d"), originalShape); assert.equal(body.getAttribute("fill"), originalColor);
+  t.diagnostic(`Observed 36px SVG/controller: ${completed.length} completed episodes; quiet gaps ${Math.min(...gaps)}–${Math.max(...gaps)}ms; max eye control-point displacement ${maxEyeDelta.toFixed(2)}px; gaze ${gazePixels.toFixed(2)}px; nod ${nodPixels.toFixed(2)}px; tilt ${tiltDegrees}deg. Browser clock/WAAPI are controlled.`);
+});
+
 test("idle motion is limited to an opted-in list surface, excluding unrelated static and historical avatars", t => {
   const r = rig(t), row = r.avatar(), plain = r.avatar({ surface: "ordinary-static-icon" }), optedOut = r.avatar({ ambient: false }),
     tiny = r.avatar({ size: 22 }), history = r.avatar({ parent: "sand-message", paused: true }), collage = r.avatar({ parent: "sand-group-avatar", paused: true });

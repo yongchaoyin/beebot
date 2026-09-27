@@ -8,7 +8,7 @@ export interface ActivityChoreography {
   body?: { frames: Keyframe[]; duration: number };
 }
 export function ambientDelay(identity: string, cycle: number): number {
-  return 3000 + identitySeed(`${identity}:ambient-pause:${cycle}`) % 3001;
+  return 1600 + identitySeed(`${identity}:ambient-pause:${cycle}`) % 1601;
 }
 /** An idle colleague's brief mannerism, independent of any task/expression
  * selection. Every pose returns to the same idle baseline within this episode. */
@@ -16,18 +16,27 @@ export function ambientChoreography(identity: string, cycle: number): ActivityCh
   const seed = identitySeed(`${identity}:ambient:${cycle}`), variant = seed % 4;
   const pose = expressionPose("idle"), direction = (seed >>> 8) % 2 ? 1 : -1;
   let body: ActivityChoreography["body"];
-  if (variant === 0) { pose.lookX = .9 * direction; pose.lookY = -.2; }
+  if (variant === 0) {
+    pose.lookX = 1.65 * direction; pose.lookY = -.3;
+    body = {frames:[{transform:"none"},{transform:`translateX(${1.6*direction}px) rotate(${4*direction}deg)`,offset:.4},{transform:"none"}],duration:1400};
+  }
   if (variant === 1) {
-    pose.left.height -= .65; pose.right.height -= .65;
-    pose.left.bend -= .45; pose.right.bend -= .45; pose.mouth.bend += .7;
+    // At sidebar size, a smile needs visibly curved, narrowed eyes rather than
+    // a subpixel change to an otherwise identical idle face.
+    for (const eye of [pose.left,pose.right]) { eye.height=1.4;eye.width=6;eye.bend=-2.2; }
+    pose.mouth.bend=3.8;pose.mouth.width=7.5;pose.mouth.open=2;
   }
   if (variant === 2) {
-    pose.lookY = .45; pose.left.height -= .25; pose.right.height -= .25;
-    body = {frames:[{transform:"none"},{transform:"translateY(.6px) scaleY(.986)",offset:.36},{transform:"none"}],duration:1120};
+    pose.lookY = 1.05; pose.left.height=5.5;pose.right.height=5.5;
+    body = {frames:[{transform:"none"},{transform:"translateY(2.6px) scaleY(.95)",offset:.4},{transform:"none"}],duration:1400};
   }
-  // A blink-only episode has no pose/rAF work, but still owns its finite slot.
-  const steps = variant === 3 ? [] : [{pose,duration:300,hold:460},{pose:expressionPose("idle"),duration:360,hold:0}];
-  return {steps,blink:variant === 3,...(body ? {body} : {})};
+  if (variant === 3) {
+    const wink=direction<0?pose.left:pose.right;
+    wink.height=1.2;wink.width=5.8;wink.bend=-1.6;
+    pose.mouth.bend=3.5;pose.mouth.width=7;
+  }
+  const steps = [{pose,duration:330,hold:650},{pose:expressionPose("idle"),duration:420,hold:0}];
+  return {steps,blink:false,...(body ? {body} : {})};
 }
 export function activityDelay(expression: AvatarExpression, identity: string, cycle: number): number {
   const spread = identitySeed(`${identity}:${expression}:activity:${cycle}`);
