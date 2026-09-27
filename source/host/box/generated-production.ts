@@ -19,7 +19,8 @@ import {
 import { ControlService } from "../../packages/proto/generated/agent/v1/control_service_connect.js";
 import { ExecService } from "../../packages/proto/generated/agent/v1/exec_service_connect.js";
 import {
-  noMonitorComputerUseExecutor
+  noMonitorComputerUseExecutor,
+  noDesktopComputerUseExecutor
 } from "../ports/box.js";
 import type {
   BoxEnvironmentControlClient
@@ -220,9 +221,9 @@ export function createProductionBoxGeneratedPorts<
       ]);
     },
 
-    withNoMonitorComputerUse(accessor): ProductionGeneratedBoxAccessor {
+    withNoMonitorComputerUse(accessor, reason): ProductionGeneratedBoxAccessor {
       return new CombinedResourceAccessor(accessor, [
-        resourceEntry(computerUseExecutorResource, noMonitorComputerUseExecutor)
+        resourceEntry(computerUseExecutorResource, reason === "desktop-unsupported" ? noDesktopComputerUseExecutor : noMonitorComputerUseExecutor)
       ]);
     }
   };

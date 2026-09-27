@@ -1,3 +1,4 @@
+import { workingDirectoryResource } from "../../../../agent-exec/working-directory.js";
 import type { Context } from "../../../../context/core.js";
 import { Struct, type JsonValue } from "@bufbuild/protobuf";
 import { createHash } from "node:crypto";
@@ -581,6 +582,11 @@ export function createShellTool(resourceAccessor: ShellToolResourceAccessor, opt
   const parameters = addSmartModeApprovalParameters(options.parametersSchema ?? getParametersSchemaDsv3(sandboxEnabled, promptVersion, { isReadonly: options.isReadonly, enableBlockUntilMs: options.enableBlockUntilMs, requireBlockUntilMs: options.requireBlockUntilMs, defaultBlockUntilMs }), smartModeApprovalParametersEnabled);
   const executor = resourceAccessor.get(shellStreamExecutorResource);
   const execute = async (ctx: Context, interaction: ShellToolInteractionHandler, rawArgs: Record<string, unknown>, meta: ShellToolExecutionMeta): Promise<ShellResult> => {
+    if (surface === "isolated_box") {
+      const requested = typeof rawArgs.working_directory === "string" ? rawArgs.working_directory : undefined;
+      const resolved = await resourceAccessor.get(workingDirectoryResource)?.resolve(ctx, requested);
+      if (resolved !== undefined) rawArgs = { ...rawArgs, working_directory: resolved };
+    }
     const command = String(rawArgs.command);
     const workingDirectory = typeof rawArgs.working_directory === "string" ? rawArgs.working_directory : undefined;
     const analysis = analyzeShellCommand(command);

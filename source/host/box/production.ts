@@ -1,4 +1,8 @@
+import { readFile } from "node:fs/promises";
+import { withAgentWorkspace } from "./agent-workspace.js";
 import { errorLogTag } from "../../shared/errors.js";
+import { findSystemErrno } from "../../shared/system-errno.js";
+import { writeFileAtomic } from "../../shared/node/atomic-write.js";
 import { standaloneExecEndpoint } from "./exec-daemon-endpoint.js";
 import { reportHostDiagnostic } from "../host-diagnostics.js";
 import type { HostBoxInner } from "../extensions/forever-box/host-box.js";
@@ -9,6 +13,8 @@ import {
 } from "./box-env.js";
 import { uploadFileViaExecDaemon, type FileTransferAccessor } from "./box-file-transfer.js";
 import { applySharedDesktop, createSandBox } from "./box-factory.js";
+import { BoxFileUnreadableError } from "./box-transfer.js";
+import { desktopAssignmentsPath } from "./shared-desktop-sand-box.js";
 import {
   loadBoxMcpServersViaTransport,
   type BoxMcpControlClient
@@ -50,7 +56,7 @@ export interface ProductionBoxGeneratedPorts<
     accessor: Accessor,
     assertFileReadAllowed: (path: string) => Promise<void>
   ): Accessor;
-  withNoMonitorComputerUse(accessor: Accessor): Accessor;
+  withNoMonitorComputerUse(accessor: Accessor, reason?: "desktop-unsupported"): Accessor;
 }
 
 export type ErasedProductionBoxGeneratedPorts = ProductionBoxGeneratedPorts<
@@ -87,6 +93,7 @@ function createStandaloneProductionBoxInner<
   withNoMonitorComputerUse: (accessor: Accessor) => Accessor
 ): ProductionBoxInner {
   return {
+    hasDesktop: () => false,
     ensureReady: async (ctx, agentId) => {
       const primary = await loopback.ensureReady(ctx, agentId);
       return {
@@ -212,12 +219,32 @@ export function createProductionBoxInner<
   if (options.sharedDesktop === false) {
     return createStandaloneProductionBoxInner(
       loopback,
-      accessor => generated.withNoMonitorComputerUse(accessor)
+      accessor => generated.withNoMonitorComputerUse(accessor, "desktop-unsupported")
     );
   }
 
+  // The Host and loopback daemon share this filesystem. Assignment metadata
+  // belongs to the Host, including when its durable path is inside sand-data.
+  // Bind this one trusted path here; never expose it through the model Read
+  // accessor or exempt the protected store from its ordinary guard.
+  const assignmentsPath = desktopAssignmentsPath();
   const composed = applySharedDesktop(loopback, {
     persistAssignments: true,
+    assignmentsStorage: {
+      async read(ctx) {
+        ctx.signal.throwIfAborted();
+        try { return await readFile(assignmentsPath); }
+        catch (error) {
+          if (findSystemErrno(error) === "ENOENT") throw new BoxFileUnreadableError("Desktop assignments have not been stored yet", { cause: error });
+          throw error;
+        }
+      },
+      async write(ctx, data) {
+        ctx.signal.throwIfAborted();
+        await writeFileAtomic(assignmentsPath, data, { mode: 0o600 });
+      },
+    },
+    decorateAccessor: withAgentWorkspace,
     gateComputerUse(primary) {
       return {
         ...primary,

@@ -1,3 +1,4 @@
+import { workingDirectoryResource } from "../../packages/agent-exec/working-directory.js";
 import {
   backgroundShellExecutorResource,
 } from "../../packages/agent-exec/background-shell.js";
@@ -40,6 +41,7 @@ import {
   boxNotReadyMessageForError,
   isNoMonitorComputerUseExecutor,
   SandBoxNoMonitorAvailableError,
+  SandBoxDesktopUnavailableError,
   SAND_BOX_NOT_READY_MESSAGE,
 } from "../ports/box.js";
 import { requestIdKey } from "../../packages/chat-inference-proto/client.js";
@@ -166,6 +168,10 @@ export function createRemoteBoxResourceAccessor(host: RemoteBoxResourceHost) {
   };
 
   const accessor = new RegistryResourceAccessor();
+  accessor.register(workingDirectoryResource, { async resolve(context, requested) {
+    const connection = await connect(context);
+    return connection.remoteAccessor.get(workingDirectoryResource)?.resolve(context, requested);
+  } });
   accessor.register(shellStreamExecutorResource, {
     execute: (context: Context, args: ShellArgs, options) => (async function* () {
       guardAutoReviewBarrier();
@@ -244,6 +250,7 @@ export function createRemoteBoxResourceAccessor(host: RemoteBoxResourceHost) {
       args: ComputerUseArgs,
       options,
     ): Promise<ComputerUseResult> => {
+      if (!host.remoteBoxHasDesktop) throw new SandBoxDesktopUnavailableError();
       const connection = await connect(context);
       let ownsMonitorForNavigationAudit = false;
       try {

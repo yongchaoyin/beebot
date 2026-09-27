@@ -74,7 +74,7 @@ import { CONNECTOR_MANIFESTS } from "../shared/channels.js";
 import { parseStoredTrigger } from "./automations/automation-trigger.js";
 import { listenerPlatformsInTrigger } from "./automations/listener-integrations.js";
 import { resolveSharedRoomBoxToolsEnabled } from "./groups/xuser.js";
-import { boxAgentWindowIndex, boxSupportsMultiWindow } from "./box/box-capabilities.js";
+import { boxAgentWindowIndex, boxHasDesktop, boxSupportsMultiWindow } from "./box/box-capabilities.js";
 import { createAutoReviewGate } from "./runner/auto-review-gate.js";
 import {
   sandAutoReviewApprovalExpiryPolicy,
@@ -431,6 +431,14 @@ function asCapableTransferBox(value: unknown): TransferBox & CapableBox | undefi
   if (typeof value !== "object" || value == null) return undefined;
   const candidate = value as Record<string, unknown>;
   const capable: TransferBox & CapableBox = transfer;
+  const hasDesktop = candidate.hasDesktop;
+  if (typeof hasDesktop === "function") {
+    capable.hasDesktop = () => hasDesktop.call(value) === true;
+  }
+  const getAgentWorkspacePath = candidate.getAgentWorkspacePath;
+  if (typeof getAgentWorkspacePath === "function") {
+    capable.getAgentWorkspacePath = agentId => getAgentWorkspacePath.call(value, agentId);
+  }
   const getTerminalsFolder = candidate.getTerminalsFolder;
   if (typeof getTerminalsFolder === "function") {
     capable.getTerminalsFolder = () => getTerminalsFolder.call(value);
@@ -1276,7 +1284,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
           box,
           remoteBox: remoteBoxForPrompt,
           userComputers,
-          remoteBoxHasDesktop: true,
+          get remoteBoxHasDesktop() { return boxHasDesktop(remoteBox); },
           isSubagentRunner: false,
           isComputerUseSubagent: false,
           isBrowserUseSubagent: false,
@@ -1404,7 +1412,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
           }),
       remoteBox,
       userComputers: localExec.userComputers,
-      remoteBoxHasDesktop: true,
+      get remoteBoxHasDesktop() { return boxHasDesktop(remoteBox); },
       boxHandoff: {
         requestHelp: (request: unknown) =>
           method(extensions.api("session"), "startHandoff")?.(request)
@@ -1559,7 +1567,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
       };
       const accessor = createRemoteBoxResourceAccessor({
         remoteBox: owner,
-        remoteBoxHasDesktop: true,
+        get remoteBoxHasDesktop() { return boxHasDesktop(remoteBox); },
         resolveBoxId: () => session.id,
         getConversationId: () => session.id,
         setRemoteBoxTerminalsFolder: folder => runner.setRemoteBoxTerminalsFolder?.(folder),
@@ -2315,7 +2323,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
         isComputerUseSubagent: false,
         isBrowserUseSubagent: false,
         isSystemPromptOverridden: typeof overrides.systemPrompt === "string",
-        remoteBoxHasDesktop: true,
+        get remoteBoxHasDesktop() { return boxHasDesktop(remoteBox); },
         getConversationId: () => session.id,
         getRemoteBoxAvailable: () => method(remoteBox, "isAvailable")?.() !== false,
         cloudAgentsDisabledByTeam: () => method(experiments, "isCloudAgentsDisabledByTeam")?.() ?? false,

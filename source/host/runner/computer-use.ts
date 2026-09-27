@@ -7,7 +7,7 @@ import { shellExecutorResource } from "../../packages/agent-exec/shell.js";
 import { buildHostShellArgs } from "../box/box-shell-command.js";
 import type { ComputerUseArgs } from "../../packages/proto/generated/agent/v1/computer_use_tool_pb.js";
 import type { ShellArgs } from "../../packages/proto/generated/agent/v1/shell_exec_pb.js";
-import { isNoMonitorComputerUseExecutor } from "../ports/box.js";
+import { isNoDesktopComputerUseExecutor, isNoMonitorComputerUseExecutor } from "../ports/box.js";
 import { mergeTurnUsage, type TurnUsage } from "./turn-usage.js";
 
 export interface ComputerUseRemoteConnection<Context> {
@@ -116,7 +116,7 @@ export function createComputerUseCoordination<Context>(
           throw new TypeError("computer-use remote accessor does not expose generated resources");
         }
         const computerUse = ready.remoteAccessor.get(computerUseExecutorResource);
-        if (isNoMonitorComputerUseExecutor(computerUse)) return ready;
+        if (isNoMonitorComputerUseExecutor(computerUse) || isNoDesktopComputerUseExecutor(computerUse)) return ready;
         await ready.remoteAccessor.get(shellExecutorResource).execute(
           dependencies.ctx,
           buildHostShellArgs({

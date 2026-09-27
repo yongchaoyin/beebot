@@ -330,6 +330,15 @@ test("real HTTP Host separates ordinary dialogue, executed delivery and requeste
     model.assertComplete();
     assert.ok(model.requests[0].input.tools.some(tool => tool.function.name === "SendMessage"));
     assert.ok(JSON.stringify(model.requests[0].input.messages).includes("Conversation and actually doing work"));
+    for (const { input } of model.requests) {
+      const names = input.tools.map(tool => tool.function.name);
+      assert.ok(names.includes("Shell"), "headless Node keeps the real Shell across ongoing turns");
+      assert.ok(names.includes("SendMessage"));
+      assert.ok(!names.some(name => /^(Screenshot|Computer|request_box_help|browser_)/i.test(name)), "headless Node must not advertise desktop tools");
+      const task = input.tools.find(tool => tool.function.name === "Task");
+      assert.doesNotMatch(JSON.stringify(task ?? {}), /computerUse|browserUse|computer-use|browser-use/);
+      assert.match(JSON.stringify(input.messages), /has no graphical desktop/, "actual Host prompt must describe its capability truthfully");
+    }
   } finally { await runtime.close(); await rm(dataDir, { recursive: true, force: true }); }
 });
 
