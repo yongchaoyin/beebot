@@ -1,4 +1,5 @@
 import { patchPresenceCreatePicker } from "./presence-create-picker-patch.mjs";
+import { patchPresenceAvatarCache } from "./presence-avatar-cache-patch.mjs";
 import { buildSync } from "esbuild";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -18,7 +19,7 @@ const svgStart = avatarSource.indexOf("function RBotSvg(");
 const svgEnd = avatarSource.indexOf("async function RLang(", svgStart);
 const ORIGINAL_AVATAR_SHA = "dbc709983249f0bcbcb6b2fd7c1d9c9ee220c5cc2c29e019adcaa92f94ba705e";
 
-/** Replace only display components in the verified compatibility renderer.
+/** Replace display components and retain profile avatar identity in the roster cache.
  * Caller records original/patched chunk hashes; no message transport, auth, message dispatch,
  * photo handling, group membership, quote or permission code is replaced. */
 export function patchPresenceRenderer(source) {
@@ -66,6 +67,7 @@ export function patchPresenceRenderer(source) {
     'function xPe({isOverlayTone:n=!1}){const{isFullscreen:e,isMaximized:t}=t4e(),{platform:s}=Hse();S.useLayoutEffect(()=>RPresenceUI.installNativeWindowLayout(document,s,e),[s,e]);const r=bNe(),',
     "native caption safe-area lifecycle");
   result = patchPresenceCreatePicker(result);
+  result = patchPresenceAvatarCache(result);
   // S is the renderer React binding and is assigned later in the same file.
   // Creating the notice during this prefix runs before that assignment and
   // caches a component whose React is undefined.
