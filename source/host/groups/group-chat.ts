@@ -1,6 +1,10 @@
 import { COLLEAGUE_CONVERSATION_POLICY } from "../../shared/colleague-conversation.js";
 import { renderBotRole, type BotRoleRecord } from "../../shared/bot-role.js";
-export const GROUP_CONFIG_VERSION = 1; export const GROUP_MAX_MEMBER_TURNS = 10; export const GROUP_MAX_ROUNDS = 3; export const GROUP_PROMPT_HISTORY_LIMIT = 24; export const GROUP_MAX_MESSAGES_PER_TURN = 6; export const SHARED_ROOM_HISTORY_LIMIT = 24; export const GROUP_CHAT_TAG_PREFIX = "[Group chat: "; export const SAND_HIDDEN_PROMPT_MARKER = "[SAND_HIDDEN_PROMPT]";
+export const GROUP_CONFIG_VERSION = 1; export const GROUP_MAX_MEMBER_TURNS = 10; export const GROUP_MAX_ROUNDS = 3; export const GROUP_PROMPT_HISTORY_LIMIT = 24;
+// A six-member division can need six assignments, claim, result, submit,
+// self-check and finish, plus one conversational update. Keep a finite ceiling.
+export const GROUP_MAX_MESSAGES_PER_TURN = 12;
+export const SHARED_ROOM_HISTORY_LIMIT = 24; export const GROUP_CHAT_TAG_PREFIX = "[Group chat: "; export const SAND_HIDDEN_PROMPT_MARKER = "[SAND_HIDDEN_PROMPT]";
 export interface GroupMember { id: string; name: string; description: string; role?: BotRoleRecord | null } export interface GroupDescription { name: string; description: string } export type GroupMessage = { id?: string; responseTargetId?: string; purpose?: "update" | "request" | "discussion"; recipientIds?: readonly string[]; replyToId?: string; replyToMemberId?: string; workOnId?: string; awaitingUser?: boolean; speaker: { kind: "user"; name?: string } | { kind: "member"; id: string; name: string }; content: string };
 export function orderRoundSpeakers<T>(memberIds: readonly T[], round: number): T[] { if (memberIds.length === 0) return []; const offset = (round % memberIds.length + memberIds.length) % memberIds.length; return [...memberIds.slice(offset), ...memberIds.slice(0, offset)]; }
 export function isSameMemberSet(a: readonly string[], b: readonly string[]): boolean { if (a.length !== b.length) return false; const set = new Set(a); return b.every((id) => set.has(id)); }
@@ -14,10 +18,10 @@ export function memberMentionHandles(name: string): string[] {
 }
 
 export class GroupMentionError extends Error {
-  constructor(readonly code: "ambiguous_group_mention" | "unknown_group_member", readonly handle: string) {
-    super(code === "ambiguous_group_mention"
+  constructor(readonly code: "ambiguous_group_mention" | "unknown_group_member", readonly handle: string, members?: readonly Pick<GroupMember, "id" | "name">[]) {
+    super((code === "ambiguous_group_mention"
       ? `The mention @${handle} matches more than one Bot. Use the full name or @{member-id}.`
-      : `The addressed Bot ${handle} is not a member of this group.`);
+      : `The addressed Bot ${handle} is not a member of this group.`) + (members ? ` Nothing was published. Current Bot members: ${members.map(member => `${JSON.stringify(member.name)} (@{${member.id}})`).join(", ") || "none"}. Use a current member address; address the user as you, without inventing an @name.` : ""));
     this.name = "GroupMentionError";
   }
 }
@@ -35,7 +39,14 @@ function mentionText(text: string): string {
     if (/^\s*>/.test(line)) return "";
     return line
       .replace(/(`+)(.*?)\1/g, " ")
+      .replace(/!?\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/!?\[[^\]]*\]\[[^\]]*\]/g, " ")
+      .replace(/<(?:https?:\/\/|mailto:)[^>]*>|<[^>\s]+@[^>\s]+\.[^>\s]+>/gi, " ")
       .replace(/(?:https?:\/\/|mailto:)\S+/gi, " ")
+      .replace(/(?:^|\s)www\.\S+/gi, " ")
+      .replace(/(^|[^\p{L}\p{N}\p{M}_.+%])@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*/gu, "$1 ")
+      .replace(/"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|「[^」\n]*」|『[^』\n]*』/g, " ")
+      .replace(/(^|[^\p{L}\p{N}])'[^'\n]*'(?=$|[^\p{L}\p{N}])/gu, "$1 ")
       .replace(/\]\([^)]*\)/g, "] ");
   }).join("\n");
 }
@@ -43,6 +54,17 @@ function mentionText(text: string): string {
 function nameContinuation(value: string): boolean { return /^[\p{L}\p{N}\p{M}_-]/u.test(value); }
 
 export function parseGroupMentions(text: string, members: readonly Pick<GroupMember, "id" | "name">[]): { isEveryone: boolean; memberIds: string[] } {
+  return scanGroupMentions(text, members, false);
+}
+
+/** Only newly published local Bot messages require every direct address to exist.
+ * Historical text and incoming user messages deliberately keep tolerant parsing.
+ */
+export function validateGroupMemberPublication(text: string, members: readonly Pick<GroupMember, "id" | "name">[]): { isEveryone: boolean; memberIds: string[] } {
+  return scanGroupMentions(text, members, true);
+}
+
+function scanGroupMentions(text: string, members: readonly Pick<GroupMember, "id" | "name">[], strict: boolean): { isEveryone: boolean; memberIds: string[] } {
   const source = mentionText(text), seen = new Set<string>();
   const candidates = members.flatMap((member) => memberMentionHandles(member.name).map((handle, index) => ({ id: member.id, handle, full: index < 2 })));
   let isEveryone = false;
@@ -55,9 +77,12 @@ export function parseGroupMentions(text: string, members: readonly Pick<GroupMem
     const tail = source.slice(at + 1);
     if (tail.startsWith("{")) {
       const close = tail.indexOf("}");
-      if (close < 0) continue;
+      if (close < 0) {
+        if (strict) throw new GroupMentionError("unknown_group_member", tail.split(/\s/)[0]!, members);
+        continue;
+      }
       const id = tail.slice(1, close);
-      if (!members.some((member) => member.id === id)) throw new GroupMentionError("unknown_group_member", id);
+      if (!members.some((member) => member.id === id)) throw new GroupMentionError("unknown_group_member", id, strict ? members : undefined);
       seen.add(id); at += close + 1; continue;
     }
     const lower = tail.toLowerCase();
@@ -66,9 +91,13 @@ export function parseGroupMentions(text: string, members: readonly Pick<GroupMem
     const matches = candidates.filter(({ handle }) => lower.startsWith(handle) && !nameContinuation(lower.slice(handle.length)))
       .sort((a, b) => b.handle.length - a.handle.length || Number(b.full) - Number(a.full));
     const best = matches[0];
-    if (!best) continue;
+    if (!best) {
+      const unknown = /^[\p{L}\p{N}\p{M}_-]+/u.exec(tail)?.[0];
+      if (strict && unknown) throw new GroupMentionError("unknown_group_member", unknown, members);
+      continue;
+    }
     const ids = new Set(matches.filter((match) => match.handle === best.handle && match.full === best.full).map((match) => match.id));
-    if (ids.size > 1) throw new GroupMentionError("ambiguous_group_mention", best.handle);
+    if (ids.size > 1) throw new GroupMentionError("ambiguous_group_mention", best.handle, strict ? members : undefined);
     seen.add(best.id); at += best.handle.length;
   }
   return { isEveryone, memberIds: [...new Set(members.map((member) => member.id))].filter((id) => seen.has(id)) };

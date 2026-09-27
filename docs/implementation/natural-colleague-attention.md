@@ -16,9 +16,9 @@ Only local Host groups without remote members use the new attention policy.
 The shared/cross-user protocol keeps its existing routing. Single Bot handling
 and its execution/approval boundaries are unchanged.
 
-- Runtime-derived work recipients (including no recipient), explicit @, quotes
-  to colleagues, and intentional @everyone keep their precedence.
-- A new unaddressed user request selects one listener using current run/queue
+- Runtime-derived work recipients (including no recipient), explicit individual @, quotes
+  to colleagues, and Bot-initiated discussion keep their precedence.
+- A new unaddressed or `@everyone` user request selects one listener using current run/queue
   load and a stable message-ID tie-break. This is not a capability predictor,
   permanent manager or task assignment. The listener can use real quoted @
   messages to ask a colleague; nobody impersonates other Bots.
@@ -65,3 +65,72 @@ ranking, permanent coordinator, live tool steering or production-model evaluatio
 The policy is deterministic attention selection, not a guarantee that arbitrary
 models understand every instruction. Real-model task-quality comparisons and
 native Mac interaction/package acceptance are still required.
+
+
+## Stage: one team kickoff and visible division of work
+
+A user `@everyone`/`@all` invitation no longer starts independent copies of the
+whole goal. Local attention selects one first listener; its actual recipient is
+stored with the existing delivery record. Reprocessing that same request reuses
+its recorded recipients, including historical records, rather than selecting a
+replacement for possibly started work. There is no new plan store or permanent
+manager. Failure and Stop do not automatically reassign external operations.
+
+The first listener is instructed to announce its bounded part and send concrete
+assignments to actual colleague IDs before investigating the entire goal. Existing
+SendMessage assignment events atomically save their scope and wake their assignee.
+Explicit peer requests and discussion still work; a request for independent views
+can be handed to peers as discussion, without manufacturing work contracts.
+Multiple individually named recipients retain their directed routing.
+
+Runtime prompts distinguish the actual activation messages from shared history.
+A separate bounded same-goal scope index shows other owners' current work as
+context only, including when the reader has no assignment yet. It does not expand
+roles, tools or permission, and reading it never changes the task ledger. The
+message budget supports a coordinator's assignments plus its own claim, result,
+submission and check while retaining a finite per-turn limit.
+
+Local Bot publications validate direct mentions and current author membership
+before streaming, durable append, response accounting or dispatch. An unknown
+`@name`, unknown ID or ambiguous name returns an actionable tool error with the
+current roster. Literal quoted/code/email/URL examples remain text. User and
+historical messages remain readable. Live roster refreshes cover queued turns,
+renames and removals; newly joined members are not silently added to an existing
+run's participant set. Shared/cross-user rooms retain their protocol.
+
+These runtime checks prevent the demonstrated broadcast fanout and invalid
+recipient publication. Scope selection is still model judgment: different titles
+are not proof that tasks have no semantic overlap. The ledger does not lock
+arbitrary filesystem writes or force every ordinary question into a formal task.
+
+
+### Verification on 2026-09-27
+
+Pinned Node 26.5.0 with `npm ci`: both typechecks and the final full suite passed
+(1,298 tests: 1,283 passed, 15 conditional integration skips). The first full run
+caught an obsolete all-member failure-isolation fixture, a changed collaboration
+error code and an incorrect queue-test lookup; all were corrected without dropping
+coverage. Targeted follow-ups also cover implicit peer reply targets, user decision
+widgets, npm package tokens and changed participants with no eligible old member.
+
+`npm run frontend:build`, `npm run package` and `npm run verify` passed. Package
+verification covered 14 executable clean-source runtimes, deterministic ASAR
+reconstruction, native dependencies, bundle identity and ad-hoc signing. The
+opt-in real Node/Host integration suite passed 14/14 with controlled model I/O.
+Existing dynamic-import and install-script inventory warnings remain unchanged.
+
+The four-colleague regression uses actual SendPipeline, group queues, SendMessage
+publication, SQLite assignments/claims and owner checks; model decisions and work
+attempts are controlled fixtures. It verifies one kickoff, distinct recorded
+handoffs, the coordinator's eight-message delivery, independent discussion,
+second/third sends in Group and single-Bot chat, and no blind replay after Stop
+or failure. It is not a production-model assessment of research quality.
+
+The verified package was installed over `/Applications/BeeBot.app`, with the old
+bundle preserved outside Applications as a recovery backup. Installed ASAR:
+`6c6927caed9a4c8a731778d41a2b17d979bb8f29d288897cef7668194695770e`.
+Installed bytes/signature and the three changed Host behavior markers were checked.
+Native startup restored the existing group, composer and collaboration panel with
+an active connection. No test messages or financial requests were sent to the
+user's real Bots. This is a local ad-hoc installation, not a notarized release or
+full native conversation execution test.

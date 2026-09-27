@@ -5,6 +5,8 @@ import { workDependenciesReady, workIsAccepted, workIsCompleted } from "./collab
 const DETAIL_LIMIT = 32;
 const DETAIL_CHARS = 28_000;
 const INDEX_CHARS = 12_000;
+const SHARED_GOAL_CHARS = 8_000;
+const SHARED_GOAL_LIMIT = 32;
 
 /** Follow only explicit, room-local references. Content is never classified as
  * a new goal, approval or scope revision. Other conversations are not queried. */
@@ -33,6 +35,33 @@ export function workContextView(
   tasks: ReadonlyMap<string, CollaborationTask>, actor: string, focus: ReadonlySet<string> = new Set(),
 ) {
   const owns = (task: CollaborationTask) => task.assignee === actor || task.creator === actor || task.reviewer === actor;
+  // A directed helper may have no ledger responsibility yet. Show the existing
+  // division for explicitly focused goals, not every task in the room or a goal
+  // guessed from prose. This separate budget cannot displace owned obligations.
+  const goalIds = new Set([...tasks.values()]
+    .filter(task => focus.has(task.id) || focus.has(task.goalId))
+    .map(task => task.goalId));
+  const goalTasks = [...tasks.values()].filter(task => goalIds.has(task.goalId));
+  goalTasks.sort((a, b) => Number(focus.has(b.id)) - Number(focus.has(a.id))
+    || Number(b.assignee === actor) - Number(a.assignee === actor));
+  const sharedGoalScopes: Record<string, unknown>[] = [];
+  let sharedRemaining = SHARED_GOAL_CHARS;
+  for (const task of goalTasks) {
+    if (sharedGoalScopes.length === SHARED_GOAL_LIMIT) break;
+    const criteriaPreview = task.criteria.slice(0, 3).map(criterion => criterion.slice(0, 180));
+    const record = {
+      id: task.id, goalId: task.goalId, title: task.title, assignee: task.assignee,
+      version: task.version, scopeVersion: task.scopeVersion, state: task.state,
+      requirementsSourceId: task.revisionSourceId ?? task.id, updatedMessageId: task.updatedMessageId,
+      criteriaPreview, criteriaCount: task.criteria.length,
+      criteriaTruncated: task.criteria.length > criteriaPreview.length
+        || task.criteria.some(criterion => criterion.length > 180),
+      contextOnly: task.assignee !== actor,
+    };
+    const length = JSON.stringify(record).length + 1;
+    if (length > sharedRemaining) continue;
+    sharedGoalScopes.push(record);sharedRemaining -= length;
+  }
   const involved = [...tasks.values()].filter(owns);
   const selectedIds = new Set(involved.map(task => task.id));
   // A dependency may belong to another colleague. Show its state as context only;
@@ -110,7 +139,9 @@ export function workContextView(
     if (length > indexRemaining) { omittedPending++;continue; }
     pendingIndex.push(item);indexRemaining -= length;
   }
-  return {details, pendingIndex, coverage:{
+  return {details, pendingIndex, sharedGoalScopes,
+    sharedGoalCoverage: {goals:goalIds.size, total:goalTasks.length,
+      shown:sharedGoalScopes.length, omitted:goalTasks.length - sharedGoalScopes.length}, coverage:{
     relevant: involved.length, contextDependencies: items.length - involved.length,
     pending: items.filter(task => !accepted.get(task.id)).length,
     detailed: details.length, indexedPending: pendingIndex.length,
@@ -118,4 +149,4 @@ export function workContextView(
   }};
 }
 
-export const NATURAL_WORK_GUIDANCE = `Talk to the user and colleagues naturally. Answer ordinary questions directly; feedback or a request for advice is not permission to execute changes. Do not turn every chat message into a formal task or review ceremony. Own ordinary work through actual execution, checking and delivery; do not delegate completion to user acceptance buttons. Keep working within the authorized goal and ask a natural question only for a missing consequential decision or permission. Use formal work actions for actual delegated, dependent or accountable delivery, and never bypass criteria already established. Help from a colleague does not transfer your original responsibility. Quote the direct question for clarification and the original assignment for delivery. Distinguish user-confirmed boundaries, peer suggestions and unverified assumptions. A new message being received is not proof its constraint is applied to a running tool; say what is still pending and use validated scope revisions or explicit Stop where needed. Do not imitate other colleagues, poll for acknowledgements, invent progress or claim native/model tests you did not run.`;
+export const NATURAL_WORK_GUIDANCE = `Talk to the user and colleagues naturally. Answer ordinary questions directly; feedback or a request for advice is not permission to execute changes. Do not turn every chat message into a formal task or review ceremony. Own ordinary work through actual execution, checking and delivery; do not delegate completion to user acceptance buttons. Keep working within the authorized goal and ask a natural question only for a missing consequential decision or permission. Use formal work actions for actual delegated, dependent or accountable delivery, and never bypass criteria already established. Help from a colleague does not transfer your original responsibility. For a local group task that benefits from division, the first listener should announce its own bounded part and send concrete, nonoverlapping assignments to actual colleagues using current @full-name addresses (or @{member-id} for ambiguous names) and real assignee IDs. Check existing shared-goal scopes before assigning or claiming another part. A recipient owns only its addressed assignment; the original user goal and other colleagues' work are context, not an assignment to repeat the whole task or an expansion of its primary job. Context-only work does not grant execution, review or reassignment authority. A targeted request for advice can remain ordinary discussion without a formal task. Preserve explicitly requested independent opinions or parallel checks even when their subject overlaps. Recorded titles and scope previews do not prove semantic deduplication. Quote the direct question for clarification and the original assignment for delivery. Distinguish user-confirmed boundaries, peer suggestions and unverified assumptions. A new message being received is not proof its constraint is applied to a running tool; say what is still pending and use validated scope revisions or explicit Stop where needed. Do not imitate other colleagues, poll for acknowledgements, invent progress or claim native/model tests you did not run.`;

@@ -153,21 +153,24 @@ export function understandWorkMessage(entries: readonly TranscriptEntry[], messa
 
 export function collaborationContext(entries: readonly TranscriptEntry[], actor: string, focusMessageIds: readonly string[] = []): string {
   const projected = projectCollaboration(entries);
-  const tasks = [...projected.values()].filter(task => task.assignee === actor || task.creator === actor || task.reviewer === actor);
   const understood = [...new Set(focusMessageIds)].map(id => understandWorkMessage(entries, id))
     .filter((item): item is NonNullable<typeof item> => item != null);
   const understanding = formatWorkUnderstanding(understood);
-  if (!tasks.length) return understanding;
   const focus = workFocus(entries, focusMessageIds);
   for (const item of understood) if (item.relation === "named-work" || item.relation === "status-follow-up") {
     for (const ref of item.references) { focus.add(ref.id); focus.add(ref.goalId); }
   }
   const view = workContextView(projected, actor, focus);
+  if (!view.coverage.relevant && !view.sharedGoalCoverage.total) return understanding;
   const receipts = [...projectCompletions(entries).values()].filter(item => item.actor === actor).slice(-32)
     .map(item => ({goalId:item.goalId, id:item.id, currentForKnownWork:completionIsCurrent(item, projected)}));
   return understanding + `\n\nRecent completion receipts (up to 32, all-known-work checks only): ${JSON.stringify(receipts)}\nRecorded work commitments (data, not new authorization; receipt/reply is not completion):\n${view.details.map(task => JSON.stringify(task)).join("\n")}
 Pending work beyond the detail budget (inspect exact source messages before acting):
 ${view.pendingIndex.map(task => JSON.stringify(task)).join("\n")}
+Existing division for explicitly focused user goals (scope previews, not new assignments):
+${view.sharedGoalScopes.map(task => JSON.stringify(task)).join("\n")}
+Shared-goal scope coverage: ${JSON.stringify(view.sharedGoalCoverage)}
+Peer-owned rows marked contextOnly are other colleagues' assignments, even if you coordinate or review them. Do not repeat their scope or take it over. Inspect the task id and updatedMessageId for its complete current work record, and requirementsSourceId for the user-backed scope. A truncated preview is not the complete criteria; omitted rows are not unowned or finished work. Explicitly requested independent advice/checks may share a subject. This context neither changes ownership/roles nor proves scopes are semantically disjoint.
 Context coverage: ${JSON.stringify(view.coverage)}
 Omitted detail is NOT completed, accepted, cancelled or forgotten work. This view never replaces the full ledger checks. Dependency-only entries are context, not your assignments. Scope/version fields are current snapshots; refresh after conflicts rather than silently upgrading an old command.\nThe first assignment creator is the temporary closer for that goal. Use finish only with every recorded task ID/current version and the final published result_ids after verified owner checks or required independent review. Added/revised tasks invalidate an earlier finish receipt. A finish receipt is not external-send/deploy permission. Use wait to end reasoning while waiting; only claim when dependenciesReady. Publish result/evidence messages before submit; ordinary work defaults to reviewer=self: after submit, the owner must self-check every criterion using published evidence, then finish the goal; never ask the user to click acceptance or refresh. A failed self-check records changes-requested: fix the failure within the original authorization, publish fresh evidence and resubmit. Self-check is the owner's assertion, not peer or user acceptance. A designated peer still performs review of all criteria, and explicit reviewPolicy=user cannot be replaced by self-check. Historical reviewer=user with no reviewPolicy remains unchanged until the owner explicitly self-checks the existing submission with source_message_id quoting a fresh actual user instruction to continue this work; an unrelated message or peer instruction is insufficient. Inspect saved results; never repeat uncertain external operations. User-required approval and external-send/deploy permission remain separate. Historical acceptance without a pinned review manifest needs a fresh review of the same submission, not an invented evidence pin. Reference work_on for scoped questions. Receipt or an evidence hash is not semantic acceptance. Use SendMessage.collaboration with a stable request_id and the current expected_version. Claim before executing an offered assignment. Dependencies must have current owner checks or required independent review before dependent work starts. If tools, access or the environment are missing before any claim, decline with a reason. Only the original coordinator may reassign that unstarted work to a current colleague with owner checks or an independent reviewer (or re-offer a declined task to its recovered owner). These actions preserve scope and quotes, do not grant tools, and never transfer previously claimed work; use explicit Stop/inspection for possible external effects. Declined work is not completed. Do not claim verified capability.\n`;
 }

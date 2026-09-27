@@ -1,5 +1,5 @@
 import { renderBotRole } from "../../../shared/bot-role.js";
-import { understandWorkMessage, prepareCollaboration, collaborationContext, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
+import { understandWorkMessage, prepareCollaboration, collaborationContext, CollaborationError, COLLABORATION_GUIDANCE, projectCollaboration, referencedWork } from "./collaboration.js";
 import { prepareGroupPublication, publicationText } from "./group-publications.js";
 import { appendConversationNotice, publishDelivery } from "./conversation-deliveries.js";
 import { requireMessageReference } from "./message-reply-contract.js";
@@ -26,10 +26,14 @@ import {
 } from "../../groups/group-store.js";
 import {
   assertMembersAreNotGroups,
+  buildGroupMemberSystemPrompt,
   buildGroupRedriveNote,
+  GroupMentionError,
   isPassContent,
   isPotentialPassPrefix,
+  resolveMessageResponders,
   SHARED_ROOM_HISTORY_LIMIT,
+  validateGroupMemberPublication,
   type GroupDescription,
   type GroupMember,
   type GroupMessage,
@@ -289,7 +293,12 @@ export class GroupChatGlue {
     return {
       isSharedRoom: config?.sharedRoomId != null,
       localAttention: config?.sharedRoomId == null && !config?.remoteMembers?.length,
-      memberLoad: id => this.tm.runLifecycle.inFlightRunCounts.get(id) ?? 0,
+      memberLoad: id => {
+        for (const [runningSession, count] of this.tm.runLifecycle.inFlightRunCounts) {
+          if (runningSession.id === id) return count;
+        }
+        return 0;
+      },
       workUnderstanding: messageId => understandWorkMessage(session.db.getTranscriptEntries(), messageId),
       priorRecipients: messageId => {
         const record = this.tm.sendPipeline.deliveries.list(session.dbPath)
@@ -303,6 +312,7 @@ export class GroupChatGlue {
           .filter(([, state]) => state === "queued" || state === "processing").map(([id]) => id) : undefined;
       },
       resolveMembers: (ids) => this.resolveGroupMembers(ids, remoteMembers),
+      currentMembers: () => this.currentGroupRoster(session).members,
       readHistory: () => this.readGroupHistory(session),
       runMemberTurn: (request) =>
         this.runGroupMemberTurn(
@@ -318,7 +328,7 @@ export class GroupChatGlue {
       onQueued: (message, members) => {
         if (message.id && (members.length || message.speaker.kind === "user")) publishDelivery(this.tm, session, this.tm.sendPipeline.deliveries.route(session.dbPath, message.id, members.map(member => member.id)));
       },
-      onAttentionUnavailable: (message, unavailableIds) => {
+      onAttentionUnavailable: (message, unavailableIds, reason) => {
         if (message.id) {
           const prior = [...new Set(unavailableIds)];
           if (prior.length) {
@@ -326,6 +336,12 @@ export class GroupChatGlue {
             for (const id of prior) publishDelivery(this.tm, session,
               this.tm.sendPipeline.deliveries.settle(session.dbPath, message.id, id, "failed"));
           }
+        }
+        if (reason === "participants-changed") {
+          appendConversationNotice(this.tm, session,
+            "群成员已变化，这条消息尚未派发。当前处理结束后，请向现有成员重新发送；旧任务未转派。 / Group membership changed. This message was not dispatched. Send it to the current members after this run ends; prior work was not reassigned.",
+            message.id, "group_participants_changed");
+          return;
         }
         appendConversationNotice(this.tm, session,
           "被引用或关联的同事已不在此群，消息已保留，未自动转派。请明确 @ 其他成员。 / The referenced colleague is no longer in this group. Your message is retained; no work was reassigned. Explicitly @ another member to continue.",
@@ -364,6 +380,13 @@ export class GroupChatGlue {
     memberIds: readonly string[],
     remoteMembers: readonly RemoteGroupMember[] = [],
   ): Promise<GroupMember[]> {
+    return this.readGroupMembers(memberIds, remoteMembers);
+  }
+
+  private readGroupMembers(
+    memberIds: readonly string[],
+    remoteMembers: readonly RemoteGroupMember[] = [],
+  ): GroupMember[] {
     const members: GroupMember[] = [];
     for (const id of memberIds) {
       if (isRemoteAgentId(id)) {
@@ -393,9 +416,45 @@ export class GroupChatGlue {
     return members;
   }
 
+  private currentGroupRoster(session: LiveSession) {
+    const config = readSandGroupConfig(dirname(session.dbPath));
+    const remoteMembers = config?.remoteMembers ?? [];
+    const memberIds = [...new Set([...(config?.memberIds ?? []), ...remoteMembers.map(formatRemoteAgentId)])];
+    return { config, members: this.readGroupMembers(memberIds, remoteMembers) };
+  }
+
+  /** Synchronous check at the public boundary, including legacy direct callers.
+   * Never trust the roster snapshot captured before an execution queue wait.
+   */
+  private validateCurrentMemberPublication(session: LiveSession, author: GroupMember, content: string, publication?: GroupPublication, validateRouting = true) {
+    const current = this.currentGroupRoster(session);
+    const member = current.members.find(candidate => candidate.id === author.id);
+    if (!member) {
+      if (publication?.message?.collaboration) throw new CollaborationError("work_actor_unavailable", "The publishing Bot is no longer a member.");
+      throw new GroupMentionError("unknown_group_member", author.id, current.members);
+    }
+    if (current.config?.sharedRoomId == null && !current.config?.remoteMembers?.length) {
+      const message = publication?.message;
+      const text = message ? (message.type === "text" ? String(message.content ?? "") : "") : content;
+      validateGroupMemberPublication(text, current.members);
+      const parent = publication?.replyToId ? this.readGroupHistory(session).find(entry => entry.id === publication.replyToId) : undefined;
+      const purpose = message?.purpose;
+      // The orchestrator fills the default reply and work-derived recipients
+      // after the transport callback. Work-event authorization lives below in
+      // prepareCollaboration; plain requests are checked here once finalized.
+      if (validateRouting && !message?.collaboration) resolveMessageResponders(current.members, [{
+        speaker: { kind: "member", id: member.id, name: member.name }, content: text,
+        ...(purpose === "update" || purpose === "request" || purpose === "discussion" ? { purpose } : {}),
+        ...(parent?.speaker.kind === "member" ? { replyToMemberId: parent.speaker.id } : {}),
+        ...(publication?.awaitingUser ? { awaitingUser: true } : {}),
+      }]);
+    }
+    return { ...current, member };
+  }
+
   async runGroupMemberTurn(
     roomSession: LiveSession,
-    request: { member: GroupMember; systemPrompt: string; prompt: string; sourceMessageIds?: readonly string[]; publish?: (publication: GroupPublication) => string | undefined },
+    request: { member: GroupMember; systemPrompt: string; prompt: string; participantIds?: readonly string[]; sourceMessageIds?: readonly string[]; publish?: (publication: GroupPublication) => string | undefined },
     live: GroupMemberStream,
     isRoomTurnCurrent: () => boolean,
     traceCtx?: unknown,
@@ -454,9 +513,9 @@ export class GroupChatGlue {
           if (update.message?.type === "text" && isPassContent(String(update.message.content || ""))) return;
           if (effective.publish) {
             const publication = prepareGroupPublication(roomSession.dbPath, update.message, this.tm.sharedRooms.sharedRoomConfigOf(roomSession) != null);
-            // Seal only explicit public output. Raw text deltas can contain the
-            // agent's private scratchpad and are not a public chat message.
-            this.streamGroupMemberUpdate(roomSession, effective.member, update, live);
+            this.validateCurrentMemberPublication(roomSession, effective.member, publication.content, publication, false);
+            // Publish only through the synchronous durable boundary. Raw text
+            // deltas are private, so this path has no preview to seal first.
             lastSentMessageId = effective.publish({...publication, contextUserMessageId, contextWorkVersions: {...contextWorkVersions}});
             const workAction = (publication.message as any)?.collaboration;
             if (lastSentMessageId && ["assign", "revise"].includes(workAction?.action)) {
@@ -488,8 +547,14 @@ export class GroupChatGlue {
           let registeredRunner: any;
           try {
             if (!isRoomTurnCurrent()) return;
-            const currentConfig = readSandGroupConfig(dirname(roomSession.dbPath));
-            if (!currentConfig?.memberIds.includes(memberSession.id)) throw new Error("This Bot is no longer a member of the group. Work was not started.");
+            const current = this.currentGroupRoster(roomSession);
+            const currentMember = current.members.find(member => member.id === memberSession.id);
+            if (!currentMember) throw new Error("This Bot is no longer a member of the group. Work was not started.");
+            if (current.config?.sharedRoomId == null && !current.config?.remoteMembers?.length) {
+              effective = { ...effective, member: currentMember, systemPrompt: buildGroupMemberSystemPrompt(
+                currentMember, this.tm.roster.resolveAgentProfile(roomSession), current.members.filter(member => member.id !== currentMember.id && (!request.participantIds || request.participantIds.includes(member.id))),
+              ) + "\n\nThis is the current room roster for this run at execution start; it supersedes participant names in older messages or private context. Only address listed Bots by @full-name or @{member-id}. Never invent an @name, including for the user: speak to the user as you. Membership and names are checked again when publishing. Newly added Bots can join a subsequent room run." };
+            }
             registeredRunner = this.tm.execution.createGroupMemberRunner(
               memberSession,
               this.tm.runnerRegistry.runnerHooksFor(memberSession, transport),
@@ -663,8 +728,9 @@ export class GroupChatGlue {
     live?: GroupMemberStream,
     publication?: GroupPublication,
   ): string | undefined {
+    const current = this.validateCurrentMemberPublication(session, member, content, publication);
     const entriesInRoom = this.tm.sessions.activeSession?.id === session.id ? getTranscript() : session.db.getTranscriptEntries();
-    const config = readSandGroupConfig(dirname(session.dbPath));
+    const config = current.config;
     const candidateId = nextEntryId(session.db.getTranscriptEntries(), "send-message");
     const work = prepareCollaboration({ actorRole: this.tm.botRoles?.read(member.id) ?? null, messageId: candidateId, dbPath: session.dbPath, actor: member.id, members: config?.memberIds ?? [],
       uncertainMessageIds: this.tm.sendPipeline.deliveries.list(session.dbPath).filter((record: {state: string}) => record.state === "needs-review").map((record: {id: string}) => record.id),
@@ -682,7 +748,7 @@ export class GroupChatGlue {
     const decisionContext = questionWork ? {taskId: questionWork.id, scopeVersion: scopeVersion ?? 0} : {userMessageId: decisionUserId};
     const decisionStale = questionWork ? scopeVersion !== questionWork.scopeVersion || ["accepted", "completed"].includes(questionWork.state) : decisionUserId !== (latestUser?.id ?? null);
     const details = { ...(work.completion ? {completionEvent: work.completion} : {}), ...(work.event ? {collaborationEvent: work.event} : {}), ...(replyTo ? {replyTo} : {}), ...(workOnId ? {workOnId} : {}), ...(message.type === "widget" ? {decisionContext, ...(decisionStale ? {decisionStatus: "stale", widgetDismissed: true} : {})} : {}) };
-    const author = { id: member.id, name: member.name };
+    const author = { id: current.member.id, name: current.member.name };
     const isActive = this.tm.sessions.activeSession?.id === session.id;
     if (live != null && isActive && !work.event && !work.completion) {
       const previewId = live.sealed[0];

@@ -25,9 +25,15 @@ test("local attention chooses listeners without assigning work or weakening rout
     assert.deepEqual(ids(user("u","Discuss"),context),["b"]);
     assert.deepEqual(ids(user("v","@{a} Please answer"),context),["a"]);
   });
-  await t.test("explicit everyone and multiple mentions still fan out intentionally", () => {
-    assert.deepEqual(ids(user("u","@所有人 请检查")),["a","b","c","d"]);
+  await t.test("team invitations start one listener; explicit multiple recipients stay directed", () => {
+    assert.equal(ids(user("u","@所有人 请检查")).length,1);
+    assert.equal(choose(roster,user("u","@所有人 请检查"),ctx).reason,"team-kickoff");
     assert.deepEqual(ids(user("v","@{b} @{d} 请检查")),["b","d"]);
+    assert.deepEqual(ids(peer("m","@everyone Please share independent views",{purpose:"discussion"})),["b","c","d"]);
+  });
+  await t.test("a saved kickoff keeps its recipient and never substitutes a removed owner", () => {
+    assert.deepEqual(ids(user("u","@everyone Work together"),{history:[],priorRecipients:()=>["c"],load:id=>id==="c"?10:0}),["c"]);
+    assert.equal(choose(roster,user("u","@everyone Work together"),{history:[],priorRecipients:()=>["gone"]}).reason,"unavailable");
   });
   await t.test("quoted/code examples cannot widen attention", () => {
     assert.equal(ids(user("u","> @everyone\nUse `@all` as an example")).length,1);
@@ -105,12 +111,33 @@ test("actual send: quoted follow-up stays with its busy listener rather than mig
   assert.equal(h.records("room").filter(r=>r.state==="replied").length,2);
 });
 
-test("actual send: everyone still starts independently and a failed listener is visible, not replayed", async t => {
+test("actual send: failed team listener is visible without automatically replaying the goal elsewhere", async t => {
   const gate=deferred();t.after(()=>gate.resolve());
-  const h=await continuityHarness(t,{members:["a","b"],runMember:async call=>{await gate.promise;if(call.id==="a")throw new Error("Provider unavailable");return ["B result"];}});
-  await h.send("@everyone Check independently");await until(()=>h.calls.length===2);gate.resolve();await h.drain();
-  assert.equal(h.calls.length,2);assert.equal(h.errors.length,1);
+  const h=await continuityHarness(t,{members:["a","b"],runMember:async()=>{await gate.promise;throw new Error("Provider unavailable");}});
+  await h.send("@everyone Work together");await until(()=>h.calls.length===1);gate.resolve();await h.drain();
+  assert.equal(h.calls.length,1);assert.equal(h.errors.length,1);
   assert.ok(h.entries("room").some(e=>e.kind==="notice"&&e.code==="delivery_failed"||e.kind==="notice"&&JSON.stringify(e).includes("delivery_failed")));
+});
+
+test("actual team kickoff accounts for a colleague already busy in a direct conversation", {timeout:10000}, async t => {
+  const gate=deferred(), started=deferred(); t.after(gate.resolve);
+  const h=await continuityHarness(t,{members:["a","b"],runDirect:async()=>{started.resolve();await gate.promise;},runMember:async()=>["Handled the team question"]});
+  await h.send("Private work", "a"); await started.promise;
+  await h.send("@everyone Coordinate this question");
+  await Promise.all([...h.tm.groupChat.activeRooms.values()].map(room=>room.done));
+  assert.deepEqual(h.calls.map(call=>call.id),["b"]);
+  assert.deepEqual(h.interrupts,[]);
+  gate.resolve();await h.drain();
+});
+
+test("a genuine user decision widget is not mistaken for an unaddressed colleague request", async t => {
+  const h=await continuityHarness(t,{runMember:async call=>{
+    call.publish({type:"widget",purpose:"request",widget:{prompt:"Choose the required direction",allowCustom:false,options:[{label:"Keep",value:"keep"},{label:"Change",value:"change"}]}});
+    return [];
+  }});
+  await h.send("@everyone Clarify the consequential choice");await h.drain();
+  assert.equal(h.calls.length,1);assert.equal(h.errors.length,0);
+  assert.equal(h.entries("room").filter(entry=>entry.kind==="send-message"&&entry.message.type==="widget").length,1);
 });
 
 test("actual send: removed quoted author is reported without executing a replacement", async t => {
