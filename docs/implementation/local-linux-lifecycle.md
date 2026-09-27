@@ -112,3 +112,21 @@ or production-account behavior.
 ```sh
 BEEBOT_DOCKER_MIGRATION_TEST=1 node scripts/verify-local-linux-migration.mjs
 ```
+
+`verify-local-linux-entrypoint.mjs` separately starts the real upstream entrypoint
+and supervisor with the built Host bundle, in new offline fixture volumes. It
+checks gateway readiness, an initially empty Bot list, a synthetic Bot's restored
+fork assignment/owner token after restart, and actual generated Connect Shell/Read
+RPCs on both the primary daemon and restored fork. It uses production
+`buildHostShellArgs` for the trusted synthetic command. It creates no model message
+or provider login, publishes no ports, and records the supplied bundle hashes.
+As in production local Docker, `SAND_USE_EXISTING_BOX_EXEC_DAEMON=1` selects the
+image's existing exec daemon; this does not claim the mounted reconstructed daemon
+was started. Fixture health and RPC checks do not establish production account or
+model behavior.
+
+```sh
+BEEBOT_DOCKER_ENTRYPOINT_TEST=1 node scripts/verify-local-linux-entrypoint.mjs \
+  .build/fidelity/app/dist/host/host-main.cjs \
+  .build/fidelity/app/dist/box-exec-daemon/main.cjs
+```
