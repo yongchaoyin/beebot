@@ -1,3 +1,5 @@
+import type { Context as ExecutionContext } from "../../../packages/context/core.js";
+import { executeWithToolDeadline } from "./tool-timeout-cancellation.js";
 import {
   buildToolCallExecutionTimedOutMessage,
   toolCallExecutionGuardMs,
@@ -34,25 +36,6 @@ export interface StreamingInvocationTool<Context, Handler, Meta, Result> {
   ): Promise<Result>;
 }
 
-async function withTimeout<Result>(
-  operation: Promise<Result>,
-  milliseconds: number,
-  createError: () => Error,
-): Promise<Result> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(createError()), milliseconds);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer != null) clearTimeout(timer);
-  }
-}
-
 export function wrapDynamicInvocationToolWithTimeout<
   Context,
   Handler,
@@ -82,9 +65,10 @@ export function wrapDynamicInvocationToolWithTimeout<
       const replay = (async function* () {
         yield rawArguments;
       })();
-      return withTimeout(
-        tool.execute(context, interactionHandler, replay, meta),
+      return executeWithToolDeadline(
+        context as unknown as ExecutionContext,
         executionTimeoutMs,
+        child => tool.execute(child as unknown as Context, interactionHandler, replay, meta),
         () => new SandToolCallExecutionTimeoutError(effectiveToolName, executionTimeoutMs),
       );
     },
