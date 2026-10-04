@@ -72,6 +72,16 @@ function RListAgents(){
   return out;
 }
 
+function RCreateMemberAvatar(agent,size){
+  const profile=RRosterRows().find(item=>item.id===agent.id)||agent;
+  // Reuse the roster's local custom photo; this does not fetch a second identity.
+  if(typeof profile.avatarDataUrl==="string"&&/^data:image\/(png|jpeg|gif|webp);base64,/i.test(profile.avatarDataUrl)){
+    const image=document.createElement("img");image.src=profile.avatarDataUrl;image.alt="";image.width=size;image.height=size;return image;
+  }
+  if(typeof R_PATHS==="object")return RBotSvg(profile.avatarShape||"blob",profile.avatarColor||"green",size);
+  const placeholder=document.createElement("span");placeholder.className="bb-create-avatar-placeholder";placeholder.setAttribute("aria-hidden","true");placeholder.style.cssText=`width:${size}px;height:${size}px;border-radius:40%;background:var(--cursor-bg-secondary,Canvas);flex:none`;return placeholder;
+}
+
 // User-initiated management uses a centered dialog. Ordinary conversation
 // interactions remain inline; opening management never cancels running work.
 let RCreateRequestSerial=0;
@@ -91,17 +101,28 @@ function REnsureInlineCreateStyle(){
     .bb-inline-create button{font:inherit;color:inherit;cursor:pointer;-webkit-app-region:no-drag}
     .bb-inline-create :is(button,input,select,textarea,summary):focus-visible,#sand-plus-menu button:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}
     .bb-inline-create button:disabled{cursor:default;opacity:.5}
-    .bb-create-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+    .bb-create-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;width:100%}
     .bb-create-head h2{font:600 19px/1.4 system-ui;margin:0;overflow-wrap:anywhere}
-    .bb-create-close{border:0;border-radius:6px;background:transparent;min-width:32px;min-height:32px;font-size:20px!important}
+    .bb-create-close{flex:none;border:0;border-radius:8px;background:transparent;min-width:32px;min-height:32px;font-size:20px!important}
     .bb-create-subtitle,.bb-create-help{font-size:12px;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px;overflow-wrap:anywhere}
     .bb-create-field{display:grid;gap:6px;margin-bottom:12px}
     .bb-create-field label{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
     .bb-create-members{display:grid;gap:4px;min-height:104px;max-height:288px;overflow:auto;overscroll-behavior:contain;margin:8px 0}
-    .bb-create-member{display:flex;align-items:center;gap:8px;min-height:40px;width:100%;border:1px solid transparent;border-radius:8px;background:transparent;text-align:start;padding:6px 8px;overflow-wrap:anywhere}
+    .bb-create-member{display:flex;align-items:center;gap:10px;min-height:48px;width:100%;border:1px solid transparent;border-radius:10px;background:transparent;text-align:start;padding:8px;overflow-wrap:anywhere}
     .bb-create-member[aria-pressed=true]{border-color:var(--cursor-stroke-secondary,#8884);background:var(--cursor-bg-secondary,Canvas)}
     .bb-create-member[aria-pressed=true]::after{content:'✓';margin-inline-start:auto;flex:none}
-    .bb-create-member svg{flex:none}
+    .bb-create-member :is(svg,img){flex:none;width:32px;height:32px}.bb-create-member img,.bb-create-selected img{object-fit:cover;border-radius:50%}
+    .bb-create-member-label{min-width:0;overflow-wrap:anywhere}
+    .bb-create-search-wrap{position:relative}.bb-create-search-wrap input{padding-inline-start:34px}.bb-create-search-wrap::before{content:"";position:absolute;left:12px;bottom:14px;width:10px;height:10px;border:1.5px solid var(--cursor-text-secondary,GrayText);border-radius:50%;pointer-events:none}.bb-create-search-wrap::after{content:"";position:absolute;left:22px;bottom:11px;width:5px;height:1.5px;background:var(--cursor-text-secondary,GrayText);transform:rotate(45deg);pointer-events:none}
+    .bb-create-roster-label{display:flex;justify-content:space-between;gap:8px;margin:12px 0 4px;color:var(--cursor-text-secondary,GrayText);font-size:12px}
+    .bb-create-member-count{font-variant-numeric:tabular-nums}
+    .bb-create-team-preview{display:flex;align-items:center;gap:12px;min-height:64px;margin:0 0 16px;padding:12px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:12px;background:var(--cursor-bg-secondary,Canvas)}
+    .bb-create-team-art{display:flex;align-items:center;flex:none;min-width:48px}.bb-create-team-art :is(svg,img){width:36px;height:36px;flex:none;margin-inline-start:-10px;filter:drop-shadow(0 0 1px var(--cursor-bg-primary,Canvas))}.bb-create-team-art :first-child{margin-inline-start:0}.bb-create-team-art img{object-fit:cover;border-radius:50%}
+    .bb-create-team-identity{display:grid;gap:2px;min-width:0}.bb-create-team-identity strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}.bb-create-team-identity small{color:var(--cursor-text-secondary,GrayText);font-size:12px}
+    .bb-create-footer{position:sticky;bottom:-24px;margin-top:8px;padding:10px 0 0;background:var(--cursor-bg-primary,Canvas)}
+    html[data-beebot-theme=presence] .bb-create-footer{background:var(--bb-surface)}
+    .bb-create-section{width:100%;margin-top:16px;padding-top:16px;border-top:1px solid var(--cursor-stroke-secondary,#8884)}
+    .bb-create-section-title{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px}
     .bb-create-member:hover,.bb-create-close:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
     .bb-create-selected{display:flex;align-content:start;flex-wrap:wrap;gap:6px;margin:8px 0}
     .bb-create-selected button{padding:5px 8px;min-height:30px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:6px;background:transparent;max-width:100%;overflow-wrap:anywhere}
@@ -113,17 +134,19 @@ function REnsureInlineCreateStyle(){
     .bb-create-appearance summary::after{content:'⌄';margin-inline-start:auto}
     .bb-create-appearance[open] summary::after{content:'⌃'}
     .bb-create-appearance summary::-webkit-details-marker{display:none}
-    #sand-create-bot-sheet{width:min(480px,100%)}
+    #sand-create-bot-sheet{width:min(480px,100%)}#sand-create-bot-sheet>*{flex-shrink:0}
+    #sand-create-bot-sheet .bb-avatar-picker{gap:10px;margin-bottom:12px}#sand-create-bot-sheet .bb-avatar-picker__preview{min-height:64px}#sand-create-bot-sheet .bb-avatar-picker__preview>svg{width:64px;height:64px}
+    #sand-create-bot-sheet .bb-avatar-picker [data-kind=shape] .bb-avatar-picker__choice>span:last-child{display:none}
     .bb-create-colleagues{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(150px,1fr);gap:20px;margin:4px 0 12px}
     .bb-create-colleagues>section{min-width:0}
     .bb-create-selection{padding-left:20px;border-left:1px solid var(--cursor-stroke-secondary,#8884)}
     .bb-create-selection h3{font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText);margin:0 0 12px}
     .bb-create-selection .bb-create-selected{margin:0;display:grid;gap:8px}
-    .bb-create-selection .bb-create-selected button{text-align:start;min-height:36px}
+    .bb-create-selection .bb-create-selected button{display:flex;align-items:center;gap:8px;text-align:start;min-height:42px;width:100%;padding:6px 8px;border-radius:10px}.bb-create-selected :is(svg,img){flex:none;width:26px;height:26px}.bb-create-selected .bb-create-chip-name{min-width:0;overflow-wrap:anywhere}.bb-create-selected .bb-create-chip-remove{margin-inline-start:auto;color:var(--cursor-text-secondary,GrayText)}
     .bb-create-selection:has(.bb-create-selected:empty)::after{content:attr(data-empty-label);font-size:12px;line-height:1.6;color:var(--cursor-text-secondary,GrayText)}
-    @media(max-width:520px){.bb-create-layer{padding:12px}.bb-inline-create{padding:18px;max-height:calc(100dvh - 24px)}.bb-create-colleagues{grid-template-columns:1fr;gap:12px}.bb-create-selection{border-left:0;border-top:1px solid var(--cursor-stroke-secondary,#8884);padding:12px 0 0}.bb-create-selection .bb-create-selected{display:flex}.bb-create-members{max-height:200px}}
-    #sand-plus-menu{position:static;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px;padding:0;font:12px/1.5 system-ui;color:var(--cursor-text-primary,CanvasText);background:transparent}
-    #sand-plus-menu button{min-height:36px;min-width:0;padding:7px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:8px;color:inherit;background:var(--cursor-bg-primary,Canvas);font:inherit;cursor:pointer;overflow-wrap:anywhere;-webkit-app-region:no-drag}
+    @media(max-width:520px){.bb-create-layer{padding:12px}.bb-inline-create{padding:18px;max-height:calc(100dvh - 24px)}.bb-create-colleagues{grid-template-columns:1fr;gap:12px}.bb-create-selection{border-left:0;border-top:1px solid var(--cursor-stroke-secondary,#8884);padding:12px 0 0}.bb-create-selection .bb-create-selected{display:flex}.bb-create-selection .bb-create-selected button{width:auto;max-width:100%}.bb-create-members{max-height:200px}.bb-create-footer{bottom:-18px}.bb-create-team-preview{gap:8px}.bb-create-team-art :is(svg,img){width:30px;height:30px;margin-inline-start:-14px}}
+    #sand-plus-menu{position:static;flex:none;display:grid;grid-template-columns:1fr;gap:4px;margin:8px;padding:6px;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:10px;font:12px/1.5 system-ui;color:var(--cursor-text-primary,CanvasText);background:transparent}
+    #sand-plus-menu button{display:flex;align-items:center;gap:10px;min-height:42px;min-width:0;padding:8px;border:0;border-radius:8px;color:inherit;background:var(--cursor-bg-primary,Canvas);font:inherit;text-align:start;cursor:pointer;overflow-wrap:anywhere;-webkit-app-region:no-drag}#sand-plus-menu button>svg,#sand-plus-menu button>.bb-create-menu-group{flex:none;width:26px;height:26px}.bb-create-menu-group{position:relative}.bb-create-menu-group svg{position:absolute;width:19px;height:19px}.bb-create-menu-group svg:last-child{right:0;bottom:0}
     #sand-plus-menu button:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
     @media(prefers-reduced-motion:reduce){.bb-inline-create *,#sand-plus-menu *{scroll-behavior:auto;transition:none}}
     @media(forced-colors:active){.bb-inline-create button{border:1px solid ButtonText}.bb-create-submit{background:ButtonFace!important;color:ButtonText!important}}
@@ -229,10 +252,11 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
     appearanceOpen=root.querySelector(".bb-create-appearance")?.open??appearanceOpen;
     if(roleForm){role=roleForm.read();roleDetailsOpen=roleForm.details.open;roleForm.dispose();roleForm=null;}
     root.innerHTML="";
-    const bar=document.createElement("div"); bar.style.cssText="width:min(420px,100%);display:flex;align-items:center;gap:12px;margin-bottom:20px";
-    close=document.createElement("button"); close.type="button";close.dataset.createField="close"; close.textContent="×";close.setAttribute("aria-label",copy.close); close.style.cssText="width:36px;height:36px;border:0;border-radius:18px;background:var(--cursor-bg-secondary,Canvas);font-size:22px;cursor:pointer"; close.onclick=()=>{if(!busy)finish(null)};
-    const title=document.createElement("div"); title.textContent=copy.title; title.style.cssText="font-size:18px;font-weight:600";
-    bar.append(close,title);
+    const bar=document.createElement("header");bar.className="bb-create-head";
+    const title=document.createElement("h2");title.id="bb-create-bot-title";title.textContent=copy.title;root.setAttribute("aria-labelledby",title.id);
+    close=document.createElement("button");close.type="button";close.dataset.createField="close";close.className="bb-create-close";close.textContent="×";close.setAttribute("aria-label",copy.close);close.onclick=()=>{if(!busy)finish(null)};
+    bar.append(title,close);
+    const subtitle=document.createElement("p");subtitle.className="bb-create-subtitle";subtitle.textContent=RCreateText("给这位长期同事一个名字、形象和主要职责。","Give this lasting colleague a name, appearance and primary job.");
     const preview=document.createElement("div"); preview.style.cssText="width:32px;height:32px;margin:0"; preview.append(RBotSvg(shape,color,32));
     const colors=document.createElement("div"); colors.style.cssText="width:min(420px,100%);display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:12px";
     for(const item of R_COLORS){const b=document.createElement("button"); b.type="button";b.setAttribute("aria-label",item.id); b.style.cssText="width:26px;height:26px;border-radius:13px;border:"+(item.id===color?"2px solid var(--cursor-text-primary,CanvasText)":"2px solid transparent")+";background:"+item.hex+";cursor:pointer"; b.onclick=()=>{if(!busy){color=item.id;paint()}}; colors.append(b)}
@@ -281,17 +305,18 @@ window.__sandPickCreateBot=async function(preset,{onCreate}={}){
     const summary=document.createElement("summary");summary.dataset.createField="appearance";summary.append(preview,document.createTextNode(RCreateText("头像与颜色","Appearance")));
     appearance.append(summary,colors,shapes);
     submit.dataset.createField="submit";submit.className="bb-create-submit";status.className="bb-create-status";
-    root.append(bar,label,input);
+    root.append(bar,subtitle,appearance,label,input);
     if(!deploymentServerId&&typeof window.__beebotRoleFields==="function"){
       roleForm=window.__beebotRoleFields({value:role,onChange:next=>{role=next;setError(null);}});
       roleForm.root.style.width="min(420px,100%)";roleForm.details.open=roleDetailsOpen;root.append(roleForm.root);
     }
-    root.append(appearance,deploymentLabel,deployment);
+    const configuration=document.createElement("section");configuration.className="bb-create-section";
+    const configurationTitle=document.createElement("h3");configurationTitle.className="bb-create-section-title";configurationTitle.textContent=RCreateText("工作环境","Working environment");configuration.append(configurationTitle,deploymentLabel,deployment);root.append(configuration);
     if(deploymentServerId){
       hint.textContent+=RCreateText(" 当前服务器仅保存职责描述，不支持本机的版本化岗位约定。"," This server currently saves a description only, not a versioned local role contract.");
-      root.append(descriptionLabel,responsibilities,hint);
-    }else root.append(vendorLabel,vendorSelect);
-    root.append(submit,status);renderServers();
+      configuration.append(descriptionLabel,responsibilities,hint);
+    }else configuration.append(vendorLabel,vendorSelect);
+    const footer=document.createElement("footer");footer.className="bb-create-footer";footer.append(status,submit);root.append(footer);renderServers();
     if(focused){
       const target=[...root.querySelectorAll("input,textarea,select,button,summary")].find(item=>focused.key?item.dataset.createField===focused.key:focused.label?item.getAttribute("aria-label")===focused.label:focused.title&&item.getAttribute("title")===focused.title);
       if(target){target.focus({preventScroll:true});if(typeof focused.start==="number"&&typeof target.setSelectionRange==="function")try{target.setSelectionRange(focused.start,focused.end)}catch{}}
@@ -310,21 +335,28 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
   const copy=RUiCopy(),agents=RListAgents();
   return new Promise(resolve=>{
     const root=document.createElement("section");root.id="sand-create-group-sheet";
-    let alive=true,busy=false;const selected=new Set(),rows=new Map();
+    let alive=true,busy=false,composingGroupField=false;const selected=new Set(),rows=new Map();
+    root.addEventListener("compositionstart",()=>{composingGroupField=true;});root.addEventListener("compositionend",()=>{composingGroupField=false;});
     const finish=(value,restoreFocus=value===null)=>{if(!alive)return;alive=false;window.removeEventListener("sand-ui-language-changed",localize);RCloseInlineCreate(root,restoreFocus);resolve(value);};
     root.__sandDismiss=()=>{if(busy)return false;finish(null);return true;};
     const head=document.createElement("header");head.className="bb-create-head";
-    const title=document.createElement("h2");
+    const title=document.createElement("h2");title.id="bb-create-group-title";root.setAttribute("aria-labelledby",title.id);
     const close=document.createElement("button");close.type="button";close.className="bb-create-close";close.textContent="×";close.onclick=()=>root.__sandDismiss();
     head.append(title,close);
-    const subtitle=document.createElement("p");subtitle.className="bb-create-subtitle";
+    const subtitle=document.createElement("p");subtitle.className="bb-create-subtitle";subtitle.id="bb-create-group-help";root.setAttribute("aria-describedby",subtitle.id);
     const field=(id)=>{
       const wrap=document.createElement("div");wrap.className="bb-create-field";
       const label=document.createElement("label");label.htmlFor=id;
       const input=document.createElement("input");input.id=id;input.type="text";
       wrap.append(label,input);return{wrap,label,input};
     };
-    const name=field("bb-group-name"),search=field("bb-group-search");name.input.maxLength=100;
+    const name=field("bb-group-name"),search=field("bb-group-search");name.input.maxLength=100;search.wrap.classList.add("bb-create-search-wrap");search.input.autocomplete="off";
+    const teamPreview=document.createElement("div");teamPreview.className="bb-create-team-preview";
+    const teamArt=document.createElement("div");teamArt.className="bb-create-team-art";teamArt.setAttribute("aria-hidden","true");
+    const teamIdentity=document.createElement("div");teamIdentity.className="bb-create-team-identity";
+    const teamName=document.createElement("strong"),teamCount=document.createElement("small");teamIdentity.append(teamName,teamCount);teamPreview.append(teamArt,teamIdentity);
+    const rosterLabel=document.createElement("div");rosterLabel.className="bb-create-roster-label";
+    const rosterTitle=document.createElement("span"),rosterCount=document.createElement("span");rosterCount.className="bb-create-member-count";rosterLabel.append(rosterTitle,rosterCount);
     const chips=document.createElement("div");chips.className="bb-create-selected";
     const colleagues=document.createElement("div");colleagues.className="bb-create-colleagues";
     const candidates=document.createElement("section"),selection=document.createElement("section");selection.className="bb-create-selection";
@@ -341,6 +373,13 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       for(const input of root.querySelectorAll("input"))input.disabled=busy;
       for(const button of root.querySelectorAll("button"))if(button!==submit)button.disabled=busy;
     };
+    const renderPreview=()=>{
+      teamName.textContent=name.input.value.trim()||RUiCopy().groupTitle;
+      teamCount.textContent=RCreateText(`已选择 ${selected.size} 位 Bot`,`${selected.size} ${selected.size===1?"Bot":"Bots"} selected`);
+      teamArt.replaceChildren();
+      for(const id of selected)teamArt.append(RCreateMemberAvatar(agents.find(agent=>agent.id===id),36));
+      if(!selected.size)teamArt.append(RCreateMemberAvatar({avatarShape:"blob",avatarColor:"green"},36),RCreateMemberAvatar({avatarShape:"hex",avatarColor:"blue"},36));
+    };
     const renderMembers=()=>{
       const query=search.input.value.trim().normalize("NFC").toLowerCase();let visible=0;
       for(const agent of agents){
@@ -348,28 +387,49 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
         row.setAttribute("aria-pressed",String(selected.has(agent.id)));if(!row.hidden)visible++;
       }
       empty.hidden=visible>0;
+      rosterTitle.textContent=RCreateText("可邀请的 Bot","Available Bots");rosterCount.textContent=String(visible);
       empty.textContent=agents.length?RCreateText("没有找到这个 Bot，试试其他名字。","No matching Bot. Try another name."):RCreateText("先创建一个 Bot，再邀请它加入群聊。","Create a Bot first, then invite it to a group.");
       selectionTitle.textContent=RCreateText("已选同事","Selected colleagues")+` (${selected.size}/6)`;
       chips.replaceChildren();
       for(const id of selected){
         const agent=agents.find(item=>item.id===id),chip=document.createElement("button");chip.type="button";
-        chip.textContent=agent.name+" ×";chip.setAttribute("aria-label",RCreateText("移除选择：","Remove selection: ")+agent.name);
+        const chipName=document.createElement("span");chipName.className="bb-create-chip-name";chipName.textContent=agent.name;
+        const remove=document.createElement("span");remove.className="bb-create-chip-remove";remove.textContent=" ×";remove.setAttribute("aria-hidden","true");
+        chip.append(RCreateMemberAvatar(agent,26),chipName,remove);chip.setAttribute("aria-label",RCreateText("移除选择：","Remove selection: ")+agent.name);
         chip.onclick=()=>{if(busy)return;selected.delete(id);renderMembers();rows.get(id)?.focus({preventScroll:true});};chips.append(chip);
       }
-      applyReady();
+      renderPreview();applyReady();
     };
     for(const agent of agents){
       const row=document.createElement("button");row.type="button";row.className="bb-create-member";row.dataset.memberId=agent.id;
-      const profile=RRosterRows().find(item=>item.id===agent.id);
-      if(typeof R_PATHS==="object")row.append(RBotSvg(profile?.avatarShape||"blob",profile?.avatarColor||"green",26));
-      row.append(document.createTextNode(agent.name));
+      const label=document.createElement("span");label.className="bb-create-member-label";label.textContent=agent.name;
+      row.append(RCreateMemberAvatar(agent,32),label);
       row.onclick=()=>{if(busy)return;if(selected.has(agent.id))selected.delete(agent.id);else{
         if(selected.size>=6){status.textContent=RCreateText("每个群最多选择 6 位 Bot。请先移除一位同事。","A group supports up to 6 Bots. Remove a colleague before adding another.");return;}
         selected.add(agent.id);
       }status.textContent="";renderMembers();};
       rows.set(agent.id,row);list.append(row);
     }
-    name.input.oninput=applyReady;search.input.oninput=renderMembers;
+    name.input.oninput=()=>{renderPreview();applyReady();};search.input.oninput=renderMembers;
+    const visibleRows=()=>[...rows.values()].filter(row=>!row.hidden&&!row.disabled);
+    search.input.addEventListener("keydown",event=>{
+      if(composingGroupField||event.isComposing||event.keyCode===229||busy)return;
+      if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+        const available=visibleRows(),target=event.key==="ArrowDown"?available[0]:available.at(-1);
+        if(target){event.preventDefault();target.focus({preventScroll:true});}
+      }
+    });
+    list.addEventListener("keydown",event=>{
+      if(composingGroupField||event.isComposing||event.keyCode===229||busy)return;
+      const available=visibleRows(),index=available.indexOf(event.target);if(index<0)return;
+      let target;
+      if(event.key==="ArrowDown")target=available[(index+1)%available.length];
+      else if(event.key==="ArrowUp")target=available[(index-1+available.length)%available.length];
+      else if(event.key==="Home")target=available[0];else if(event.key==="End")target=available.at(-1);
+      else return;
+      event.preventDefault();event.stopPropagation();target.focus({preventScroll:true});
+    });
+    name.input.addEventListener("keydown",event=>{if(event.key==="Enter"&&!composingGroupField&&!event.isComposing&&event.keyCode!==229){event.preventDefault();submit.click();}});
     submit.onclick=async()=>{
       applyReady();if(submit.disabled||!alive)return;
       // Validate membership again; a deleted Bot must not be silently dropped.
@@ -387,10 +447,11 @@ window.__sandPickCreateGroup=async function({onCreate}={}){
       close.setAttribute("aria-label",copy.close);subtitle.textContent=RCreateText("邀请同事，一起讨论和完成工作。","Invite colleagues to discuss and work together.");
       name.label.textContent=copy.groupName;name.input.placeholder=copy.groupName;name.input.setAttribute("aria-label",copy.groupName);
       search.label.textContent=copy.search;search.input.placeholder=copy.search;search.input.setAttribute("aria-label",copy.search);
-      list.setAttribute("aria-label",copy.to);selection.dataset.emptyLabel=RCreateText("从左侧选择一起工作的同事。","Choose colleagues to work with.");renderMembers();
+      list.setAttribute("aria-label",copy.to);selection.dataset.emptyLabel=RCreateText("选择要邀请的同事。群聊支持最多 6 位本机 Bot。","Choose colleagues to invite. Groups support up to 6 Bots on this Mac.");renderMembers();
     }
-    candidates.append(search.wrap,list,empty);colleagues.append(candidates,selection);
-    root.append(head,subtitle,name.wrap,colleagues,submit,status);
+    candidates.append(search.wrap,rosterLabel,list,empty);colleagues.append(candidates,selection);
+    const footer=document.createElement("footer");footer.className="bb-create-footer";footer.append(status,submit);
+    root.append(head,subtitle,teamPreview,name.wrap,colleagues,footer);
     if(!RMountInlineCreate(root,copy.groupTitle)){finish(null);return;}
     window.addEventListener("sand-ui-language-changed",localize);localize();name.input.focus({preventScroll:true});
   });
@@ -412,7 +473,8 @@ if(!window.__sandPlusMenuBound){window.__sandPlusMenuBound=!0;document.addEventL
   const group=mk("group",()=>window.__sandPickCreateGroup({onCreate:draft=>{
     if(typeof window.__sandCreateGroup!=="function")throw new Error(RUiCopy().missing);return window.__sandCreateGroup(draft);
   }}));
-  function localize(){const copy=RUiCopy();bot.textContent=copy.newBot;group.textContent=copy.newGroup;}
+  function localize(){const copy=RUiCopy();bot.replaceChildren(RCreateMemberAvatar({avatarShape:"blob",avatarColor:"green"},26),document.createTextNode(copy.newBot));
+    const collage=document.createElement("span");collage.className="bb-create-menu-group";collage.setAttribute("aria-hidden","true");collage.append(RCreateMemberAvatar({avatarShape:"blob",avatarColor:"green"},19),RCreateMemberAvatar({avatarShape:"hex",avatarColor:"blue"},19));group.replaceChildren(collage,document.createTextNode(copy.newGroup));}
   menu.addEventListener("keydown",event=>{if(event.key==="Escape"&&!event.isComposing){event.preventDefault();event.stopPropagation();hide();btn.focus({preventScroll:true});}});
   menu.append(bot,group);localize();window.addEventListener("sand-ui-language-changed",localize);
   RInsertSidebarSection(menu);

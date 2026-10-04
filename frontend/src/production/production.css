@@ -232,26 +232,44 @@ button, textarea, input { font: inherit; }
 .sand-vendor-setup button { justify-self: center; }
 .sand-vendor-setup p { margin: 0; color: var(--cursor-text-red, #ef8585); }
 
+.sand-create-bot-layer {
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center;
+  padding: max(24px, var(--bb-dialog-inset, 24px)) 24px; background: var(--bb-scrim, #151b2966); -webkit-app-region: no-drag;
+}
 .sand-create-bot-sheet {
-  position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; align-items: center;
-  padding: 20px; background: #f7f7f5; color: #111;
+  position: relative; width: min(480px, 100%); max-height: calc(100dvh - 2 * max(24px, var(--bb-dialog-inset, 24px)));
+  display: flex; flex-direction: column; align-items: stretch; overflow-y: auto; overscroll-behavior: contain;
+  padding: 24px; border: 1px solid var(--bb-border, var(--cursor-stroke-secondary)); border-radius: 16px;
+  background: var(--bb-surface, var(--cursor-bg-primary)); color: var(--bb-text, var(--cursor-text-primary)); box-shadow: var(--bb-shadow, 0 20px 64px #20242b2e);
 }
-.sand-create-bot-sheet header { width: min(420px, 100%); display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-.sand-create-bot-sheet header button { width: 40px; height: 40px; border: 0; border-radius: 20px; background: #eee; font-size: 24px; }
-.sand-create-bot-sheet h1 { margin: 0; font-size: 20px; }
-.sand-create-bot-sheet__preview { width: 120px; height: 120px; margin: 8px 0 24px; background: transparent; }
-.sand-create-bot-sheet input, .sand-create-bot-sheet select {
-  width: min(420px, 100%); height: 48px; border: 0; border-radius: 16px; padding: 0 16px; font-size: 16px; margin-bottom: 16px;
+.sand-create-bot-sheet > * { flex-shrink: 0; min-width: 0; }
+.sand-create-bot-sheet .bb-avatar-picker { gap: 10px; margin-bottom: 12px; }
+.sand-create-bot-sheet .bb-avatar-picker__preview { min-height: 64px; }
+.sand-create-bot-sheet .bb-avatar-picker__preview > svg { width: 64px; height: 64px; }
+.sand-create-bot-sheet .bb-avatar-picker [data-kind="shape"] .bb-avatar-picker__choice > span:last-child { display: none; }
+.sand-create-bot-sheet header { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.sand-create-bot-sheet header button { flex: none; min-width: 32px; min-height: 32px; border: 0; border-radius: 8px; color: inherit; background: transparent; font-size: 20px; }
+.sand-create-bot-sheet h1 { margin: 0; font: 600 19px/1.4 system-ui; }
+.sand-create-bot-sheet :is(.sand-create-bot-sheet__subtitle, .sand-create-bot-role p) { margin: 0 0 12px; color: var(--bb-muted, var(--cursor-text-secondary)); font-size: 12px; }
+.sand-create-bot-sheet :is(input, select, textarea) {
+  box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--bb-control-border, var(--cursor-stroke-secondary)); border-radius: 8px;
+  padding: 9px 10px; font: inherit; color: inherit; background: var(--bb-bg, var(--cursor-bg-input)); margin-bottom: 12px;
 }
-.sand-create-bot-sheet label { width: min(420px, 100%); font-size: 13px; color: #666; margin-bottom: 6px; }
-.sand-create-bot-sheet__swatches, .sand-create-bot-sheet__shapes {
-  width: min(420px, 100%); display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
-  background: #fff; border-radius: 16px; padding: 14px; margin-bottom: 8px;
+.sand-create-bot-sheet label { display: block; font-size: 12px; color: var(--bb-muted, var(--cursor-text-secondary)); margin-bottom: 6px; }
+.sand-create-bot-sheet :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--bb-focus, Highlight); outline-offset: 2px; }
+.sand-create-bot-sheet details summary { margin: 8px 0 12px; color: var(--bb-muted, var(--cursor-text-secondary)); font-size: 12px; cursor: pointer; }
+.sand-create-bot-sheet__environment { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--bb-border, var(--cursor-stroke-secondary)); }
+.sand-create-bot-sheet__environment h2 { margin: 0 0 12px; font-size: 12px; font-weight: 500; color: var(--bb-muted, var(--cursor-text-secondary)); }
+.sand-create-bot-sheet__footer { position: sticky; bottom: -24px; padding: 10px 0 0; background: var(--bb-surface, var(--cursor-bg-primary)); }
+.sand-create-bot-sheet__footer > button { width: 100%; }
+.sand-create-bot-sheet__footer p { color: var(--bb-danger, #ba3544); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sand-create-bot-sheet__footer p:empty { display: none; }
+@media(max-width: 520px) {
+  .sand-create-bot-layer { padding-inline: 12px; }
+  .sand-create-bot-sheet { padding: 18px; }
+  .sand-create-bot-sheet__footer { bottom: -18px; }
 }
-.sand-create-bot-sheet__swatches button { width: 28px; height: 28px; border: 2px solid transparent; border-radius: 14px; }
-.sand-create-bot-sheet__swatches button[aria-pressed="true"] { border-color: #111; }
-.sand-create-bot-sheet__shapes button { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; }
-.sand-create-bot-sheet__shapes button[aria-pressed="true"] { outline: 2px solid #111; outline-offset: 2px; }
+@media(forced-colors: active) { .sand-create-bot-sheet button { border: 1px solid ButtonText; } }
 
 .sand-about-dialog,
 .sand-feedback-dialog,

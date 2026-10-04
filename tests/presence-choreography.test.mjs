@@ -219,9 +219,10 @@ test("a late completion from a replaced WAAPI animation cannot release its new n
 test("losing and regaining the shared motion budget cancels the old sequence without catching up", t => {
   const r = rig(t), a = r.avatar({ state: "speaking", identity: "a", priority: 100 }); a.handle.gesture("celebrate"); r.advance(120);
   const b = r.avatar({ state: "speaking", identity: "b", priority: 200 }), c = r.avatar({ state: "speaking", identity: "c", priority: 180 });
+  const d = r.avatar({ state: "speaking", identity: "d", priority: 160 }), e = r.avatar({ state: "speaking", identity: "e", priority: 140 });
   assert.equal(a.svg.dataset.motion, "still"); assert.deepEqual(paths(a.svg), baseline("speaking"));
   assert.ok(r.alive().every(x => x.node.closest("svg") !== a.svg));
-  r.advance(30000); b.handle.destroy(); c.handle.destroy(); const count = r.animations.length;
+  r.advance(30000); b.handle.destroy(); c.handle.destroy(); d.handle.destroy(); e.handle.destroy(); const count = r.animations.length;
   assert.equal(a.svg.dataset.motion, "auto"); r.advance(250); assert.equal(r.animations.length, count);
   r.advance(6000); assert.ok(r.animations.slice(count).some(x => x.node.closest("svg") === a.svg));
   assert.equal(r.observers.length, 1); assert.equal(r.timers.size, 1);

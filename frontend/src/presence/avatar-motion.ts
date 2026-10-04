@@ -1,6 +1,6 @@
 import { AVATAR_SHAPES } from "./avatar-shapes.ts";
 import { expressionFromState, expressionPose, paintExpression, mixPose, settleProgress, blinkDelay, identitySeed, faceFit, bounded, type AvatarExpression, type ExpressionPose } from "./avatar-expression.ts";
-import { normalizeAvatarState, selectMotionCandidates, type AvatarState } from "./avatar-state.ts";
+import { NATURAL_MOTION_BUDGET, normalizeAvatarState, selectMotionCandidates, type AvatarState } from "./avatar-state.ts";
 import { activityChoreography, activityDelay, ambientChoreography, ambientDelay, type ActivityChoreography } from "./avatar-choreography.ts";
 
 export type AvatarMotionPreference = "auto" | "subtle" | "off";
@@ -224,7 +224,7 @@ class MotionCoordinator {
     const base=new Set(allowed ? selectMotionCandidates(actors.filter(a=>!(a.ambient && a.state==="idle")),lowPower) : []);
     const occupied=new Set(actors.filter(a=>base.has(a.id)).map(a=>this.ambientIdentity(a)));
     const byIdentity=new Map<string,Actor>();
-    if (allowed && !lowPower && base.size<2) for (const actor of actors) {
+    if (allowed && !lowPower && base.size<NATURAL_MOTION_BUDGET) for (const actor of actors) {
       if (!actor.ambient || actor.state!=="idle" || actor.expression!=="idle" || !actor.visible || actor.paused || actor.size<24 || ambientSurfaceExcluded(actor.svg)) continue;
       const identity=this.ambientIdentity(actor);
       if (occupied.has(identity)) continue;
@@ -263,7 +263,7 @@ class MotionCoordinator {
     }
     if (starting) {
       const plan=ambientChoreography(this.lastAmbientIdentity,this.ambientCycle-1);
-      this.ambientUntil=Math.max(now+1120,this.playPlan(starting,plan));
+      this.ambientUntil=this.playPlan(starting,plan);
       if (plan.blink) { this.blink(starting);starting.blinkCycle++; }
     }
     if (!this.selected.size || lowPower) {

@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import { createCharacterSvg } from "../frontend/src/presence/avatar-art.ts";
 import { expressionFromState, expressionPaths, expressionPose } from "../frontend/src/presence/avatar-expression.ts";
 import { registerAvatarMotion, setAvatarMotionPreference } from "../frontend/src/presence/avatar-motion.ts";
+import { ambientChoreography } from "../frontend/src/presence/avatar-choreography.ts";
 import { createComposerSubmissionQueue } from "../frontend/src/recovered/features/conversation/workspace/submission.ts";
 
 const face = svg => ({
@@ -16,7 +17,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Actual sidebar-sized SVG/controller. Browser scheduling and WAAPI completion
  * are controlled, with one shared document clock and real DOM ancestry. */
-function rig(t) {
+function rig(t, register = registerAvatarMotion) {
   const win = new Window({ url: "https://beebot.test", settings: { enableJavaScriptEvaluation: true } }), doc = win.document;
   win.console.timeStamp = () => {};
   doc.hasFocus = () => true; Object.defineProperty(win.navigator, "hardwareConcurrency", { value: 8, configurable: true });
@@ -61,7 +62,7 @@ function rig(t) {
     if (parent) { const outer = doc.createElement("div"); outer.className = parent; outer.append(row); doc.body.append(outer); } else doc.body.append(row);
     const svg = createCharacterSvg(doc, "blob", "blue", options.size ?? 28); row.append(svg);
     const current = { state: "idle", identity: `sidebar:${actors.length}`, priority: 50, size: 28, ...options };
-    const handle = registerAvatarMotion(svg, current);
+    const handle = register(svg, current);
     const actor = { id: actors.length, svg, row, handle, options: current, destroyed: false,
       update(next) { Object.assign(current, next); handle.update(current); },
       destroy() { this.destroyed = true; handle.destroy(); } };
@@ -73,9 +74,9 @@ function rig(t) {
 }
 
 test("visible idle sidebar colleagues receive fair, staggered accents without changing their real state", t => {
-  const r = rig(t), roster = Array.from({ length: 10 }, () => r.avatar()); r.advance(120000);
+  const r = rig(t), roster = Array.from({ length: 10 }, () => r.avatar()); r.advance(45000);
   const touched = new Set(r.samples.flatMap(s => s.moving));
-  assert.equal(touched.size, roster.length, "rotation eventually reaches every visible colleague");
+  assert.equal(touched.size, roster.length, "every visible colleague receives a noticeable episode within 45 seconds");
   assert.ok(r.samples.every(s => s.moving.length <= 1), "idle sidebar accents do not run as a flock");
   assert.ok(r.samples.every(s => s.frames <= 1 && s.timers <= 1), "one document owns the scheduling budget");
   assert.ok(r.samples.every(s => s.states.every(([, state, expression]) => state === "idle" && expression === "idle")), "a visual accent is not work or success");
@@ -83,6 +84,52 @@ test("visible idle sidebar colleagues receive fair, staggered accents without ch
   assert.ok(quiet.length > 5, "idle accents have real quiet intervals without rAF");
   assert.ok(r.animations.length && r.animations.every(a => a.options.iterations === 1));
   assert.equal(r.observers.length, 1);
+});
+
+test("a 28px idle colleague has frequent, readable accents with a full return and quiet intervals", t => {
+  const r = rig(t), a = r.avatar(); r.advance(60000);
+  const starts = r.samples.filter((s, i) => s.moving.includes(a.id) && !r.samples[i - 1]?.moving.includes(a.id));
+  assert.ok(starts[0].at <= 3100, "the default natural mode visibly enters within three seconds");
+  assert.ok(starts.length >= 13, "one colleague receives at least thirteen finite episodes in a minute");
+  const bodies = r.animations.filter(animation => animation.node.matches(".bb-character__body"));
+  assert.equal(bodies.length, starts.length, "a fleeting blink cannot consume a whole idle opportunity");
+  for (const body of bodies) {
+    const translations = body.keyframes.flatMap(frame => [...frame.transform.matchAll(/translate[XY]\((-?[\d.]+)px\)/g)].map(match => Math.abs(Number(match[1]))));
+    assert.ok(Math.max(...translations) * 28 / 64 >= 1, "each body accent moves at least one screen pixel at the real sidebar size");
+    assert.equal(body.keyframes.at(-1).transform, "none");
+    assert.ok(body.options.duration >= 1600 && body.options.duration <= 1900, "the accent remains visible long enough to read");
+  }
+  assert.ok(r.samples.some(s => !s.moving.length && !s.frames), "finite episodes release all animation frames between accents");
+  assert.ok(r.samples.every(s => s.frames <= 1 && s.timers <= 1));
+});
+
+test("every idle mannerism changes the face and gives small avatars a readable finite body accent", () => {
+  const variants = new Map(), idle = expressionPaths(expressionPose("idle"), "blob", 28);
+  for (let i = 0; i < 100 && variants.size < 4; i++) {
+    const plan = ambientChoreography(`colleague:${i}`, 0);
+    variants.set(JSON.stringify(plan.steps[0].pose), plan);
+  }
+  assert.equal(variants.size, 4);
+  for (const plan of variants.values()) {
+    assert.notDeepEqual(expressionPaths(plan.steps[0].pose, "blob", 28), idle);
+    assert.deepEqual(plan.steps.at(-1).pose, expressionPose("idle"));
+    assert.equal(plan.body.frames[0].transform, "none"); assert.equal(plan.body.frames.at(-1).transform, "none");
+  }
+});
+
+test("the actual packaged Presence entry delivers the same small-avatar cadence and four-worker budget", async t => {
+  const { presenceSharedModule } = await import("../scripts/lib/presence-renderer-patch.mjs");
+  const r = rig(t, (svg, options) => r.win.PackagedPresence.registerAvatarMotion(svg, options));
+  r.win.eval(presenceSharedModule() + ";window.PackagedPresence=RPresenceUI;");
+  const a = r.avatar(); r.advance(12000);
+  assert.ok(r.animations.filter(animation => animation.node.matches(".bb-character__body")).length >= 3,
+    "the compiled packaged entry grants real accents at the new cadence");
+  const workers = Array.from({ length: 4 }, (_, i) => r.avatar({ surface: "sand-chat-header", state: "working", identity: `packaged-worker:${i}`, priority: 100, ambient: false }));
+  const count = r.samples.length; r.advance(12000);
+  const touched = new Set(r.samples.slice(count).flatMap(s => s.moving));
+  assert.ok(!touched.has(a.id), "real work preempts the compiled idle controller");
+  for (const worker of workers) assert.ok(touched.has(worker.id), "every selected working identity receives its own real motion");
+  assert.ok(r.samples.every(s => s.moving.length <= 4 && s.frames <= 1 && s.timers <= 1));
 });
 
 test("idle motion is limited to an opted-in list surface, excluding unrelated static and historical avatars", t => {
@@ -93,15 +140,21 @@ test("idle motion is limited to an opted-in list surface, excluding unrelated st
   for (const a of [plain, optedOut, tiny, history, collage]) { assert.ok(!touched.has(a.id)); assert.ok(r.atBaseline(a)); }
 });
 
-test("one working colleague shares at most one remaining slot with sidebar life; two workers preempt it", t => {
+test("working colleagues have priority within four slots and the sidebar borrows only one free slot", t => {
   const r = rig(t), roster = Array.from({ length: 5 }, () => r.avatar()), one = r.avatar({ surface: "sand-chat-header", state: "speaking", identity: "worker:1", priority: 100, ambient: false });
   r.advance(45000); assert.ok(r.samples.some(s => s.moving.some(id => roster.some(a => a.id === id))), "one active worker leaves a quiet sidebar slot");
   assert.ok(r.samples.every(s => s.moving.length <= 2));
   const two = r.avatar({ surface: "sand-chat-header", state: "working", identity: "worker:2", priority: 100, ambient: false });
+  const three = r.avatar({ surface: "sand-chat-header", state: "reading", identity: "worker:3", priority: 100, ambient: false });
   const start = r.samples.length; r.advance(20000);
-  assert.ok(r.samples.slice(start).every(s => s.moving.every(id => id === one.id || id === two.id)), "two workers suspend ambient list accents");
-  assert.ok(r.samples.slice(start).every(s => s.moving.length <= 2));
-  two.destroy(); const resumed = r.samples.length; r.advance(30000);
+  assert.ok(r.samples.slice(start).some(s => s.moving.some(id => roster.some(a => a.id === id))), "three workers leave one bounded sidebar opportunity");
+  assert.ok(r.samples.slice(start).every(s => s.moving.length <= 4));
+  const four = r.avatar({ surface: "sand-chat-header", state: "searching", identity: "worker:4", priority: 100, ambient: false });
+  const full = r.samples.length; r.advance(20000);
+  const workers = new Set([one.id, two.id, three.id, four.id]);
+  assert.ok(r.samples.slice(full).every(s => s.moving.every(id => workers.has(id))), "four real workers immediately preempt idle list accents");
+  assert.ok(r.samples.slice(full).every(s => s.moving.length <= 4 && s.frames <= 1 && s.timers <= 1));
+  four.destroy(); const resumed = r.samples.length; r.advance(30000);
   assert.ok(r.samples.slice(resumed).some(s => s.moving.some(id => roster.some(a => a.id === id))), "ambient rotation resumes after the work slot is freed");
 });
 

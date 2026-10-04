@@ -314,3 +314,65 @@ test("group member limit is explicit and does not silently change the selection"
   assert.match(root.querySelector("[role=status]").textContent,/up to 6/);
   assert.match(root.querySelector(".bb-create-selection h3").textContent,/6\/6/);
 });
+
+test("group identity preview and removable choices reuse the roster's custom photos and shapes", async t => {
+  const ui = await boot(t);
+  const photo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+  ui.roster.find(agent => agent.id === "a").avatarDataUrl = photo;
+  const { root } = await ui.open("group");
+  ui.input(root.querySelector("#bb-group-name"), "设计同事");
+  root.querySelector('[data-member-id="a"]').click();
+  root.querySelector('[data-member-id="b"]').click();
+  assert.equal(root.querySelector('[data-member-id="a"] img').getAttribute("src"), photo);
+  assert.equal(root.querySelector(".bb-create-team-art img").getAttribute("src"), photo);
+  assert.equal(root.querySelector(".bb-create-selected img").getAttribute("src"), photo);
+  assert.equal(root.querySelector(".bb-create-team-identity strong").textContent, "设计同事");
+  assert.equal(root.querySelector(".bb-create-team-identity small").textContent, "2 Bots selected");
+  const candidateShape = root.querySelector('[data-member-id="b"] path').getAttribute("d");
+  assert.equal(root.querySelector(".bb-create-team-art svg path").getAttribute("d"), candidateShape);
+  root.querySelector('[aria-label="Remove selection: 小林"]').click();
+  assert.equal(root.querySelector(".bb-create-team-art img"), null);
+  assert.equal(root.querySelector(".bb-create-team-identity small").textContent, "1 Bot selected");
+  assert.equal(root.querySelector('[data-member-id="a"]').getAttribute("aria-pressed"), "false");
+});
+
+test("group search keyboard movement respects filtering and composition without selecting or creating", async t => {
+  const ui = await boot(t); let calls = 0;
+  const { root } = await ui.open("group", async () => { calls++; });
+  const search = root.querySelector("#bb-group-search"), name = root.querySelector("#bb-group-name");
+  ui.input(search, "阿"); search.focus();
+  search.dispatchEvent(new ui.window.CompositionEvent("compositionstart", { bubbles: true }));
+  search.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  assert.equal(ui.document.activeElement, search);
+  search.dispatchEvent(new ui.window.CompositionEvent("compositionend", { bubbles: true }));
+  search.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  const colleague = root.querySelector('[data-member-id="b"]');
+  assert.equal(ui.document.activeElement, colleague);
+  assert.equal(colleague.getAttribute("aria-pressed"), "false");
+  colleague.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "End", bubbles: true }));
+  assert.equal(ui.document.activeElement, colleague, "hidden candidates must not receive keyboard focus");
+  assert.equal(calls, 0);
+  colleague.click(); ui.input(name, "中文团队"); name.focus();
+  name.dispatchEvent(new ui.window.CompositionEvent("compositionstart", { bubbles: true }));
+  name.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  assert.equal(calls, 0);
+  name.dispatchEvent(new ui.window.CompositionEvent("compositionend", { bubbles: true }));
+  name.dispatchEvent(new ui.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await until(() => calls === 1); assert.equal(calls, 1);
+});
+
+test("group localization retains focused search, name, selection and avatar identities", async t => {
+  const ui = await boot(t), { root } = await ui.open("group");
+  const name = root.querySelector("#bb-group-name"), search = root.querySelector("#bb-group-search");
+  ui.input(name, "Existing project"); root.querySelector('[data-member-id="b"]').click();
+  ui.input(search, "阿"); search.focus(); search.setSelectionRange(0, 1);
+  const row = root.querySelector('[data-member-id="b"]'), avatar = row.querySelector("svg");
+  ui.window.__sandUiLanguage = "zh"; ui.window.dispatchEvent(new ui.window.Event("sand-ui-language-changed"));
+  assert.equal(root.querySelector("#bb-group-name"), name); assert.equal(name.value, "Existing project");
+  assert.equal(root.querySelector("#bb-group-search"), search); assert.equal(ui.document.activeElement, search);
+  assert.equal(search.selectionStart, 0); assert.equal(search.selectionEnd, 1);
+  assert.equal(row.querySelector("svg"), avatar); assert.equal(row.getAttribute("aria-pressed"), "true");
+  assert.equal(root.querySelector(".bb-create-team-identity small").textContent, "已选择 1 位 Bot");
+  assert.equal(root.querySelector(".bb-create-member-count").textContent, "1");
+  assert.ok(root.querySelector('[aria-label="移除选择：阿澈"]'));
+});
