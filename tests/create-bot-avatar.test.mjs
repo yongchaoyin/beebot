@@ -143,3 +143,13 @@ test("native patch is scoped, preserves Group and transport code, and fails on u
   assert.throws(() => patchPresenceCreatePicker(patched), /anchor mismatch/);
   assert.throws(() => patchPresenceCreatePicker(native + native), /boundary mismatch/);
 });
+
+
+test("compact creation keeps identity visible and customization optional without rebuilding the preview", t => {
+  const {host,api}=rig(t),picker=api.mountAvatarPicker(host,{shape:"blob",color:"green",language:"zh",compact:true,onChange(){}});t.after(()=>picker.destroy());
+  const details=host.querySelector(".bb-avatar-picker__customize"),preview=host.querySelector(".bb-avatar-picker__preview svg");
+  assert.equal(details.open,false);assert.equal(details.querySelector("summary").textContent,"调整头像");
+  details.open=true;choose(host,"shape","hex").click();picker.setLanguage("en");
+  assert.equal(details.open,true);assert.equal(host.querySelector(".bb-avatar-picker__preview svg"),preview);assert.equal(details.querySelector("summary").textContent,"Customize avatar");
+  picker.setDisabled(true);details.querySelector("summary").click();assert.equal(details.open,true);assert.equal(details.querySelector("summary").getAttribute("aria-disabled"),"true");
+});

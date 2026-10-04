@@ -19,6 +19,8 @@ import type { ToolSetHandle } from "../../../packages/agent/tools/core.js";
 import { sandLocalToolScopeKey, sandTurnDirectionEpochKey } from "../../../shared/local-tool-permission-machinery.js";
 import type { SandLocalToolAction } from "../../../shared/local-tool-permission.js";
 import type { Context } from "../../../packages/context/core.js";
+import { executeWithToolDeadline } from "./tool-timeout-cancellation.js";
+import { createToolExecutionTracker, toolExecutionTrackerKey } from "../../../packages/agent/tools/tool-execution-tracking.js";
 import type { ForwardedUpdate } from "../agent-adapters.js";
 import {
   DynamicToolRegistry,
@@ -438,14 +440,18 @@ export function withLocalToolScope<T extends TurnTool>(
           : { directionEpoch }),
         ...(action === undefined ? {} : { action }),
       };
+      const parentTracker = context.get(toolExecutionTrackerKey);
+      const tracker = parentTracker === undefined ? undefined : createToolExecutionTracker(parentTracker);
+      const scopedContext = context.with(sandLocalToolScopeKey, scope);
       try {
         return await tool.execute(
-          context.with(sandLocalToolScopeKey, scope),
+          tracker === undefined ? scopedContext : scopedContext.with(toolExecutionTrackerKey, tracker),
           interactionHandler,
           argsStream,
           metadata,
         );
       } finally {
+        if (tracker !== undefined) await tracker.waitForSettlements();
         permission.completeScope(scope);
       }
     },
@@ -484,21 +490,9 @@ export function withToolTimeout<T extends TurnTool>(
   return {
     ...tool,
     async execute(...args: readonly unknown[]) {
-      let timeout: NodeJS.Timeout | undefined;
-      try {
-        return await Promise.race([
-          tool.execute(...args),
-          new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(
-              () => reject(createTimeoutError()),
-              timeoutMs,
-            );
-            timeout.unref?.();
-          }),
-        ]);
-      } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
-      }
+      const [context, ...rest] = args;
+      return executeWithToolDeadline(context as Context, timeoutMs,
+        child => tool.execute(child, ...rest), createTimeoutError);
     },
   };
 }

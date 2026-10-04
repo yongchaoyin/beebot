@@ -21,7 +21,7 @@ for (const [input, expected] of [["working","thinking"],["searching","thinking"]
 const candidate = (id, changes={})=>({id,state:"thinking",priority:50,visible:true,paused:false,size:32,...changes});
 test("group animation budget chooses active speaker, never all participants",()=>{
   const roster=Array.from({length:50},(_,i)=>candidate(i)); roster[42].state="speaking";roster[42].priority=90;
-  assert.deepEqual(selectMotionCandidates(roster),[42,0]);assert.deepEqual(selectMotionCandidates(roster,true),[42]);
+  assert.deepEqual(selectMotionCandidates(roster),[42,0,1,2]);assert.deepEqual(selectMotionCandidates(roster,true),[42]);
   assert.deepEqual(selectMotionCandidates([candidate(1,{state:"idle",priority:100}),candidate(2,{state:"idle",priority:100})]),[1]);
   assert.deepEqual(selectMotionCandidates([candidate(1,{state:"idle",priority:100})],true),[]);
 });
@@ -56,7 +56,7 @@ test("one observer and sparse clock serve a group; only visible workers animate"
   const r=rig(t);const actors=Array.from({length:20},()=>r.avatar({state:"thinking"}));
   assert.equal(r.observers.length,1);assert.equal(r.timers.size,0);
   actors.forEach(a=>r.visible(a.svg));assert.equal(r.timers.size,1);r.tick();
-  assert.equal(new Set(r.calls.map(c=>c.node.closest('svg'))).size,2);
+  assert.equal(new Set(r.calls.map(c=>c.node.closest('svg'))).size,4);
   actors.forEach(a=>r.visible(a.svg,false));assert.equal(r.timers.size,0);assert.ok(r.calls.every(c=>c.cancelled));
 });
 test("reduced motion, off, focus loss and visibility stop all active gestures",t=>{

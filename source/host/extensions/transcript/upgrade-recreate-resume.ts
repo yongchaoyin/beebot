@@ -67,11 +67,17 @@ export class UpgradeRecreateResume {
     }
   }
 
+  private isLocalScheduleSession(agentId: string): boolean {
+    const ownerId = this.tm.groupChat?.activeMemberRooms?.get(agentId) ?? agentId;
+    return this.tm.automationRuntime?.runPath?.activeLocalScheduleSessionIds?.has(ownerId) === true;
+  }
+
   markAgentResumePending(
     session: { id: string },
     source: string,
     options?: { automationId?: string; automationRunId?: string },
   ): void {
+    if (this.isLocalScheduleSession(session.id)) return;
     this.tm.upgradeResumeStore?.markPending({
       agentId: session.id,
       markedAtMs: Date.now(),
@@ -119,6 +125,7 @@ export class UpgradeRecreateResume {
       return;
     }
     if (this.tm.groupChat.isGroupSession(session)) return;
+    if (marker.automationId != null && session.automations.get(marker.automationId)?.executionOwner === "local") return;
     const runner = this.tm.runnerRegistry.getRunner(session);
     this.tm.runLifecycle.beginSessionRun(session);
     const resumedSource =

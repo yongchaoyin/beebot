@@ -166,7 +166,17 @@ export function createHostGatewayApi(
     });
   };
 
+  manager.draftDelivery?.configure({
+    listTools: async () => {
+      const tools=await listRoutedMcpTools();
+      const installed=await deps.extensions.api("mcp").management?.listInstalled?.();
+      return tools.map((tool:any)=>{const accounts=Array.isArray(installed)?installed.filter((item:any)=>item.serverIdentifier===tool.providerIdentifier):[];return {...tool,senderLabel:accounts.length===1?String(accounts[0].name||tool.providerIdentifier)+(accounts[0].accountKey&&accounts[0].accountKey!=="default"?" · "+accounts[0].accountKey:""):tool.providerIdentifier,senderIdentity:accounts.length?accounts.map((item:any)=>({serverIdentifier:item.serverIdentifier,accountKey:item.accountKey,pluginId:item.pluginId,status:item.status})):null};});
+    },
+    executeTool: executeRoutedMcpTool,
+  });
   return {
+    getDraftDelivery: (args:unknown) => method(manager.draftDelivery,"snapshot")(args),
+    resolveDraftDelivery: (args:unknown) => {markActive("user_action");return method(manager.draftDelivery,"action")(args);},
     getTranscript: () => method(manager, "ensureLoaded")(),
     getAgentTranscript: (args: any) =>
       method(manager, "getAgentTranscript")(args.id),

@@ -14,7 +14,7 @@ export function isQuotableMessage(entry: TranscriptEntry): boolean {
   if (entry.kind === "user-attachment") return true;
   const message = entry.message as Record<string, unknown> | undefined;
   return entry.kind === "send-message" && message?.channel == null
-    && ["text", "attachment", "widget", "cursor-agent"].includes(String(message?.type));
+    && ["text", "attachment", "widget", "cursor-agent", "email-draft", "slack-draft"].includes(String(message?.type));
 }
 
 /** Validation is shared by single-Bot and group publication. A bad explicit

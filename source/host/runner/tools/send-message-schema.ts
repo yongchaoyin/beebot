@@ -1,10 +1,12 @@
+import { emailDraftSchema, slackDraftSchema, draftMessageSchema, type DraftMessage } from "../../../shared/draft-delivery.js";
 import { collaborationActionSchema, type CollaborationAction, MESSAGE_PURPOSES, type MessagePurpose } from "../../../shared/collaboration.js";
 import { z } from "zod";
 import { sandWidgetSchema } from "../../../shared/sand-widgets.js";
-export const SEND_MESSAGE_TYPES = ["text", "attachment", "widget", "cursor-agent", "secret-request"] as const;
-export const SEND_MESSAGE_TYPE_DESCRIPTION = "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste).";
+export const SEND_MESSAGE_TYPES = ["text", "attachment", "widget", "cursor-agent", "secret-request", "email-draft", "slack-draft"] as const;
+export const SEND_MESSAGE_TYPE_DESCRIPTION = "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste), email-draft or slack-draft for editable external drafts requiring user confirmation before delivery.";
 export type SendMessageType = typeof SEND_MESSAGE_TYPES[number];
 export interface SendMessageInput {
+  readonly draft?: DraftMessage["draft"] | undefined;
   readonly purpose?: MessagePurpose | undefined;
   readonly collaboration?: CollaborationAction | undefined;
   readonly type: SendMessageType; readonly content?: string | undefined; readonly url?: string | undefined;
@@ -16,11 +18,13 @@ export interface SendMessageIssue { readonly path: readonly (string | number)[];
 export function isValidAttachmentUrl(value: string): boolean { try { return ["file:", "https:"].includes(new URL(value).protocol); } catch { return false; } }
 export function isFieldProvided(value: unknown): boolean { return value != null && (typeof value !== "string" || value.length > 0) && (!Array.isArray(value) || value.length > 0); }
 const TYPE_FIELDS: readonly { field: keyof SendMessageInput; types: readonly SendMessageType[] }[] = [
+  { field: "draft", types: ["email-draft", "slack-draft"] },
   { field: "content", types: ["text"] }, { field: "url", types: ["attachment"] }, { field: "alt", types: ["attachment"] },
   { field: "widget", types: ["widget"] }, { field: "bcId", types: ["cursor-agent"] }, { field: "secret", types: ["secret-request"] },
 ];
 export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   const issues: SendMessageIssue[] = [];
+  if(value.type==="email-draft"||value.type==="slack-draft"){const parsed=draftMessageSchema.safeParse({type:value.type,draft:value.draft});if(!parsed.success)for(const issue of parsed.error.issues)issues.push({path:issue.path.map(String),message:issue.message});}
   if (value.collaboration && (value.type !== "text" || value.channel)) issues.push({path:["collaboration"],message:"Work actions are local text messages. Publish attachments separately and reference them."});
   if (value.purpose && value.channel) issues.push({path:["purpose"],message:"Message purpose only applies inside this conversation."});
   if (value.work_on && (!value.reply_to || value.channel || value.type === "secret-request")) issues.push({ path: ["work_on"], message: "work_on requires reply_to in this conversation, cannot target external channels or credential requests, and never grants permission or completes work." });
@@ -37,6 +41,7 @@ export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
   return issues;
 }
 const objectSchema = z.object({
+  draft: z.union([emailDraftSchema,slackDraftSchema]).optional().describe("Required for email-draft or slack-draft. Proposes editable content for the user to confirm; never sends externally. Slack target must be the confirmed channel ID; workspace/from identify the proposed account and cannot be changed in the card."),
   purpose: z.enum(MESSAGE_PURPOSES).optional().describe("update: visible information without waking peers; request: an actionable request to an @mentioned or quoted colleague, or a plain-text question replying to the actual user message in a local group; discussion: open conversation. Omit for legacy behavior."),
   collaboration: collaborationActionSchema.optional().describe("A real work commitment accompanying this message. Stable request_id makes retries idempotent; expected_version prevents stale updates. Prose alone never changes work status."),
   type: z.enum(SEND_MESSAGE_TYPES).describe(SEND_MESSAGE_TYPE_DESCRIPTION),

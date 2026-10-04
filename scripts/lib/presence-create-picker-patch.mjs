@@ -11,8 +11,9 @@ export function patchPresenceCreatePicker(source) {
     if (offset < 0 || dialog.indexOf(before, offset + before.length) >= 0) throw new Error(`Presence New Bot anchor mismatch: ${label}`);
     dialog = dialog.slice(0, offset) + after + dialog.slice(offset + before.length);
   };
-  once("  let appearanceOpen=false,roleDetailsOpen", "  let roleDetailsOpen", "appearance is visible on creation");
-  once('    appearanceOpen=root.querySelector(".bb-create-appearance")?.open??appearanceOpen;\n', "", "remove collapsed-state read");
+
+  once("  let appearanceOpen=false,roleDetailsOpen", "  let appearanceOpen=false,roleDetailsOpen", "collapsed appearance initialization");
+  once('    appearanceOpen=root.querySelector(".bb-create-appearance")?.open??appearanceOpen;\n', '    appearanceOpen=root.querySelector(".bb-avatar-picker__customize")?.open??appearanceOpen;\n', "retain appearance expansion");
   once("alive=false;roleForm?.dispose();refreshSerial++;unsubscribe?.();", "alive=false;roleForm?.dispose();refreshSerial++;root.__bbAvatarPicker?.destroy();root.__bbAvatarPicker=null;unsubscribe?.();", "dispose preview on close");
   once('    root.innerHTML="";', '    root.__bbAvatarPicker?.destroy();root.__bbAvatarPicker=null;\n    root.innerHTML="";', "dispose before dialog repaint");
   once('    for(const field of root.querySelectorAll("input,textarea,select,button"))field.disabled=busy;', '    root.__bbAvatarPicker?.setDisabled(busy);\n    for(const field of root.querySelectorAll("input,textarea,select,button"))field.disabled=busy;', "pending appearance lock");
@@ -26,6 +27,6 @@ export function patchPresenceCreatePicker(source) {
   once(`    const appearance=document.createElement("details");appearance.className="bb-create-appearance";appearance.open=appearanceOpen;
     const summary=document.createElement("summary");summary.dataset.createField="appearance";summary.append(preview,document.createTextNode(RCreateText("头像与颜色","Appearance")));
     appearance.append(summary,colors,shapes);`, `    const appearance=document.createElement("div");
-    root.__bbAvatarPicker=RPresenceUI.mountAvatarPicker(appearance,{shape,color,language:window.__sandUiLanguage==="zh"?"zh":"en",disabled:busy,onChange:value=>{if(!busy){shape=value.shape;color=value.color}}});`, "visible shared picker");
+    root.__bbAvatarPicker=RPresenceUI.mountAvatarPicker(appearance,{shape,color,compact:true,expanded:appearanceOpen,language:window.__sandUiLanguage==="zh"?"zh":"en",disabled:busy,onChange:value=>{if(!busy){shape=value.shape;color=value.color}}});`, "compact shared picker");
   return source.slice(0, start) + dialog + source.slice(end);
 }

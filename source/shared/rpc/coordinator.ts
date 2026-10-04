@@ -90,6 +90,8 @@ export function validateCoordinatorReply(method: string, value: unknown): unknow
 }
 
 export const COORDINATOR_METHOD_TABLE = {
+  getDraftDelivery: {args:"object",reply:"record"},
+  resolveDraftDelivery: {args:"object",reply:"record"},
   getAgentTranscriptWindow: { args: "object", reply: "transcript-window" },
   getAgentThread: { args: "object", reply: "agent-thread" },
   getAgentTranscriptTail: { args: "object", reply: "transcript-page" },

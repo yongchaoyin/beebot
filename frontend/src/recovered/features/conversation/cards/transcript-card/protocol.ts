@@ -191,7 +191,7 @@ export interface TranscriptCardEntryBase {
   widgetDismissed?: boolean;
   widgetSkipped?: boolean;
   respondedValueEchoed?: boolean;
-  draftSendState?: "editable" | "sending" | "sent";
+  draftSendState?: "editable" | "sending" | "sent" | "needs-review" | "discarded";
   secretProvided?: boolean;
   boxInstruction?: string;
   boxRequest?: string;
@@ -451,7 +451,7 @@ export function projectTranscriptCardEntry(value: unknown): TranscriptCardEntry 
   if (value.widgetDismissed !== undefined && typeof value.widgetDismissed !== "boolean") return null;
   if (value.widgetSkipped !== undefined && typeof value.widgetSkipped !== "boolean") return null;
   if (value.respondedValueEchoed !== undefined && typeof value.respondedValueEchoed !== "boolean") return null;
-  if (value.draftSendState !== undefined && value.draftSendState !== "editable" && value.draftSendState !== "sending" && value.draftSendState !== "sent") return null;
+  if (value.draftSendState !== undefined && value.draftSendState !== "editable" && value.draftSendState !== "sending" && value.draftSendState !== "sent" && value.draftSendState !== "needs-review" && value.draftSendState !== "discarded") return null;
   if (value.secretProvided !== undefined && typeof value.secretProvided !== "boolean") return null;
   if (value.boxInstruction !== undefined && typeof value.boxInstruction !== "string") return null;
   if (value.boxRequest !== undefined && typeof value.boxRequest !== "string") return null;

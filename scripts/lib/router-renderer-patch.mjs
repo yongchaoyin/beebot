@@ -11,6 +11,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildNodeChat } from "./build-node-chat.mjs";
 import { patchQuotedReplies } from "./quoted-reply-patch.mjs";
+import { conversationLibrarySnippet, patchConversationLibraryHost } from "./conversation-library-renderer-patch.mjs";
+import { draftDeliverySnippet, patchDraftDeliveryRenderer, patchDraftDeliveryChunks } from "./draft-delivery-renderer-patch.mjs";
 
 const REGISTRY_BEFORE = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"usage",label:"Usage & Billing",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
 const REGISTRY_AFTER = 'const wDn=[{id:"general",label:"General",icon:"settings-gear"},{id:"servers",label:"Servers",icon:"servers"},{id:"router",label:"Router",icon:"git-branch"},{id:"usage",label:"Usage",icon:"chart-bars"},{id:"beta",label:"Updates",icon:"cloud-download"}]';
@@ -112,9 +114,10 @@ const paths = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)
 const monAt = createOverlay.indexOf("function MOn(");
 if (monAt < 0) throw new Error("create overlay is missing function MOn(");
 const COLLABORATION_REVIEW_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-collaboration-review.snippet.js"), "utf8");
+const PROACTIVE_FOLLOWUP_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-proactive-followup.snippet.js"), "utf8");
 const CONVERSATION_STATUS_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-conversation-status.snippet.js"), "utf8");
 const BOT_ROLE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-bot-role.snippet.js"), "utf8");
-const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${BOT_ROLE_SNIPPET}\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
+const CREATE_AGENT_AFTER = `const R_PATHS=${paths};\n${BOT_ROLE_SNIPPET}\n${createOverlay.slice(0, monAt)}\n${COLLABORATION_REVIEW_SNIPPET}\n${conversationLibrarySnippet}\n${draftDeliverySnippet()}\n${PROACTIVE_FOLLOWUP_SNIPPET}\n${CONVERSATION_STATUS_SNIPPET}\n${ACCOUNT_MENU_SNIPPET}\n${GROUP_UI_SNIPPET}\n${createOverlay.slice(monAt)}`;
 const NODE_CHAT_CONTROLLER_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-controller.snippet.js"), "utf8");
 const NODE_CHAT_ROUTE_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-chat-route.snippet.js"), "utf8");
 const NODE_SIDEBAR_SNIPPET = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "beebot-node-sidebar.snippet.js"), "utf8");
@@ -163,6 +166,8 @@ export function patchOriginalLanding(source) {
   // ownership from a selected sidebar row or a late asynchronous DOM lookup.
   patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");
   patched += `\n;function h3n(n){const e=Qe().roster,r=S.useRef(null);S.useEffect(()=>{if(n.agent.isGroup||n.agent.remoteRoom)return;return window.__beebotMountBotRole?.(r.current,{agentId:n.agent.id,roster:e});},[n.agent.id,n.agent.isGroup,n.agent.remoteRoom,e]);return p.jsxs("div",{"data-beebot-settings-owner":n.agent.isGroup||n.agent.remoteRoomId?void 0:n.agent.id,children:[p.jsx(RRoleOriginalSettings,n),p.jsx("div",{ref:r,"data-bot-role-owner":n.agent.id})]})}`;
+  patched = patchConversationLibraryHost(patched);
+  patched = patchDraftDeliveryRenderer(patched);
   patched = patchQuotedReplies(patched);
   return patchProductAccountMenu(patchPresenceRenderer(`${LANDING_ABOUT_WRAP}${NODE_WORKBENCH_SNIPPET}${NODE_PREFLIGHT_SNIPPET}${NODE_CHAT_CONTROLLER_SNIPPET}${NODE_SIDEBAR_SNIPPET}\n${NODE_CHAT_ROUTE_SNIPPET}\n${patched}`));
 }
@@ -231,6 +236,15 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
   changes.push({ role: "conversation-notice", path: "dist/renderer/assets/view-1r0bwdK4.js",
     original: { bytes: Buffer.byteLength(noticeBefore), sha256: sha256(noticeBefore) },
     patched: { bytes: Buffer.byteLength(noticeAfter), sha256: sha256(noticeAfter) } });
+  for (const [kind, name] of [["email", "view-ClhdNXKM.js"], ["slack", "view-DyaeCHiE.js"]]) {
+    const target = path.join(assetsRoot, name);
+    const before = await readFile(target, "utf8");
+    const after = patchDraftDeliveryChunks(before, kind);
+    await writeFile(target, after);
+    changes.push({ role: `${kind}-draft-delivery`, path: `dist/renderer/assets/${name}`,
+      original: { bytes: Buffer.byteLength(before), sha256: sha256(before) },
+      patched: { bytes: Buffer.byteLength(after), sha256: sha256(after) } });
+  }
   const chatBuild = await buildNodeChat({ assetsRoot });
   const chatAssets = await Promise.all(chatBuild.outputs.map(async output => ({
     path: `dist/renderer/assets/${path.basename(output.path)}`,
@@ -269,8 +283,8 @@ export async function applyOriginalRendererRouterPatch({ stageRoot }) {
     chunks: changes,
     chatAssets,
     presence,
-    features: ["presence-theme", "presence-original-personas", "presence-work-status", "settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
-    transformations: ["presence-entry", "presence-personas", "settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
+    features: ["conversation-library", "local-proactive-followup", "editable-draft-delivery", "presence-theme", "presence-original-personas", "presence-work-status", "settings-router-provider", "settings-local-docker-vm", "usage-current-provider", "vendor-setup-landing", "node-server-management", "node-existing-chat-components"],
+    transformations: ["conversation-library-host", "draft-delivery-rpc-and-lazy-cards", "local-proactive-followup", "presence-entry", "presence-personas", "settings-registry", "router-panel", "usage-panel", "vendor-landing", "node-server-management", "node-chat-route"],
   };
   const provenancePath = path.join(stageRoot, "dist", "renderer-router-extension.json");
   await writeFile(provenancePath, `${JSON.stringify(record, null, 2)}\n`);

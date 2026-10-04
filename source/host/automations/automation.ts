@@ -84,9 +84,14 @@ export function renderAutomationsSystemPrompt(
 export type AutomationRunTrigger = "schedule" | "manual" | "event";
 export type AutomationRunStatus = "running" | "ok" | "error";
 export interface AutomationRun { id: string; trigger: AutomationRunTrigger; startedAt: number; finishedAt: number | null; status: AutomationRunStatus; detail?: string; event?: string; coalescedRunIds?: string[] }
-export interface AutomationConfig extends NoticeAutomation { name: string; prompt: string; trigger: AutomationTrigger; isEnabled: boolean; createdAt: number; lastRunAt: number | null; raisedNotices: string[] }
+export const LOCAL_AUTOMATION_MAX_LATENESS_MS = 60_000;
+export interface AutomationOwnership { executionOwner?: "local"; purpose?: "proactive-followup" }
+export function isLocalProactiveAutomation(automation: AutomationOwnership & { trigger: AutomationTrigger }): boolean { return automation.executionOwner === "local" && automation.purpose === "proactive-followup" && automation.trigger.type === "cron"; }
+/** Fields that must still match when a scheduled wake reaches the execution queue. */
+export function localAutomationDefinition(automation: AutomationConfig): string { return JSON.stringify([automation.executionOwner, automation.purpose, automation.createdAt, automation.localRevision, automation.name, automation.prompt, automation.trigger, automation.isEnabled]); }
+export interface AutomationConfig extends NoticeAutomation, AutomationOwnership { localRevision?: string; name: string; prompt: string; trigger: AutomationTrigger; isEnabled: boolean; createdAt: number; lastRunAt: number | null; raisedNotices: string[] }
 export interface AutomationRecord extends AutomationConfig { id: string; schedule: string; triggerDescription: string; nextRunAt: number | null; runs: AutomationRun[]; filePath: string }
-export interface AutomationSpec { name: string; prompt: string; trigger: AutomationTrigger; isEnabled?: boolean }
+export interface AutomationSpec extends AutomationOwnership { name: string; prompt: string; trigger: AutomationTrigger; isEnabled?: boolean }
 
 export function clampAutomationName(name: string): string { return clampLine(name, AUTOMATION_MAX_NAME_LENGTH); }
 export function normalizeAutomationPrompt(prompt: string): string { return prompt.trim(); }

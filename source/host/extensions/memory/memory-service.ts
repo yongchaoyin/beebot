@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { DebouncePolicy } from "../../../internal/scheduling.js";
-import { MEMORY_PROFILE_PROMPT_LIMIT, formatMemoryDate, memoryDedupeKey, normalizeMemoryContent } from "../../runner/sand-memory.js";
+import { MEMORY_PROFILE_PROMPT_LIMIT, formatMemoryDate, memoryDedupeKey, normalizeMemoryContent, mergeUserMemoryShards, selectProjectMemoryBlocks, type ProjectMemoryBlock } from "../../runner/sand-memory.js";
 import { WatchedDirectory } from "../../watched-directory.js";
-import type { AgentProjectMembership } from "./project-membership.js";
+import { AgentProjectMembership } from "./project-membership.js";
+import { isSafeFolderId } from "../../storage/folder-id.js";
+import { parseWorkflowFile } from "../../../shared/workflow-model.js";
 
 export const MEMORY_DIRNAME = "memory";
 export const PROFILE_FILENAME = "profile.md";
@@ -139,16 +141,34 @@ export function getProjectMemoryShardsDir(sandRoot: string, slug: string): strin
 export function getProjectMemoryShardDir(sandRoot: string, slug: string, agentId: string): string { return join(getProjectMemoryShardsDir(sandRoot, slug), agentId); }
 export function projectDirExists(sandRoot: string, slug: string): boolean { try { return statSync(getProjectDir(sandRoot, slug)).isDirectory(); } catch { return false; } }
 
+export interface SharedMemoryLimits { readonly profileLimit: number; readonly recentLimit: number }
+export interface SharedMemoryOptions { readonly agentId: string; readonly resolveAgentName: (id: string) => string | null }
+function readMemoryShards(root: string, resolveAgentName: SharedMemoryOptions["resolveAgentName"], debounce: DebouncePolicy, limits: SharedMemoryLimits) {
+  let ids: string[] = [];
+  try { ids = readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory() && isSafeFolderId(entry.name)).map(entry => entry.name).sort(); } catch {}
+  return mergeUserMemoryShards(ids.map(id => ({ via: resolveAgentName(id)?.trim() || id, recall: new FileMemoryStore(join(root, id), debounce).recall(limits.recentLimit) })), limits);
+}
+
 export class UserMemoryStore {
-  constructor(readonly sandRoot: string, readonly ownAgentId: string, readonly resolveAgentName: (id: string) => string, readonly debounce: DebouncePolicy) {}
+  constructor(readonly sandRoot: string, readonly ownAgentId: string, readonly resolveAgentName: SharedMemoryOptions["resolveAgentName"], readonly debounce: DebouncePolicy) {}
   getLocation(): string { return getUserMemoryDir(this.sandRoot); }
   getOwnShardLocation(): string { return getUserMemoryShardDir(this.sandRoot, this.ownAgentId); }
-  recall(limits: { profile: number; recent: number } = { profile: 50, recent: 20 }) { const profile: Array<MemoryRecord & { agentId: string; agentName: string }> = [], recent: Array<MemoryRecord & { agentId: string; agentName: string }> = []; let ids: string[] = []; try { ids = readdirSync(getUserMemoryShardsDir(this.sandRoot)); } catch {} for (const id of ids) { const store = new FileMemoryStore(getUserMemoryShardDir(this.sandRoot, id), this.debounce), recalled = store.recall(limits.recent); profile.push(...recalled.profile.map((item) => ({ ...item, agentId: id, agentName: this.resolveAgentName(id) }))); recent.push(...recalled.recent.map((item) => ({ ...item, agentId: id, agentName: this.resolveAgentName(id) }))); } return { profile: profile.slice(0, limits.profile), recent: recent.sort((a, b) => b.createdAt - a.createdAt).slice(0, limits.recent) }; }
+  recall(limits: SharedMemoryLimits = { profileLimit: 50, recentLimit: 15 }) { return readMemoryShards(getUserMemoryShardsDir(this.sandRoot), this.resolveAgentName, this.debounce, limits); }
 }
 export class ProjectMemoryStore {
-  constructor(readonly sandRoot: string, readonly ownAgentId: string, readonly membership: AgentProjectMembership, readonly resolveAgentName: (id: string) => string, readonly debounce: DebouncePolicy) {}
+  constructor(readonly sandRoot: string, readonly ownAgentId: string, readonly membership: AgentProjectMembership, readonly resolveAgentName: SharedMemoryOptions["resolveAgentName"], readonly debounce: DebouncePolicy) {}
   getLocation(): string { return getProjectsRootDir(this.sandRoot); }
-  recall(limits: { profile: number; recent: number } = { profile: 50, recent: 20 }, cap = 100) { const results: Array<{ project: string; agentId: string; agentName: string; memory: MemoryRecord }> = []; for (const slug of this.membership.read()) { let ids: string[] = []; try { ids = readdirSync(getProjectMemoryShardsDir(this.sandRoot, slug)); } catch {} for (const id of ids) { const store = new FileMemoryStore(getProjectMemoryShardDir(this.sandRoot, slug, id), this.debounce), recalled = store.recall(limits.recent); for (const memory of [...recalled.profile, ...recalled.recent]) results.push({ project: slug, agentId: id, agentName: this.resolveAgentName(id), memory }); } } return results.sort((a, b) => b.memory.createdAt - a.memory.createdAt).slice(0, cap); }
+  recall(limits: SharedMemoryLimits = { profileLimit: 25, recentLimit: 10 }, cap = 3) {
+    const blocks: ProjectMemoryBlock[] = [];
+    // Read membership on every prompt, including a runner kept alive after leave.
+    for (const slug of this.membership.read()) {
+      if (!projectDirExists(this.sandRoot, slug)) continue;
+      let name = slug;
+      try { name = parseWorkflowFile(readFileSync(join(getProjectDir(this.sandRoot, slug), "project.md"), "utf8"))?.name || slug; } catch {}
+      blocks.push({ slug, name, ownShardDir: getProjectMemoryShardDir(this.sandRoot, slug, this.ownAgentId), recall: readMemoryShards(getProjectMemoryShardsDir(this.sandRoot, slug), this.resolveAgentName, this.debounce, limits) });
+    }
+    return selectProjectMemoryBlocks(blocks, cap);
+  }
 }
 
 export class MemoryService {
@@ -156,6 +176,14 @@ export class MemoryService {
   private readonly listeners = new Set<() => void>();
   private synthesis: { start(): void; dispose(): void; recordTurn?(agentId: string, exchange: unknown): void } | null = null;
   constructor(readonly options: { sandRoot?: string; agentsRootDir: string; debounce: DebouncePolicy }) {}
+  createUserMemory(options: SharedMemoryOptions): UserMemoryStore | undefined {
+    const root = this.options.sandRoot;
+    return root == null || !root.trim() || !isSafeFolderId(options.agentId) ? undefined : new UserMemoryStore(root, options.agentId, options.resolveAgentName, this.options.debounce);
+  }
+  createProjectMemory(options: SharedMemoryOptions & { readonly agentDir: string }): ProjectMemoryStore | undefined {
+    const root = this.options.sandRoot;
+    return root == null || !root.trim() || !isSafeFolderId(options.agentId) ? undefined : new ProjectMemoryStore(root, options.agentId, new AgentProjectMembership(options.agentDir), options.resolveAgentName, this.options.debounce);
+  }
   createAgentStore(agentDir: string): FileMemoryStore { return new FileMemoryStore(getAgentMemoryDir(agentDir), this.options.debounce, { isEnabled: () => this.synthesis != null, record: (evidence) => { const id = basename(agentDir); this.synthesis?.recordTurn?.(id, evidence); } }); }
   agentHasContent(agentDir: string): boolean { return agentMemoryHasContent(agentDir); }
   enableMemorySynthesis(service: { start(): void; dispose(): void; recordTurn?(agentId: string, exchange: unknown): void }): void { this.synthesis?.dispose(); this.synthesis = service; service.start(); }

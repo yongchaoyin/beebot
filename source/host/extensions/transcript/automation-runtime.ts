@@ -383,6 +383,8 @@ export class AutomationRuntime {
       this.notifyAutomationConfigChanged();
     }
   }
+  // Creation shares the per-agent lifecycle mutation lane; the store returns an
+  // existing local follow-up template without overwriting user customizations.
   async createAgentAutomation(
     agentId: string,
     spec: AutomationSpec,

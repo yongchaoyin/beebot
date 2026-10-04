@@ -7,6 +7,7 @@ import { ToolCall } from "../proto/generated/agent/v1/agent_pb.js";
 import { PrivacyMode } from "../proto/generated/aiserver/v1/privacy_mode_pb.js";
 import { toRedactedToolCall } from "../redacted-protos/generated/agent/v1/agent_redacted.js";
 import { ToolCallAbortedError } from "./tools/common.js";
+import { trackToolExecution } from "./tools/tool-execution-tracking.js";
 import { AgentLoopError, checkForAgentSingleMessageLooping, SingleMessageLoopDetector } from "./loop-detection/agent-loop-detector.js";
 
 type Loose = any;
@@ -315,15 +316,23 @@ export class InteractionHandler {
     let result: Loose;
     const abortSignal = this.getAbortSignal(ctx);
     const resolvers = Promise.withResolvers<Loose>();
+    const onAbort = () => resolvers.reject(new ToolCallAbortedError());
     if (abortSignal.aborted) throw new ToolCallAbortedError();
-    else abortSignal.addEventListener("abort", () => resolvers.reject(new ToolCallAbortedError()), { once: true });
-    promiseFn(ctx).then(value => {
+    else abortSignal.addEventListener("abort", onAbort, { once: true });
+    let execution: Promise<Loose>;
+    try { execution = promiseFn(ctx); }
+    catch (error) { abortSignal.removeEventListener("abort", onAbort); throw error; }
+    trackToolExecution(ctx, execution);
+    execution.then(value => {
       result = value;
       const newToolCall = resultMergeFn(value);
       if (hookContextCollector && hookContextCollector.length > 0) newToolCall.hookAdditionalContexts.push(...hookContextCollector);
       resolvers.resolve(newToolCall);
     }).catch((error: unknown) => resolvers.reject(error));
-    const newToolCall = this.withToolCallMetadata(callId, await resolvers.promise, { startedAtMs: startSendStartMs, completedAtMs: Date.now() });
+    let resolvedToolCall: Loose;
+    try { resolvedToolCall = await resolvers.promise; }
+    finally { abortSignal.removeEventListener("abort", onAbort); }
+    const newToolCall = this.withToolCallMetadata(callId, resolvedToolCall, { startedAtMs: startSendStartMs, completedAtMs: Date.now() });
     this.toolCallStartedAtMsByCallId.delete(callId);
     this.rememberLatestToolCall(callId, newToolCall);
     const toolExecutionMs = Date.now() - startTime;

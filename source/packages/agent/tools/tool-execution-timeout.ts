@@ -47,8 +47,8 @@ export function toolCallExecutionGuardMs(toolName: string, args: unknown): numbe
   return requestedMs >= tierMs ? tierHeadroomMs : requestedMs;
 }
 export function buildToolCallExecutionTimedOutMessage({ toolName, executionTimeoutMs }: { toolName: string; executionTimeoutMs: number }): string {
-  const shellHint = toolName.toLowerCase() === "shell" ? " For long-running commands, re-run with block_until_ms set to a small value (or 0) so the command runs in the background, then poll its output instead of blocking on it." : "";
+  const shellHint = toolName.toLowerCase() === "shell" ? " Inspect the existing command and its output before deciding whether to continue. Do not repeat a command whose external effects are uncertain. For a new long-running command, use a small block_until_ms (or 0) and poll its output." : "";
   return executionTimeoutMs === 0
     ? `The ${toolName} tool call could not start because activity setup exceeded the per-call time limit. The execution environment may be slow or overloaded.${shellHint}`
-    : `The ${toolName} tool call timed out after ${Math.round(executionTimeoutMs / 1_000)} seconds and was terminated. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.${shellHint}`;
+    : `The ${toolName} tool call timed out after ${Math.round(executionTimeoutMs / 1_000)} seconds. Cancellation was requested; check any external effects before continuing. The execution environment may be unresponsive, or the operation needs longer than the per-call time limit.${shellHint}`;
 }

@@ -39,7 +39,8 @@ export function normalizeAvatarState(state: string | undefined): AvatarState {
   }
 }
 export interface MotionCandidate { id: number; state: AvatarState; priority: number; visible: boolean; paused: boolean; size: number; identity?: string }
-/** A window spends at most two activity slots and one quiet idle slot. The same
+export const NATURAL_MOTION_BUDGET = 4;
+/** A window spends at most four activity slots, or one primary idle slot. The same
  * actor is stable across recomputations; candidate insertion never fabricates work. */
 export function selectMotionCandidates(candidates: readonly MotionCandidate[], lowPower = false): number[] {
   const eligible = candidates.filter(c => c.visible && !c.paused && c.size >= 24 && !["paused", "offline", "error", "waiting", "needs_user"].includes(c.state));
@@ -49,7 +50,7 @@ export function selectMotionCandidates(candidates: readonly MotionCandidate[], l
   // another coworker out. The owning connection must scope remote identities.
   const seen = new Set<string>();
   const unique = eligible.filter(c => { if (!c.identity) return true; if (seen.has(c.identity)) return false; seen.add(c.identity); return true; });
-  const active = unique.filter(c => c.state !== "idle").slice(0, lowPower ? 1 : 2);
+  const active = unique.filter(c => c.state !== "idle").slice(0, lowPower ? 1 : NATURAL_MOTION_BUDGET);
   // Idle life belongs to a primary/header or preview, not the entire sidebar.
   const idle = lowPower || active.length ? [] : unique.filter(c => c.state === "idle" && c.priority >= 80).slice(0, 1);
   return [...active, ...idle].map(c => c.id);
