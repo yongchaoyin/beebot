@@ -148,6 +148,7 @@ import type {
 } from "./runner/tools/turn-toolset.js";
 import type { TurnCheckpoint, TurnSettleHost } from "./runner/turn-settle.js";
 import type { TextExecutor } from "./runner/sand-memory.js";
+import type { SystemPromptAssemblyDependencies } from "./runner/system-prompt-assembly.js";
 import type { RunnerPromptGlueOwner } from "./runner/runner-prompt-glue.js";
 import type { TransferBox } from "./box/box-transfer.js";
 import type { CapableBox } from "./box/box-capabilities.js";
@@ -326,6 +327,26 @@ function method(api: DynamicApi | undefined, name: string): ((...args: any[]) =>
   if (api == null) return undefined;
   const candidate = api[name];
   return typeof candidate === "function" ? candidate.bind(api) : undefined;
+}
+
+type HostMemoryPromptBindings = Pick<SystemPromptAssemblyDependencies, "memoryStore" | "memorySnapshots" | "userMemory" | "projectMemory">;
+function promptMemoryStore<T>(value: unknown, methods: readonly string[]): T | null {
+  return typeof value === "object" && value != null && methods.every(name => typeof (value as DynamicApi)[name] === "function") ? value as T : null;
+}
+/** These are the closures consumed by the production prompt, not merely runner
+ * setter fields. Local Groups receive only joined-project context; cross-user
+ * rooms receive no memory providers at all. This is a prompt/API boundary, not
+ * an OS sandbox or a claim of account isolation. */
+export function createHostMemoryPromptBindings(session: HostRunnerSession, memory: DynamicApi, options: { readonly groupMemberTurn?: boolean; readonly isSharedRoomTurn?: boolean; readonly resolveAgentName: (id: string) => string | null }): HostMemoryPromptBindings {
+  if (options.isSharedRoomTurn) return { memoryStore: () => null, memorySnapshots: () => null, userMemory: () => null, projectMemory: () => null };
+  const user = options.groupMemberTurn ? null : promptMemoryStore<ReturnType<HostMemoryPromptBindings["userMemory"]>>(method(memory, "createUserMemory")?.({ agentId: session.id, resolveAgentName: options.resolveAgentName }), ["recall", "getLocation", "getOwnShardLocation"]);
+  const project = promptMemoryStore<ReturnType<HostMemoryPromptBindings["projectMemory"]>>(method(memory, "createProjectMemory")?.({ agentId: session.id, agentDir: dirname(session.dbPath), resolveAgentName: options.resolveAgentName }), ["recall", "getLocation"]);
+  return {
+    memoryStore: () => options.groupMemberTurn ? null : promptMemoryStore(session.memory, ["recall", "getLocation"]),
+    memorySnapshots: () => options.groupMemberTurn ? null : promptMemoryStore(session.db, ["getMemoryPromptSnapshot", "setMemoryPromptSnapshot"]),
+    userMemory: () => user,
+    projectMemory: () => project,
+  };
 }
 
 function asSandAutoReviewController(value: unknown): SandAutoReviewController | undefined {
@@ -1243,6 +1264,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
           channels: session.channels,
           agentDir: dirname(session.dbPath),
           agentId: session.id,
+          isGroupTurn: overrides.groupMemberTurn === true,
           readBoxFile: (boxPath: string) =>
             method(remoteBox, "downloadFile")?.(ctx, session.id, boxPath)
         })
@@ -1333,6 +1355,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
           },
         });
       })();
+    const memoryPromptBindings = createHostMemoryPromptBindings(session, memory, { groupMemberTurn: overrides.groupMemberTurn === true, isSharedRoomTurn, resolveAgentName: resolveAgentDisplayName });
     const productionSystemPromptAssembly = productionContext === undefined
       || productionRequestContext === undefined
       ? undefined
@@ -1351,10 +1374,7 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
               : null;
           },
           compactionEpoch: () => 0,
-          memoryStore: () => null,
-          memorySnapshots: () => null,
-          userMemory: () => null,
-          projectMemory: () => null,
+          ...memoryPromptBindings,
           isBoxScopedSubagent: () => false,
           requestContext: {
             resolve: () => {
@@ -1672,17 +1692,10 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
         agentStore: session.agentStore,
         conversationSizeGuard: () =>
           sessionApi.store?.ensureConversationCapacityForTurn?.(session),
-        memoryStore: session.memory,
-        userMemory: method(memory, "createUserMemory")?.({
-          agentId: session.id,
-          resolveAgentName: resolveAgentDisplayName
-        }),
-        projectMemory: method(memory, "createProjectMemory")?.({
-          agentDir: dirname(session.dbPath),
-          agentId: session.id,
-          resolveAgentName: resolveAgentDisplayName
-        }),
-        memorySnapshots: session.db,
+        memoryStore: memoryPromptBindings.memoryStore(),
+        userMemory: memoryPromptBindings.userMemory(),
+        projectMemory: memoryPromptBindings.projectMemory(),
+        memorySnapshots: memoryPromptBindings.memorySnapshots(),
         profilePromptSnapshots: session.db,
         episodeProgress: session.db,
         automationStore: session.automations,
@@ -2586,10 +2599,10 @@ export function createHostRunnerComposition<Runner extends ProductionSessionBoun
 
     function bindSessionOwnedRunner(runner: Runner): void {
       runner.setAgentStore(session.agentStore, hooks.agentProfileProvider);
-      runner.setMemoryStore(session.memory);
+      runner.setMemoryStore(memoryPromptBindings.memoryStore());
       runner.setUserMemory(runnerOptions.userMemory);
       runner.setProjectMemory(runnerOptions.projectMemory);
-      runner.setMemorySnapshotStore(session.db);
+      runner.setMemorySnapshotStore(memoryPromptBindings.memorySnapshots());
       runner.setProfilePromptSnapshotStore(session.db);
       runner.setEpisodeProgress(session.db);
       runner.setAutomationStore(session.automations);

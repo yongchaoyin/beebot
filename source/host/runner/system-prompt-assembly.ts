@@ -11,7 +11,6 @@ import { SAND_EXTERNAL_SHELL_TOOL_NAME } from "../sand-activity.js";
 import { toModelVisiblePath } from "../host-paths.js";
 import {
   isMemoryFreezeEnabled,
-  projectMemoryHasFacts,
   renderMemorySystemPrompt,
   renderProjectMemorySystemPrompt,
   renderUserMemorySystemPrompt,
@@ -155,44 +154,44 @@ export function createSystemPromptAssembly(deps: SystemPromptAssemblyDependencie
   }
 
   function getMemorySection(): string | null {
+    // Shared memory is live, even while private memory is frozen for the
+    // compaction epoch. In particular, a project leave cannot survive in a
+    // persisted prompt snapshot and leak into the next turn.
+    const parts: string[] = [];
+    const userMemory = deps.userMemory();
+    if (userMemory != null) {
+      const userRecall = userMemory.recall({ profileLimit: 50, recentLimit: 15 });
+      const rendered = renderUserMemorySystemPrompt(userRecall, { ...(modelVisibleLocation(userMemory.getLocation()) == null ? {} : { userMemoryDir: modelVisibleLocation(userMemory.getLocation())! }), ...(modelVisibleLocation(userMemory.getOwnShardLocation()) == null ? {} : { ownShardDir: modelVisibleLocation(userMemory.getOwnShardLocation())! }) });
+      if (rendered.length > 0) parts.push(rendered);
+    }
+    const projectMemory = deps.projectMemory();
+    if (projectMemory != null) {
+      const projectRecall = projectMemory.recall({ profileLimit: 25, recentLimit: 10 }, 3);
+      const root = modelVisibleLocation(projectMemory.getLocation());
+      const rendered = renderProjectMemorySystemPrompt(
+        { ...projectRecall, injected: projectRecall.injected.map(block => block.ownShardDir == null ? block : { ...block, ownShardDir: toModelVisiblePath(block.ownShardDir) }) },
+        root == null ? {} : { projectsRootDir: root },
+      );
+      if (rendered.length > 0) parts.push(rendered);
+    }
     const store = deps.memoryStore();
-    if (store == null) return null;
+    if (store == null) return parts.join("\n\n") || null;
     const renderLive = () => {
       const recall = store.recall(30);
-      const parts: string[] = [];
-      let hasFacts = recall.profile.length > 0 || recall.recent.length > 0;
-      const userMemory = deps.userMemory();
-      if (userMemory != null) {
-        const userRecall = userMemory.recall({ profileLimit: 50, recentLimit: 15 });
-        const rendered = renderUserMemorySystemPrompt(userRecall, { ...(modelVisibleLocation(userMemory.getLocation()) == null ? {} : { userMemoryDir: modelVisibleLocation(userMemory.getLocation())! }), ...(modelVisibleLocation(userMemory.getOwnShardLocation()) == null ? {} : { ownShardDir: modelVisibleLocation(userMemory.getOwnShardLocation())! }) });
-        if (rendered.length > 0) parts.push(rendered);
-        hasFacts ||= userRecall.profile.length > 0 || userRecall.recent.length > 0;
-      }
-      const projectMemory = deps.projectMemory();
-      if (projectMemory != null) {
-        const projectRecall = projectMemory.recall({ profileLimit: 25, recentLimit: 10 }, 3);
-        const root = modelVisibleLocation(projectMemory.getLocation());
-        const rendered = renderProjectMemorySystemPrompt(
-          {
-            ...projectRecall,
-            injected: projectRecall.injected.map((block) =>
-              block.ownShardDir == null ? block : { ...block, ownShardDir: toModelVisiblePath(block.ownShardDir) }),
-          },
-          root == null ? {} : { projectsRootDir: root },
-        );
-        if (rendered.length > 0) parts.push(rendered);
-        hasFacts ||= projectMemoryHasFacts(projectRecall);
-      }
-      const agent = renderMemorySystemPrompt(recall, modelVisibleLocation(store.getLocation()) ?? undefined);
-      if (agent.length > 0) parts.push(agent);
-      return { render: parts.join("\n\n"), hasFacts };
+      return { render: renderMemorySystemPrompt(recall, modelVisibleLocation(store.getLocation()) ?? undefined), hasFacts: recall.profile.length > 0 || recall.recent.length > 0 };
     };
     const snapshots = deps.memorySnapshots();
-    if (snapshots == null || (deps.isMemoryFreezeEnabled?.() ?? isMemoryFreezeEnabled()) === false) return renderLive().render || null;
-    const frozen = snapshots.getMemoryPromptSnapshot();
-    const resolved = resolveFrozenMemoryPrompt({ ...(frozen == null ? {} : { snapshot: frozen }), compactionEpoch: deps.compactionEpoch(), renderLive });
-    if (resolved.snapshotToPersist != null) snapshots.setMemoryPromptSnapshot(resolved.snapshotToPersist);
-    return resolved.render || null;
+    if (snapshots == null || (deps.isMemoryFreezeEnabled?.() ?? isMemoryFreezeEnabled()) === false) parts.push(renderLive().render);
+    else {
+      const stored = snapshots.getMemoryPromptSnapshot();
+      // Older prompt assemblers could freeze all tiers together. Rebuild that
+      // presentation snapshot, without migrating or changing any memory facts.
+      const frozen = stored != null && /(?:^|\n)(?:User memory:|Project memory:)/.test(stored.render) ? undefined : stored;
+      const resolved = resolveFrozenMemoryPrompt({ ...(frozen == null ? {} : { snapshot: frozen }), compactionEpoch: deps.compactionEpoch(), renderLive });
+      if (resolved.snapshotToPersist != null) snapshots.setMemoryPromptSnapshot(resolved.snapshotToPersist);
+      parts.push(resolved.render);
+    }
+    return parts.filter(Boolean).join("\n\n") || null;
   }
 
   function getTimeZoneSection(): string | null {
