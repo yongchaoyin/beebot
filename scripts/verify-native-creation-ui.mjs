@@ -63,6 +63,10 @@ app.whenReady().then(async()=>{try{
   if(kind==="group")await evaluate("window.__input(document.getElementById('bb-group-name'),'产品团队与交付同事');document.querySelector('[data-member-id=a]').click();document.querySelector('[data-member-id=b]').click();document.querySelector('[data-member-id=c]').click()");await settle();
   const label=[kind,width,language,theme].join("-");
   const state=await evaluate("(()=>{const root=document.getElementById('sand-create-"+kind+"-sheet'),r=root.getBoundingClientRect(),submit=root.querySelector('.bb-create-submit').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:root.clientWidth,scrollWidth:root.scrollWidth,height:root.clientHeight,scrollHeight:root.scrollHeight,submitTop:submit.top,submitBottom:submit.bottom,scrollTop:root.scrollTop,draft:document.getElementById('draft').value,modal:root.getAttribute('aria-modal'),background:getComputedStyle(root).backgroundColor}})()");
+  if(kind==="bot"){
+    const identity=await evaluate("(()=>{const root=document.getElementById('sand-create-bot-sheet'),field=root.querySelector('[data-role-field=primaryJob]'),r=field.getBoundingClientRect(),bounds=root.getBoundingClientRect();return {jobVisible:r.top>=bounds.top&&r.bottom<=bounds.bottom,customizeClosed:!root.querySelector('.bb-avatar-picker__customize').open}})()");
+    check(label+" primary job is in the first viewport",identity.jobVisible);check(label+" customization starts collapsed",identity.customizeClosed);
+  }
   report.geometry.push({label,...state});
   check(label+" fits the native content viewport",state.left>=10&&state.right<=width-10&&state.top>=10&&state.bottom<=height-10&&state.scrollWidth<=state.width+1);
   check(label+" preserves the conversation draft",state.draft==="keep this draft"&&state.modal==="true");

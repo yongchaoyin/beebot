@@ -48,7 +48,7 @@ export function CreateBotAvatarPicker({ value, language, onChange, disabled = fa
   current.current = { value, language, onChange, disabled };
   useLayoutEffect(() => {
     if (!host.current) return;
-    const instance = mountAvatarPicker(host.current, { ...current.current.value, language: current.current.language, disabled: current.current.disabled, onChange: next => current.current.onChange(next) });
+    const instance = mountAvatarPicker(host.current, { ...current.current.value, language: current.current.language, disabled: current.current.disabled, compact: true, onChange: next => current.current.onChange(next) });
     picker.current = instance;
     return () => { instance.destroy(); if (picker.current === instance) picker.current = null; };
   }, []);

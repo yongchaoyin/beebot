@@ -9,7 +9,9 @@ deployment are separate product contracts.
 Both user-initiated creation flows use a centered, scrollable management dialog.
 They share a title/close row and a persistent bottom action area. New Bot shows
 its real avatar before its name and primary job, then separates the working
-environment. Group shows its name and chosen colleagues' actual avatars, searchable
+environment. Avatar shape, color and expression controls are collapsed under
+“Customize avatar” by default, so name and primary job fit in the first viewport.
+The preview stays visible and opening the controls survives language changes. Group shows its name and chosen colleagues' actual avatars, searchable
 candidate rows, a visible candidate count and removable avatar-bearing choices.
 Custom raster photos reuse the roster data URL; artwork uses the existing shared
 Presence renderer. Group collages remain static and no extra motion loop exists.
@@ -43,7 +45,8 @@ callbacks, including Bot and Group regressions. The native command hydrates the
 verified packaged renderer adapters into an isolated macOS Electron fixture. It
 checks Bot/Group layouts in Chinese/English, light/dark and 800/390-pixel content
 windows, retains a conversation draft, triggers controlled creation errors and
-saves screenshots/report under ignored `.build/creation-verification`.
+saves screenshots/report under ignored `.build/creation-verification`. The final
+compact-picker run passed 81 native checks with no renderer console errors.
 
 This fixture is native Electron geometry evidence, not the installed complete
 application, real Node persistence, actual model execution or real Bot creation.

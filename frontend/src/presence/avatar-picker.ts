@@ -7,6 +7,8 @@ export interface AvatarPickerValue { readonly shape: string; readonly color: str
 export interface AvatarPickerOptions extends AvatarPickerValue {
   readonly language: "en" | "zh";
   readonly disabled?: boolean;
+  readonly compact?: boolean;
+  readonly expanded?: boolean;
   onChange(value: AvatarPickerValue): void;
 }
 
@@ -19,6 +21,7 @@ const STYLE = `
 .bb-avatar-picker__summary{display:grid;gap:5px;min-width:0}
 .bb-avatar-picker__summary strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}
 .bb-avatar-picker__summary small{font-size:12px;line-height:1.5;color:var(--cursor-text-secondary,GrayText)}
+.bb-avatar-picker__customize{margin:0}.bb-avatar-picker__customize>summary{font-size:12px;min-height:32px;padding:5px 0;cursor:pointer;color:var(--cursor-text-secondary,GrayText)}.bb-avatar-picker__customize>summary:focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}.bb-avatar-picker__customize>div{display:grid;gap:12px;padding-top:8px}
 .bb-avatar-picker fieldset{border:0;margin:0;padding:0;min-width:0}
 .bb-avatar-picker legend{padding:0;margin-bottom:8px;font-size:12px;font-weight:500;color:var(--cursor-text-secondary,GrayText)}
 .bb-avatar-picker__choices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
@@ -54,6 +57,15 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
   const summary = document.createElement("div"); summary.className = "bb-avatar-picker__summary";
   const selected = document.createElement("strong"), help = document.createElement("small");
   summary.append(selected, help); preview.append(svg, summary); element.append(preview);
+  const customize = options.compact ? document.createElement("details") : null;
+  const customizeLabel = customize ? document.createElement("summary") : null;
+  const choicesHost = customize ? document.createElement("div") : element;
+  if (customize && customizeLabel) {
+    customize.className = "bb-avatar-picker__customize"; customize.open = options.expanded === true;
+    customizeLabel.dataset.createField = "appearance";
+    customizeLabel.addEventListener("click", event => { if (disabled) event.preventDefault(); });
+    customize.append(customizeLabel, choicesHost); element.append(customize);
+  }
   const groups = new Map<"shape" | "color", { legend: HTMLLegendElement; group: HTMLDivElement; buttons: HTMLButtonElement[] }>();
   const colorName = document.createElement("small"); colorName.className = "bb-avatar-picker__color-name";
   const label = (labels: readonly [string, string]) => labels[language === "zh" ? 1 : 0];
@@ -99,13 +111,13 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
       event.preventDefault(); event.stopPropagation();
       buttons[target].focus({ preventScroll: true }); buttons[target].click();
     });
-    fieldset.append(legend, group); element.append(fieldset); groups.set(kind, { legend, group, buttons });
+    fieldset.append(legend, group); choicesHost.append(fieldset); groups.set(kind, { legend, group, buttons });
     if (kind === "color") fieldset.append(colorName);
   }
   host.append(element);
   // Register only the main preview. Choice thumbnails never consume motion slots.
   const motion = registerAvatarMotion(svg, { state: "idle", size: 88, priority: 100, followingPointer: true, paused: disabled });
-  const controls = mountAvatarExpressionControls(element, {
+  const controls = mountAvatarExpressionControls(choicesHost, {
     expression(next) { expression=next; motion.update({state:expression,shape:value.shape,size:88,priority:120,followingPointer:true,paused:disabled}); },
     gesture(kind) { motion.gesture(kind); },
     reset() {motion.reset();},
@@ -115,6 +127,7 @@ export function mountAvatarPicker(host: HTMLElement, options: AvatarPickerOption
     const shape = canonicalShape(), color = selectedColor();
     const shapeLabel = label(SHAPE_LABELS[shape]), colorLabel = label(COLOR_LABELS[color]);
     element.setAttribute("aria-label", language === "zh" ? "Bot 头像" : "Bot avatar");
+    if (customizeLabel) { customizeLabel.textContent = language === "zh" ? "调整头像" : "Customize avatar"; customizeLabel.setAttribute("aria-disabled", String(disabled)); }
     selected.textContent = `${shapeLabel} · ${colorLabel}`;
     help.textContent = language === "zh" ? "动作沿用当前设置，创建后仍可修改外观。" : "Uses your current motion settings. Appearance can be changed later.";
     colorName.textContent = (language === "zh" ? "当前颜色：" : "Selected color: ") + colorLabel;
