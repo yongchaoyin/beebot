@@ -3,6 +3,9 @@ import {
   buildAutomationWakePrompt,
   buildGroupAutomationSeed,
   describeTriggerEventBatch,
+  isLocalProactiveAutomation,
+  localAutomationDefinition,
+  LOCAL_AUTOMATION_MAX_LATENESS_MS,
   type AutomationRecord,
   type AutomationRunTrigger,
 } from "../../automations/automation.js";
@@ -57,6 +60,7 @@ function resolveAutomationStreamRetryPolicy(
 
 export class AutomationRunPath {
   readonly inFlightAutomationKeys = new Set<string>();
+  readonly activeLocalScheduleSessionIds = new Set<string>();
   readonly automationFailureOccurrences = new Map<string, number>();
 
   constructor(
@@ -110,6 +114,8 @@ export class AutomationRunPath {
     args: FireAutomationArgs,
   ): Promise<FireAutomationOutcome> {
     if (!this.tm.execution.canExecute) return undefined;
+    const isLocal = isLocalProactiveAutomation(args.automation);
+    const isLocalSchedule = isLocal && args.trigger === "schedule";
     const runKey = `${args.agentId}:${args.automation.id}`;
     const eventBatch = args.events ?? [];
     const isEventFire = eventBatch.length > 0;
@@ -174,12 +180,25 @@ export class AutomationRunPath {
           }
         },
       });
-      this.recordAutomationRun(session, args.automation.id);
+      if (!isLocalSchedule) this.recordAutomationRun(session, args.automation.id);
       const automationsBeforeRun = session.automations.listDefinitions();
-      this.tm.runLifecycle.beginSessionRun(session);
+      if (!isLocal) this.tm.runLifecycle.beginSessionRun(session);
       await this.tm.runLifecycle.enqueueExclusiveRun(
         session.id,
         async () => {
+          let executionAutomation = args.automation;
+          if (isLocalSchedule) {
+            const current = session.automations.get(args.automation.id), now = Date.now();
+            if (!this.tm.execution.canExecute || !current?.isEnabled || !isLocalProactiveAutomation(current) || localAutomationDefinition(current) !== localAutomationDefinition(args.automation) || args.scheduledForMs == null || !Number.isFinite(args.scheduledForMs) || now < args.scheduledForMs || now - args.scheduledForMs >= LOCAL_AUTOMATION_MAX_LATENESS_MS) {
+              return; // Its durable claim remains consumed; never replay a stale wake.
+            }
+            executionAutomation = current;
+            this.recordAutomationRun(session, args.automation.id);
+          }
+          if (isLocal) {
+            this.tm.runLifecycle.beginSessionRun(session);
+            this.activeLocalScheduleSessionIds.add(session.id);
+          }
           runOutcome = "error";
           this.tm.turnRuntime.activeRequestSources.set(
             session.id,
@@ -197,6 +216,11 @@ export class AutomationRunPath {
               ? { coalescedRunUuids: args.coalescedRunUuids }
               : {}),
           });
+          if (isLocal && runId == null) {
+            this.activeLocalScheduleSessionIds.delete(session.id);
+            this.tm.runLifecycle.endSessionRun(session);
+            return; // No durable run record: fail closed before any external action.
+          }
           const firedAt = Date.now();
           let telemetryOutcome: Exclude<FireAutomationOutcome, undefined> =
             "error";
@@ -205,7 +229,7 @@ export class AutomationRunPath {
             if (isGroup) {
               await this.runGroupAutomation(
                 session,
-                args.automation,
+                executionAutomation,
                 isEventFire ? eventBatch : undefined,
               );
               this.finishAutomationRun(
@@ -237,6 +261,7 @@ export class AutomationRunPath {
                   },
                   requestSource: "automation",
                   transientStreamRetry: resolveAutomationStreamRetryPolicy({
+                    ...(isLocal ? { maxAttempts: 1 } : {}),
                     onRetry: (info: any) =>
                       console.info(
                         `[sand:automation] transient stream reset on "${args.automation.name}" (${args.automation.id}); retrying (attempt ${info.attempt}) after ${info.delayMs}ms: ${errorMessage(info.error)}`,
@@ -251,9 +276,9 @@ export class AutomationRunPath {
                   args.automation.id,
                   runId,
                   "error",
-                  "Interrupted by a host update; resuming after restart.",
+                  isLocal ? "Interrupted by a host update; this scheduled run will not be replayed." : "Interrupted by a host update; resuming after restart.",
                 );
-                this.tm.upgradeResume.markAgentResumePending(
+                if (!isLocal) this.tm.upgradeResume.markAgentResumePending(
                   session,
                   "automation",
                   {
@@ -292,7 +317,7 @@ export class AutomationRunPath {
               any
             >;
             const detail =
-              isTransientStreamError(error) &&
+              !isLocal && isTransientStreamError(error) &&
               description.errorKind == null &&
               description.rawDetail == null
                 ? `Lost the connection repeatedly and gave up after retrying: ${description.detail}`
@@ -314,6 +339,7 @@ export class AutomationRunPath {
             );
             telemetryOutcome = "error";
           } finally {
+            this.activeLocalScheduleSessionIds.delete(session.id);
             if (telemetryOutcome === "ok")
               this.clearAutomationFailureState(session.id, args.automation.id);
             this.tm.runLifecycle.endSessionRun(session);

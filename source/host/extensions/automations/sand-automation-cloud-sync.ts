@@ -48,9 +48,12 @@ export interface ScheduledCloudAutomation {
   readonly prompt: string;
   readonly isEnabled: boolean;
   readonly trigger: AutomationTrigger;
+  readonly executionOwner?: "local";
+  readonly purpose?: "proactive-followup";
 }
 
-export function isServerSchedulable(automation: { readonly trigger: AutomationTrigger }): boolean {
+export function isServerSchedulable(automation: { readonly trigger: AutomationTrigger; readonly executionOwner?: "local" }): boolean {
+  if (automation.executionOwner === "local") return false;
   return !triggerListeners(automation.trigger).some(
     (listener) => listener.type === "slack" && listener.channel.startsWith("@"),
   );
@@ -305,6 +308,7 @@ export interface CloudDefinition {
 }
 
 export function sandCloudDefinition(args: { agentId: string; automation: ScheduledCloudAutomation; timeZone?: string | undefined }): CloudDefinition | null {
+  if (args.automation.executionOwner === "local") return null;
   const triggers = cloudTriggers(args.automation.trigger, args.timeZone);
   if (triggers === null) return null;
   const workflow = new Workflow({ triggers: [...triggers] as Trigger[], prompts: [new Prompt({ prompt: args.automation.prompt })] });
@@ -367,7 +371,8 @@ export class SandAutomationCloudSync {
 
   setSettings(settings: { getUserTimeZone: () => string | undefined }): void { this.settings = settings; }
 
-  shouldScheduleLocally({ agentId, automation }: { agentId: string; automation: { readonly id?: string; readonly trigger: AutomationTrigger } }): boolean {
+  shouldScheduleLocally({ agentId, automation }: { agentId: string; automation: { readonly id?: string; readonly trigger: AutomationTrigger; readonly executionOwner?: "local" } }): boolean {
+    if (automation.executionOwner === "local") return false; // Dedicated local cron scheduler only.
     if (!isServerSchedulable(automation)) return true;
     if (triggerListeners(automation.trigger).length === 0) return false;
     if (automation.id === undefined) return true;

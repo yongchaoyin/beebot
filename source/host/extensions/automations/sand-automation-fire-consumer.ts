@@ -109,6 +109,7 @@ export class SandAutomationFireConsumer {
       if (this.stopped) { this.states.delete(event.id); return; }
       const existingRunCompletion = target === undefined ? undefined : this.existing(target.automation, event.id);
       if (target === undefined) completed = this.reject(event, "automation_missing", "Automation not found on the Sand box");
+      else if (target.automation.executionOwner === "local") completed = this.reject(event, "local_execution_owner", "This routine is scheduled by its owning Node");
       else if (existingRunCompletion !== undefined) completed = existingRunCompletion;
       else if (!target.automation.isEnabled) completed = this.reject(event, "automation_disabled", "Automation is disabled on the Sand box");
       else if (event.definitionRevision === undefined && event.event == null && admitsBareFire(target.automation.trigger, event) && target.automation.lastRunAt !== null && target.automation.lastRunAt !== undefined && target.automation.lastRunAt >= event.timestampMs) completed = this.reject(event, "slot_already_covered", "Legacy automation fire was already covered on the Sand box");
