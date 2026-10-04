@@ -103,6 +103,28 @@ test("a 28px idle colleague has frequent, readable accents with a full return an
   assert.ok(r.samples.every(s => s.frames <= 1 && s.timers <= 1));
 });
 
+for (const entry of ["shared controller", "compiled Presence entry"]) test(`${entry}: normal idle retirement lets WAAPI finish before clearing its body effect`, async t => {
+  // The clock deliberately executes timers before animation completions at the
+  // same instant, matching the native race when both end at one deadline.
+  const r = rig(t, entry === "compiled Presence entry"
+    ? (svg, options) => r.win.PackagedPresence.registerAvatarMotion(svg, options)
+    : registerAvatarMotion);
+  if (entry === "compiled Presence entry") {
+    const { presenceSharedModule } = await import("../scripts/lib/presence-renderer-patch.mjs");
+    r.win.eval(presenceSharedModule() + ";window.PackagedPresence=RPresenceUI;");
+  }
+  const actor = r.avatar();
+  r.advance(3100);
+  const body = r.animations.find(animation => animation.node.matches(".bb-character__body"));
+  assert.ok(body, "the actual idle controller granted a finite body accent");
+  r.advance(Math.max(0, body.endsAt - r.now()) + 100);
+  assert.equal(body.finished, true, "normal retirement must observe completion, rather than cancel at the finish deadline");
+  assert.ok(r.atBaseline(actor), "the remaining face transition returns to its original idle face");
+  assert.equal(r.active().length, 0);
+  assert.equal(r.frames.size, 0);
+  assert.ok(r.samples.every(sample => sample.frames <= 1 && sample.timers <= 1), "the sparse shared clock remains bounded");
+});
+
 test("every idle mannerism changes the face and gives small avatars a readable finite body accent", () => {
   const variants = new Map(), idle = expressionPaths(expressionPose("idle"), "blob", 28);
   for (let i = 0; i < 100 && variants.size < 4; i++) {
@@ -130,6 +152,45 @@ test("the actual packaged Presence entry delivers the same small-avatar cadence 
   assert.ok(!touched.has(a.id), "real work preempts the compiled idle controller");
   for (const worker of workers) assert.ok(touched.has(worker.id), "every selected working identity receives its own real motion");
   assert.ok(r.samples.every(s => s.moving.length <= 4 && s.frames <= 1 && s.timers <= 1));
+});
+
+test("Natural at 36px has readable smile, wink, glance and nod episodes with finite quiet gaps", t => {
+  const r = rig(t), actor = r.avatar({ size: 36, identity: "visible-sidebar-colleague" });
+  const original = face(actor.svg), body = actor.svg.querySelector("[data-part=body]");
+  const originalShape = body.getAttribute("d"), originalColor = body.getAttribute("fill");
+  const numbers = value => value.match(/-?\d+(?:\.\d+)?/g).map(Number);
+  const pixelsPerUnit = 36 / 64;
+  const delta = (path, baseline) => Math.max(...numbers(path).map((value, index) => Math.abs(value - numbers(baseline)[index]))) * pixelsPerUnit;
+  let smile = false, wink = false, gazePixels = 0, maxEyeDelta = 0;
+  for (let i = 0; i < 2400; i++) {
+    r.advance(20);
+    const current = face(actor.svg), left = delta(current.left, original.left), right = delta(current.right, original.right);
+    maxEyeDelta = Math.max(maxEyeDelta, left, right);
+    smile ||= left > 2 && right > 2 && current.mouth !== original.mouth;
+    wink ||= Math.max(left, right) > 2 && Math.min(left, right) < .1 && current.mouth !== original.mouth;
+    gazePixels = Math.max(gazePixels, Math.abs(numbers(current.gaze)[0]) * pixelsPerUnit);
+  }
+  assert.ok(smile, "both eyes visibly curve and narrow with a smile, beyond subpixel geometry changes");
+  assert.ok(wink, "one eye visibly closes while the other remains open");
+  assert.ok(gazePixels >= .8, "a glance moves the face at actual sidebar scale");
+  const transforms = r.animations.flatMap(animation => animation.keyframes.map(frame => frame.transform ?? ""));
+  const nodPixels = Math.max(0, ...transforms.map(value => Math.abs(Number(/translateY\((-?[\d.]+)px\)/.exec(value)?.[1] ?? 0)) * pixelsPerUnit));
+  const tiltDegrees = Math.max(0, ...transforms.map(value => Math.abs(Number(/rotate\((-?[\d.]+)deg\)/.exec(value)?.[1] ?? 0))));
+  assert.ok(nodPixels >= 1 && nodPixels <= 2, "a short nod has a visible but bounded screen-space displacement");
+  assert.ok(tiltDegrees >= 3 && tiltDegrees <= 6, "glancing includes a restrained, readable body tilt");
+  const episodes = [];
+  for (const sample of r.samples) {
+    if (sample.moving.includes(actor.id) && (!episodes.length || episodes.at(-1).end != null)) episodes.push({ start: sample.at });
+    if (!sample.moving.includes(actor.id) && episodes.length && episodes.at(-1).end == null) episodes.at(-1).end = sample.at;
+  }
+  const completed = episodes.filter(episode => episode.end != null);
+  assert.ok(completed.length >= 9, "Natural gives the list regular visible accents");
+  assert.ok(completed.every(episode => episode.end - episode.start >= 1600 && episode.end - episode.start <= 1900), "every observed action returns to idle within about 1.72 seconds");
+  const gaps = episodes.slice(1).map((episode, index) => episode.start - episodes[index].end);
+  assert.ok(gaps.every(gap => gap >= 1350 && gap <= 2850), "quiet gaps stay near 1.4–2.8 seconds without polling");
+  assert.ok(r.samples.every(sample => sample.states.every(([, state, expression]) => state === "idle" && expression === "idle")));
+  assert.equal(body.getAttribute("d"), originalShape); assert.equal(body.getAttribute("fill"), originalColor);
+  t.diagnostic(`Observed 36px SVG/controller: ${completed.length} completed episodes; quiet gaps ${Math.min(...gaps)}–${Math.max(...gaps)}ms; max eye control-point displacement ${maxEyeDelta.toFixed(2)}px; gaze ${gazePixels.toFixed(2)}px; nod ${nodPixels.toFixed(2)}px; tilt ${tiltDegrees}deg. Browser clock/WAAPI are controlled.`);
 });
 
 test("idle motion is limited to an opted-in list surface, excluding unrelated static and historical avatars", t => {

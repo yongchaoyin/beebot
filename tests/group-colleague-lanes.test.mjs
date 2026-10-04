@@ -15,7 +15,7 @@ async function until(check) {
 async function room(t, ids, handle, prompt = "@all Start this work.", options = {}) {
   const runtime = await loadGroupRuntime(t);
   const members = ids.map(member), history = [{ speaker: { kind: "user" }, content: prompt }];
-  const calls = [], posted = [], finalized = [], running = new Map(), maximum = new Map();
+  const calls = [], posted = [], finalized = [], failures = [], running = new Map(), maximum = new Map();
   let current = true;
   const orchestrator = new runtime.GroupChatOrchestrator({
     resolveMembers: async () => members,
@@ -33,8 +33,9 @@ async function room(t, ids, handle, prompt = "@all Start this work.", options = 
       history.push(message); posted.push(message);
     },
     finalizeMemberTurn(bot) { running.set(bot.id, (running.get(bot.id) || 1) - 1); finalized.push(bot.id); },
+    onMemberFailure(bot, error) { failures.push({id:bot.id,error}); },
   });
-  return { runtime, orchestrator, history, calls, posted, finalized, maximum,
+  return { runtime, orchestrator, history, calls, posted, finalized, failures, maximum,
     stop: () => { current = false; },
     run: () => orchestrator.run({ group, memberIds: ids }),
   };
@@ -143,17 +144,20 @@ test("interrupting the group drops queued follow-ups and fences late output with
   assert.equal(ui.finalized.filter(id => id === "b").length, 1);
 });
 
-test("routing failure drains already-started work but rejects its late room publications", { timeout: 5000 }, async t => {
+test("invalid recipient is rejected before publication and does not interrupt an unrelated colleague", { timeout: 5000 }, async t => {
   const slow = deferred(); t.after(slow.resolve);
   const ui = await room(t, ["a", "slow"], async ({ member }) => {
     if (member.id === "slow") { await slow.promise; return ["Late room message"]; }
     return ["@{outsider} Do not silently broadcast this."];
   });
   const run = ui.run();
-  const rejection = assert.rejects(run, { code: "unknown_group_member" });
-  try { await until(() => ui.posted.length === 1); await new Promise(resolve => setTimeout(resolve, 5)); }
-  finally { slow.resolve(); await rejection; }
-  assert.equal(ui.posted.some(message => message.content === "Late room message"), false);
+  try {
+    await until(() => ui.failures.length === 1);
+    assert.equal(ui.posted.length,0);
+    assert.equal(ui.failures[0].error.code,"unknown_group_member");
+  } finally { slow.resolve(); await run; }
+  assert.equal(ui.posted.length,1);
+  assert.equal(ui.posted[0].content,"Late room message");
 });
 
 test("turn limits stop changing-content ping-pong with an explicit safety pause", async t => {

@@ -16,27 +16,32 @@ export function ambientChoreography(identity: string, cycle: number): ActivityCh
   const seed = identitySeed(`${identity}:ambient:${cycle}`), variant = seed % 4;
   const pose = expressionPose("idle"), direction = (seed >>> 8) % 2 ? 1 : -1;
   // On a 28px sidebar avatar, one 64-unit canvas pixel is only .44 screen
-  // pixels. Pair the face change with a finite 2.4–2.8-unit body accent so that
-  // every granted episode is visible, including shapes with a narrow gaze fit.
-  let transform = `translateX(${2.4 * direction}px) rotate(${2 * direction}deg)`;
+  // pixels. Pair each distinct face with a finite 2.4–2.8-unit body accent.
+  let transform = `translateX(${2.4 * direction}px) rotate(${4 * direction}deg)`;
   if (variant === 0) { pose.lookX = 1.8 * direction; pose.lookY = -.5; }
   if (variant === 1) {
-    pose.left.height -= 2.2; pose.right.height -= 2.2;
-    pose.left.bend -= 1.1; pose.right.bend -= 1.1; pose.mouth.bend += 1.4;
+    // Preserve the clearly curved smile eyes at the actual sidebar scale.
+    for (const eye of [pose.left, pose.right]) { eye.height=1.4; eye.width=6; eye.bend=-2.2; }
+    pose.mouth.bend=3.8; pose.mouth.width=7.5; pose.mouth.open=2;
     transform = "translateY(-2.4px) scale(1.035)";
   }
   if (variant === 2) {
-    pose.lookY = 1.1; pose.left.height -= 1.2; pose.right.height -= 1.2;
-    transform = "translateY(2.8px) scaleY(.96)";
+    pose.lookY = 1.05; pose.left.height=5.5; pose.right.height=5.5;
+    transform = "translateY(2.8px) scaleY(.95)";
   }
   if (variant === 3) {
-    pose.lookX = 1.35 * direction; pose.lookY = -.6;
-    pose.left.height += 1; pose.right.height -= 1.4; pose.mouth.bend += .9;
+    const wink = direction < 0 ? pose.left : pose.right;
+    wink.height=1.2; wink.width=5.8; wink.bend=-1.6;
+    pose.mouth.bend=3.5; pose.mouth.width=7;
     transform = `translateY(-2.4px) rotate(${-2.5 * direction}deg)`;
   }
-  const body = {frames:[{transform:"none"},{transform,offset:.32},{transform,offset:.7},{transform:"none"}],duration:1720};
+  // Leave a final face-settling interval so normal idle-slot retirement does
+  // not cancel WAAPI at the exact same instant as its native finish event.
+  const body = {frames:[{transform:"none"},{transform,offset:.32},{transform,offset:.7},{transform:"none"}],duration:1680};
   const steps = [{pose,duration:320,hold:1000},{pose:expressionPose("idle"),duration:400,hold:0}];
-  return {steps,blink:variant === 3,body};
+  // The wink is an actual one-eye pose; a simultaneous bilateral blink would
+  // hide that expression. Normal working-avatar blink scheduling is separate.
+  return {steps,blink:false,body};
 }
 export function activityDelay(expression: AvatarExpression, identity: string, cycle: number): number {
   const spread = identitySeed(`${identity}:${expression}:activity:${cycle}`);

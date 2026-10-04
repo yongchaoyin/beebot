@@ -42,7 +42,7 @@ export function refineSendMessage(value: SendMessageInput): SendMessageIssue[] {
 }
 const objectSchema = z.object({
   draft: z.union([emailDraftSchema,slackDraftSchema]).optional().describe("Required for email-draft or slack-draft. Proposes editable content for the user to confirm; never sends externally. Slack target must be the confirmed channel ID; workspace/from identify the proposed account and cannot be changed in the card."),
-  purpose: z.enum(MESSAGE_PURPOSES).optional().describe("update: visible information without waking peers; request: an actionable @ or quoted request; discussion: open conversation. Omit for legacy behavior."),
+  purpose: z.enum(MESSAGE_PURPOSES).optional().describe("update: visible information without waking peers; request: an actionable request to an @mentioned or quoted colleague, or a plain-text question replying to the actual user message in a local group; discussion: open conversation. Omit for legacy behavior."),
   collaboration: collaborationActionSchema.optional().describe("A real work commitment accompanying this message. Stable request_id makes retries idempotent; expected_version prevents stale updates. Prose alone never changes work status."),
   type: z.enum(SEND_MESSAGE_TYPES).describe(SEND_MESSAGE_TYPE_DESCRIPTION),
   content: z.string().trim().optional().describe("Required when type is text. The message to show to the user."),

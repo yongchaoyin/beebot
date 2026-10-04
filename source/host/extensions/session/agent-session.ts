@@ -115,7 +115,7 @@ export class SandAgentSessionStore {
 
   activeAgentPointerPath(): string { return join(this.rootDir, ACTIVE_AGENT_FILENAME); }
   readActiveAgentId(): string | null { try { const parsed = JSON.parse(readFileSync(this.activeAgentPointerPath(), "utf8")) as { activeAgentId?: unknown }; const id = parsed.activeAgentId; return typeof id === "string" && id.length > 0 ? id : null; } catch { return null; } }
-  writeActiveAgentId(agentId: string): void { try { mkdirSync(this.rootDir, { recursive: true }); const path = this.activeAgentPointerPath(), temp = `${path}.${process.pid}.tmp`; writeFileSync(temp, JSON.stringify({ activeAgentId: agentId })); renameSync(temp, path); } catch {} }
+  writeActiveAgentId(agentId: string | null): void { try { mkdirSync(this.rootDir, { recursive: true }); const path = this.activeAgentPointerPath(), temp = `${path}.${process.pid}.tmp`; writeFileSync(temp, JSON.stringify({ activeAgentId: agentId })); renameSync(temp, path); } catch {} }
 
   async updateAgentProfile(agentId: string, profile: Partial<SandAgentProfile> & { name: string }): Promise<Record<string, unknown> | null> { return updateAgentProfile(this.profileFilesHost(), agentId, profile); }
   getAgentProfileText(agentId: string): SandAgentProfile | null { return getAgentProfileText(this, agentId); }
@@ -188,7 +188,7 @@ export class SandAgentSessionStore {
   async getTranscriptEntries(session: OpenAgentSession): Promise<TranscriptEntry[]> { return this.conversationState?.getTranscriptEntries(session) ?? session.db.getTranscriptEntries(); }
   async getSessionOutline(session: OpenAgentSession): Promise<unknown> { if (this.conversationState == null) throw new Error("Session conversation-state provider is required"); return this.conversationState.getSessionOutline(session); }
   async getAgentOutline(agentId: string): Promise<unknown> { if (this.conversationState == null) throw new Error("Session conversation-state provider is required"); return this.conversationState.getAgentOutline(agentId); }
-  async getAgentTranscriptEntries(agentId: string): Promise<TranscriptEntry[]> { return this.conversationState?.getAgentTranscriptEntries(agentId) ?? this.withAgentDb(agentId, (db) => db.getTranscriptEntries()); }
+  async getAgentTranscriptEntries(agentId: string): Promise<TranscriptEntry[]> { if (this.isAgentBeingDeleted(agentId) || !this.agentExists(agentId)) return []; return this.conversationState?.getAgentTranscriptEntries(agentId) ?? this.withAgentDb(agentId, (db) => db.getTranscriptEntries()); }
   readAgentTranscriptEntries(agentId: string): TranscriptEntry[] { return this.conversationState?.readAgentTranscriptEntries(agentId) ?? []; }
   readAgentTranscriptPage(agentId: string, query: { beforeSeq?: number; sinceMs?: number; untilMs: number; limit: number }) { return this.conversationState?.readAgentTranscriptPage(agentId, query) ?? { entries: [] }; }
   readAgentTranscriptWindow(agentId: string, query: { beforeSeq?: number; limit: number }) { return this.conversationState?.readAgentTranscriptWindow(agentId, query) ?? { entries: [], threadCounts: {} }; }
@@ -198,7 +198,7 @@ export class SandAgentSessionStore {
   async markSessionViewed(session: OpenAgentSession, at = Date.now(), options: { preserveManualUnread?: boolean } = {}): Promise<void> { session.db.markViewed(at, options); }
   markSessionViewedNow(session: OpenAgentSession, at = Date.now(), options: { preserveManualUnread?: boolean } = {}): void { session.db.markViewed(at, options); }
   markSessionActivity(session: OpenAgentSession, at = Date.now()): void { session.db.markActivity(at); }
-  async markAgentViewed(agentId: string, at = Date.now(), options: { preserveManualUnread?: boolean } = {}): Promise<void> { try { await this.withAgentDb(agentId, (db) => db.markViewed(at, options)); } catch {} }
+  async markAgentViewed(agentId: string, at = Date.now(), options: { preserveManualUnread?: boolean } = {}): Promise<void> { if (this.isAgentBeingDeleted(agentId) || !this.agentExists(agentId)) return; try { await this.withAgentDb(agentId, (db) => db.markViewed(at, options)); } catch {} }
   async setSessionUnread(agentId: string, unread: boolean, at = Date.now()): Promise<void> { await this.withAgentDb(agentId, (db) => unread ? db.markUnread(at) : db.markRead(at)); }
   setSessionNotifyOnUpdates(agentId: string, enabled: boolean): void { writeSandSettingsFile(getSandSettingsPath(this.getAgentDir(agentId)), { notifyOnAgentUpdates: enabled }); }
   setSessionHiddenFromSidebar(agentId: string, hidden: boolean): void { writeSandSettingsFile(getSandSettingsPath(this.getAgentDir(agentId)), { hiddenFromSidebar: hidden }); }

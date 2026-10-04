@@ -41,6 +41,10 @@ quality still depend on the configured model and available tools.
 - **An explicit primary job for each local Bot:** confirm its responsibilities,
   exclusions and expected deliverables when creating or editing it. Job revisions
   are separate from its name, persona and model; older profiles are preserved.
+- **Coordinate before duplicating work:** a local `@everyone` request starts with
+  one available colleague. That Bot can send real, scoped `@` handoffs; teammates
+  see existing responsibilities for the same goal. Explicit independent discussion
+  is still possible. Outgoing Bot mentions must resolve to current group members.
 - **Recorded work and delivery:** local Bots can assign and claim work, track
   prerequisites, publish results and check completion criteria themselves or
   through a designated colleague. Checks refer to the current result and evidence.

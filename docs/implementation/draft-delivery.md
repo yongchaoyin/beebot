@@ -12,6 +12,18 @@ SendMessage; creating a draft never performs the external send.
 retain those shapes. External `channel` dispatch and forged draft status/receipt
 fields are rejected. Shared cross-user rooms retain their existing text-only rule.
 
+Local Group publication gives Email/Slack proposals a fixed, nonempty history title:
+“draft proposal for user confirmation. Publishing the proposal does not send it
+externally.” The title describes the publication event, so it does not claim that
+a later sent/discarded draft is still awaiting confirmation. The editable
+contents remain on the card. Targets, subjects, bodies, `@` text and links inside
+the draft cannot route peer work or enter the conversation Library. A proposal is
+awaiting user confirmation and does not wake peers. Its real durable SendMessage
+receipt confirms only that the proposal reached the conversation; external
+delivery still requires the separate connector receipt below. A human can quote
+the proposal to address its actual Bot author, with the normal current-member
+checks.
+
 The card first calls `getDraftDelivery({agentId, entryId})`. Host resolves the
 actual durable entry, verifies the conversation and author, and checks local
 Group membership. Sending uses the draft author as the routed MCP executor owner;
@@ -104,3 +116,11 @@ edited first/second/third sends, focus, discard, uncertain receipts, layout and
 chat-draft preservation. Native RPC results are controlled fixtures, not a live
 Node/provider integration. No user profile, credential, real external send or
 whole installed-app send was used.
+
+The merge-stage `group-draft-publication.test.mjs` adds five actual Group pipeline
+regressions using the real SendMessage tool, Group orchestrator/Glue and SQLite
+conversation harness. They cover three distinct proposals while second/third
+human messages arrive, real proposal receipts, safe history, no peer wake, Library
+exclusion, human quotes, failed persistence and a removed author. The focused
+draft/quote/peer/local-routine/Library suite passes 67/67 with no skips under Node
+26.5.0. Model/OS/connector I/O remain controlled; no external send is attempted.

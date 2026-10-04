@@ -42,6 +42,10 @@ export function publicationText(message: Record<string, any>): string {
     return `${String(message.content || "")}${images ? `\n${images}` : ""}`;
   }
   if (message.type === "attachment") return `Shared artifact ${JSON.stringify(message.file_name || "file")}: ${JSON.stringify(message.url)}${message.artifact?.sha256 ? ` (SHA-256 ${message.artifact.sha256})` : " (external link, not locally verified)"}`;
+  // Draft content remains in its editable card. Addresses, subjects and bodies
+  // are data for the proposed external send, never room routing instructions.
+  if (message.type === "email-draft") return "Email draft proposal for user confirmation. Publishing the proposal does not send it externally.";
+  if (message.type === "slack-draft") return "Slack draft proposal for user confirmation. Publishing the proposal does not send it externally.";
   if (message.type === "widget") return `Question for the user: ${String(message.widget?.prompt || "")}`;
   if (message.type === "cursor-agent") return `Cloud agent reference: ${String(message.title || message.bcId || "")}`;
   return "";
@@ -67,5 +71,5 @@ export function prepareGroupPublication(dbPath: string, raw: unknown, sharedRoom
     if (message.images.length > 8) throw new Error("Share no more than 8 images in one group message.");
     body.images = message.images.map(image => ({...image, ...snapshotFile(dbPath, image.url)}));
   }
-  return {content: publicationText(body), message: body, ...(message.reply_to ? {replyToId: message.reply_to} : {}), ...(message.work_on ? {workOnId: message.work_on} : {}), ...(message.type === "widget" ? {awaitingUser: true} : {})};
+  return {content: publicationText(body), message: body, ...(message.reply_to ? {replyToId: message.reply_to} : {}), ...(message.work_on ? {workOnId: message.work_on} : {}), ...(["widget", "email-draft", "slack-draft"].includes(message.type) ? {awaitingUser: true} : {})};
 }

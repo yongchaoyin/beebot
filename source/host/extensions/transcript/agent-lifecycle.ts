@@ -1,7 +1,6 @@
 import { botRoleDraftSchema } from "../../../shared/bot-role.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { isSandAgentLimitError } from "../../../shared/agents/agents.js";
 import { errorLogTag } from "../../../shared/errors.js";
 import {
   cloneAgentDir,
@@ -445,29 +444,12 @@ export class AgentLifecycle {
       await this.tm.roster.emitAgents();
       return { transcript: entries };
     }
-    try {
-      const next = await this.tm.sessionStore.createFallbackSession(
-        (id: string) => this.tm.sessions.openSessionOnce(id),
-      );
-      await this.tm.sessionStore.markSessionViewed(next);
-      this.tm.sessions.invalidateDeferredActivation();
-      this.tm.sessions.setActiveSession(next);
-      this.tm.runLifecycle.watchActiveSession(next);
-      this.tm.sessions.clearActiveTranscript(next.id);
-      this.tm.sessions.loaded = true;
-      this.tm.roster.emit({ type: "cleared" });
-      await this.tm.roster.emitAgents();
-      return { transcript: getTranscript() };
-    } catch (error) {
-      if (!isSandAgentLimitError(error)) throw error;
-      this.tm.sessions.activeSession = undefined;
-      this.tm.unwatchActiveSession();
-      this.tm.sessions.clearActiveTranscript(null);
-      this.tm.sessions.loaded = false;
-      this.tm.roster.emit({ type: "cleared" });
-      await this.tm.roster.emitAgents();
-      return { transcript: getTranscript() };
-    }
+    // The last colleague may be deleted. Keep the workspace truly empty;
+    // neither this mutation nor its ensuing roster read should mint a fallback.
+    this.tm.sessions.clearActiveSession();
+    this.tm.roster.emit({ type: "cleared" });
+    await this.tm.roster.emitAgents();
+    return { transcript: getTranscript() };
   }
 
   async interruptAgentForDeletion(agentId: string): Promise<void> {

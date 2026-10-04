@@ -52,7 +52,7 @@ test("a member failure is visible inline and does not silence other colleagues",
     if (call.id === "a") throw new Error("fixture model failure");
     return ["(pass)"];
   } });
-  await h.send("@all check"); await h.drain();
+  await h.send("@{a} @{b} check your independent parts"); await h.drain();
   assert.equal(h.calls.length, 2);
   assert.ok(h.entries("room").some(e => e.kind === "notice" && e.replyTo));
   assert.equal(h.records("room")[0].recipients.a, "failed");

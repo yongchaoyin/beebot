@@ -159,6 +159,9 @@ export function patchOriginalLanding(source) {
   patched = replaceExactlyOnce(patched, 'sendPrompt:"send",promptAcceptanceStatus:', 'getBotRole:"roster",updateBotRole:"roster",getCollaboration:"transcript",reviewCollaboration:"send",stopConversation:"send",sendPrompt:"send",promptAcceptanceStatus:', "conversation control telemetry domain");
   patched = replaceExactlyOnce(patched, 'setGroupMembers:we=>e.setGroupMembers(we)', 'getBotRole:we=>e.getBotRole(we),updateBotRole:we=>e.updateBotRole(we),getCollaboration:we=>e.getCollaboration(we),reviewCollaboration:we=>e.reviewCollaboration(we),stopConversation:we=>e.stopConversation(we),setGroupMembers:we=>e.setGroupMembers(we)', "conversation control bridge");
   patched = replaceExactlyOnce(patched, "function qLn(n){const e=he.c(36),", "function RLocalChatLayout(n){const e=he.c(36),", "remote conversation slot");
+  // Transcript activity is false for an existing idle conversation with no messages.
+  // Pass the resolved colleague separately so its first-message composer survives.
+  patched = replaceExactlyOnce(patched, 'return{isNewChatOpen:n.isNewChatOpen,isNewAgentOpen:n.isNewAgentOpen,isChatActive:e.isChatActive', 'return{hasCurrentAgent:n.currentAgent!=null,isNewChatOpen:n.isNewChatOpen,isNewAgentOpen:n.isNewAgentOpen,isChatActive:e.isChatActive', "local conversation recipient");
   // Bind the editor to the actual settings component's agent prop. Do not infer
   // ownership from a selected sidebar row or a late asynchronous DOM lookup.
   patched = replaceExactlyOnce(patched, 'function h3n(n){const e=he.c(31),', 'function RRoleOriginalSettings(n){const e=he.c(31),', "Bot settings role owner");

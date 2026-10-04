@@ -355,9 +355,9 @@ export class HostRuntime {
       }
       await durableJson(mappingPath, { botId: bot.id, agentId: host.agentId });
       if (typeof mapping.agentId !== "string") {
-        // First boot may materialize the Host's default agent. Keep that identity,
-        // but stop it before configuring its profile so no untracked rename turn
-        // can execute tools before the controller's durable run receipt exists.
+        // Preserve the explicitly created or crash-recovered Bot identity, and
+        // stop the Host before synchronizing its profile so no untracked rename
+        // turn can execute tools before the controller's durable run receipt exists.
         await this.stopHost(bot.id, host);
         await syncProfile(host.agentId);
         return this.ensureHost(bot, botRoot, signal);

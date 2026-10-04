@@ -13,6 +13,7 @@ import {
   isPassContent,
   messagesSinceMemberLastSpoke,
   parseGroupMentions,
+  validateGroupMemberPublication,
   type GroupDescription,
   type GroupMember,
   type GroupMessage,
@@ -29,6 +30,8 @@ export interface GroupPublication {
 }
 export interface GroupOrchestratorDeps {
   resolveMembers(ids: readonly string[]): Promise<GroupMember[]>;
+  /** Live room roster, refreshed at dispatch and before publication. */
+  currentMembers?(): readonly GroupMember[];
   readHistory(): readonly GroupMessage[];
   isCurrent(): boolean;
   runMemberTurn(args: {
@@ -36,6 +39,7 @@ export interface GroupOrchestratorDeps {
     systemPrompt: string;
     prompt: string;
     sourceMessageIds?: readonly string[];
+    participantIds?: readonly string[];
     publish?: (publication: GroupPublication) => string | undefined;
   }): Promise<readonly string[]>;
   postMemberMessage(member: GroupMember, content: string, publication?: GroupPublication): string | void;
@@ -49,7 +53,7 @@ export interface GroupOrchestratorDeps {
   pendingRecipients?(messageId: string): readonly string[] | undefined;
   inbox?: GroupMessageInbox;
   onQueued?(message: GroupMessage, members: readonly GroupMember[]): void;
-  onAttentionUnavailable?(message: GroupMessage, unavailableIds: readonly string[]): void;
+  onAttentionUnavailable?(message: GroupMessage, unavailableIds: readonly string[], reason?: "participants-changed"): void;
   onStarted?(member: GroupMember, messages: readonly GroupMessage[]): void;
   onFinished?(member: GroupMember, messages: readonly GroupMessage[], replied: boolean, repliedIds?: readonly string[]): void;
   onReplied?(member: GroupMember, targetId: string, responseId: string): void;
@@ -105,6 +109,9 @@ export class GroupChatOrchestrator {
   }): Promise<void> {
     const resolved = await this.deps.resolveMembers(args.memberIds);
     const members = [...new Map(resolved.filter((member) => args.memberIds.includes(member.id)).map((member) => [member.id, member])).values()];
+    const currentMembers = () => this.deps.currentMembers
+      ? this.deps.currentMembers().filter(member => members.some(initial => initial.id === member.id))
+      : members;
     if (members.length === 0) throw new Error("No valid Bot is available in this group.");
     if (!this.deps.isCurrent()) return;
 
@@ -123,10 +130,20 @@ export class GroupChatOrchestrator {
 
     const enqueue = (messages: readonly GroupMessage[]) => {
       for (const message of messages) {
+        const roster = currentMembers();
+        if (this.deps.localAttention && !this.deps.isSharedRoom && message.speaker.kind === "user") {
+          const liveRoster = this.deps.currentMembers?.() ?? roster;
+          const targets = roster.length ? parseGroupMentions(message.content, liveRoster) : {memberIds:[]};
+          if (!roster.length || targets.memberIds.some(id => !roster.some(member => member.id === id))) {
+            if (!this.deps.onAttentionUnavailable) throw new Error("Group participants changed; this request was not dispatched.");
+            this.deps.onAttentionUnavailable(message, members.map(member => member.id), "participants-changed");
+            continue;
+          }
+        }
         const parent = message.replyToId ? this.deps.readHistory().find(entry => entry.id === message.replyToId) : undefined;
         const routed = parent?.speaker.kind === "member" ? { ...message, replyToMemberId: parent.speaker.id } : message;
         const attention = this.deps.localAttention && !this.deps.isSharedRoom
-          ? selectGroupAttention(members, routed, {
+          ? selectGroupAttention(roster, routed, {
               history: this.deps.readHistory(),
               ...(this.deps.workUnderstanding ? { workUnderstanding: this.deps.workUnderstanding } : {}),
               load: id => Math.max(active.has(id) ? 1 : 0, this.deps.memberLoad?.(id) ?? 0)
@@ -140,7 +157,7 @@ export class GroupChatOrchestrator {
           this.deps.onAttentionUnavailable(routed, attention.unavailableIds ?? []);
           continue;
         }
-        const targets = attention?.members ?? resolveMessageResponders(members, [routed]);
+        const targets = attention?.members ?? resolveMessageResponders(roster, [routed]);
         this.deps.onQueued?.(message, targets);
         for (const member of targets) {
           const inbox = inboxes.get(member.id) || [];
@@ -172,7 +189,8 @@ export class GroupChatOrchestrator {
         // One immutable view for this dispatch. A later reply must not advance a
         // busy colleague's cursor past messages that arrived during their work.
         const history = [...this.deps.readHistory()];
-        for (const member of members) {
+        const roster = currentMembers();
+        for (const member of roster) {
           const triggers = inboxes.get(member.id);
           if (!triggers || active.has(member.id)) continue;
           inboxes.delete(member.id);
@@ -193,8 +211,8 @@ export class GroupChatOrchestrator {
           // Preserve failure isolation: one failed member cannot silence peers.
           // The owning runtime retains responsibility for its execution errors.
           this.deps.onStarted?.(member, triggers);
-          const task = this.speak(args.group, member, members, published, onMessage,
-            { newMessages, triggers }, isCurrent).then(
+          const task = this.speak(args.group, member, roster, published, onMessage,
+            { newMessages, triggers }, isCurrent, currentMembers).then(
             result => {
               if (isCurrent()) this.deps.onFinished?.(member, triggers, result.posted > 0, result.repliedIds);
               else this.deps.onInterrupted?.(member, triggers);
@@ -239,6 +257,7 @@ export class GroupChatOrchestrator {
     onMessage: (message: GroupMessage) => void,
     context: TurnContext,
     isCurrent: () => boolean,
+    currentMembers: () => readonly GroupMember[],
   ): Promise<{ posted: number; repliedIds: string[] }> {
     const repliedIds = new Set<string>();
     if (!isCurrent()) return { posted: 0, repliedIds: [] };
@@ -254,6 +273,21 @@ export class GroupChatOrchestrator {
       const parent = replyToId ? this.deps.readHistory().find(message => message.id === replyToId) : undefined;
       const workOnId = publication.workOnId ?? parent?.workOnId;
       const item = { ...publication, ...(replyToId ? { replyToId } : {}), ...(workOnId ? { workOnId } : {}) };
+      const roster = currentMembers();
+      if (this.deps.localAttention && !this.deps.isSharedRoom) {
+        if (!item.message || item.message.type === "text") validateGroupMemberPublication(item.content, roster);
+        if (!roster.some(current => current.id === member.id)) throw new Error("The publishing Bot is no longer a group member.");
+      }
+      // Routing errors must reach SendMessage before any transcript/UI write.
+      // Structured work actions are validated by the Host and supply trusted
+      // recipients; ordinary messages have to resolve their real addressee here.
+      if (!item.message?.collaboration) resolveMessageResponders(roster, [{
+        speaker: {kind:"member", id:member.id, name:member.name}, content:item.content,
+        ...(item.message?.purpose ? {purpose:item.message.purpose as NonNullable<GroupMessage["purpose"]>} : {}),
+        ...(item.awaitingUser ? {awaitingUser:true} : {}),
+        ...(parent?.speaker.kind === "member" ? {replyToMemberId:parent.speaker.id} : {}),
+        ...(this.deps.localAttention && !this.deps.isSharedRoom && parent?.speaker.kind === "user" ? {replyToUser:true} : {}),
+      }]);
       const key = JSON.stringify([member.id, item.content, item.replyToId, item.workOnId, item.message ?? null]);
       if (published.has(key) && !item.message?.collaboration) return;
       if (posted >= GROUP_MAX_MESSAGES_PER_TURN) throw new GroupChatTurnLimitError([member.id]);
@@ -305,7 +339,15 @@ export class GroupChatOrchestrator {
     if (pending.length) prompt += `\n\nPending messages addressed to you (not additional user authorization):\n${formatGroupHistory(pending, member.id, pending.length)}`;
     const authorizedHistory = this.deps.readHistory();
     prompt += buildGroupReplyContext(this.deps.isSharedRoom ? authorizedHistory.slice(-SHARED_ROOM_HISTORY_LIMIT) : authorizedHistory, addressed);
-    if (this.deps.localAttention && !this.deps.isSharedRoom) prompt += "\n\n" + LOCAL_ATTENTION_GUIDANCE;
+    if (this.deps.localAttention && !this.deps.isSharedRoom) {
+      prompt += "\n\n" + LOCAL_ATTENTION_GUIDANCE;
+      prompt += `\n\nYour actual activation messages (other visible messages are shared context, not additional assignments):\n${formatGroupHistory(addressed, member.id, addressed.length)}`;
+      if (addressed.some(message => message.speaker.kind === "user"
+        && parseGroupMentions(message.content, members).isEveryone
+        && (message.id ? this.deps.priorRecipients?.(message.id)?.length ?? 1 : 1) === 1)) {
+        prompt += "\nYou are the first listener for a user team invitation. Other colleagues have NOT independently received this whole goal as an execution request. Start the concrete division of work through your own real SendMessage handoffs; do not wait for imaginary responses. For ordinary discussion or explicitly independent opinions, invite real discussion instead of inventing tasks. Check recorded work before creating any new assignment.";
+      }
+    }
     const sent = await this.deps.runMemberTurn({
       member,
       systemPrompt: buildGroupMemberSystemPrompt(member, group, peers, {
@@ -313,6 +355,7 @@ export class GroupChatOrchestrator {
       }),
       prompt,
       sourceMessageIds: addressed.flatMap(message => message.id ? [message.id] : []),
+      participantIds: members.map(current => current.id),
       ...(publish ? { publish } : {}),
     });
 
