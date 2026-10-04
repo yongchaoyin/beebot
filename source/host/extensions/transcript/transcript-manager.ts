@@ -1,3 +1,4 @@
+import { DraftDelivery } from "./draft-delivery.js";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -153,6 +154,7 @@ export class TranscriptManager {
   readonly roster = new RosterProjection(this);
   readonly agentLifecycle = new AgentLifecycle(this);
   readonly groupChat = new GroupChatGlue(this);
+  readonly draftDelivery = new DraftDelivery(this);
   readonly sharedRooms = new SharedRooms(this);
   readonly backgroundWakes = new BackgroundWakes(this);
   readonly pendingWakes = new PendingWakeRearm(this);

@@ -1,3 +1,4 @@
+import type { DraftDeliveryAdapter } from "../draft-delivery";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { CloudAgentProvider } from "../cloud-agent-provider";
 import type { AutoReviewApprovalActionInput, AutoReviewApprovalActions } from "../auto-review-actions";
@@ -17,6 +18,7 @@ import type { ResolveLocalToolPermissionInput } from "../../../../permissions/lo
 
 export interface TranscriptCardLeafProviders {
   readonly scope: TranscriptCardScope;
+  readonly draftDelivery?: DraftDeliveryAdapter | null;
   readonly widgetInteractions: WidgetInteractionAdapter | null;
   readonly cloudAgents: CloudAgentProvider | null;
   readonly autoReviewApproval?: (input: AutoReviewApprovalActionInput) => AutoReviewApprovalActions;

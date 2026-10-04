@@ -1,0 +1,43 @@
+/* Explicit standing orders; execution belongs to the connected Node. */
+const RFollowupPurpose="proactive-followup";
+function RFollowupSpec(cadence){return {name:"Proactive follow-up",purpose:RFollowupPurpose,executionOwner:"local",isEnabled:true,trigger:{type:"cron",schedule:cadence==="daily"?"17 9 * * 1-5":"17 9-17 * * 1-5"},prompt:[
+"Review only this conversation's unfinished work that the user has actually assigned and authorized. Read the current conversation and task records; do not infer tasks from a plan, receipt, greeting, or an old description.",
+"Stay inside each Bot's confirmed primary job and the user's current boundaries. Group coordination is scoped to the actual task: communicate through real Bot-to-Bot messages and handoffs; do not impersonate peers or establish a permanent manager.",
+"Continue already authorized, reversible work when useful. Do not restart stopped work, revive completed or cancelled tasks, expand roles, or automatically repeat an uncertain external operation. A scheduled wake does not authorize new external messages, publication, purchases, or account access.",
+"Use the current records and prior public replies to report only a meaningful new result, failure, blocker, or decision the user needs to make. Deliver that once through a successful SendMessage in this conversation. If nothing changed, there is no assigned work, or the result was already delivered, finish quietly with no public message. Do not send a check-in, progress recap, or 'no change' filler."
+].join("\n\n")};}
+function RBindProactiveFollowup(runtime){
+ if(!runtime?.selection?.snapshots||!runtime?.automations?.snapshotsFor)return;
+ if(window.__beebotFollowup?.runtime===runtime)return;
+ window.__beebotFollowup?.dispose();
+ const t=(zh,en)=>window.__sandUiLanguage==="zh"?zh:en;
+ let disposed=false,scheduled=false,id=null,epoch=0,resource=null,offRoutine,host=null,busy=false,uncertain=false,feedback="",remote=false;
+ const root=document.createElement("section");root.id="beebot-proactive-followup";
+ const heading=document.createElement("h3"),hint=document.createElement("p"),controls=document.createElement("div"),cadence=document.createElement("select"),action=document.createElement("button"),reload=document.createElement("button"),status=document.createElement("p");
+ cadence.innerHTML='<option value="hourly"></option><option value="daily"></option>';action.type=reload.type="button";status.setAttribute("role","status");controls.append(cadence,action,reload);root.append(heading,hint,controls,status);
+ if(!document.getElementById("bb-followup-style")){const style=document.createElement("style");style.id="bb-followup-style";style.textContent=`#beebot-proactive-followup{font:12px/1.6 system-ui;padding:18px 0;border-top:1px solid var(--cursor-stroke-secondary,#8884);color:var(--cursor-text-primary,CanvasText);-webkit-app-region:no-drag}#beebot-proactive-followup[hidden],#beebot-proactive-followup [hidden]{display:none!important}#beebot-proactive-followup h3{font-size:14px;margin:0 0 7px}#beebot-proactive-followup p{margin:6px 0;overflow-wrap:anywhere;color:var(--cursor-text-secondary,GrayText)}#beebot-proactive-followup>div{display:flex;gap:8px;flex-wrap:wrap}#beebot-proactive-followup :is(button,select){font:inherit;border:1px solid var(--cursor-stroke-secondary,#8884);border-radius:7px;background:var(--cursor-bg-secondary,Canvas);color:inherit;min-height:32px;padding:5px 9px;max-width:100%;cursor:pointer}#beebot-proactive-followup :disabled{opacity:.5;cursor:default}#beebot-proactive-followup :focus-visible{outline:2px solid var(--cursor-accent,Highlight);outline-offset:2px}`;document.head.append(style);}
+ const isRemote=()=>document.body?.dataset.beebotRemoteActive==="true";
+ const down=()=>runtime.connection?.snapshots?.get?.()?.transport==="down";
+ const currentRoutine=()=>{const snap=resource?.get?.();return (snap?.value??snap?.previous??[]).find(item=>item?.purpose===RFollowupPurpose&&item.executionOwner==="local");};
+ function render(){scheduled=false;if(disposed)return;
+  const selected=runtime.selection.snapshots.get()?.currentAgentId??null,nextRemote=isRemote();
+  const pane=[...document.querySelectorAll("[data-beebot-library-host]")].find(node=>node.getAttribute("data-beebot-library-host")===selected&&!node.closest('[aria-hidden="true"]'));
+  if(id!==selected||remote!==nextRemote||host!==pane){epoch++;offRoutine?.();offRoutine=undefined;resource=null;root.remove();id=selected;host=pane;remote=nextRemote;busy=false;uncertain=false;feedback="";if(id&&host&&!remote){resource=runtime.automations.snapshotsFor(id);offRoutine=resource.subscribe(schedule);}}
+  root.hidden=!id||!host||remote;if(!root.hidden&&root.parentElement!==host)host.append(root);
+  const snap=resource?.get?.(),ready=["ready","empty"].includes(snap?.status),routine=currentRoutine(),unsupported=!!routine&&routine.trigger?.type!=="cron";
+  heading.textContent=t("主动跟进","Proactive follow-up");hint.textContent=t("只跟进已交给本会话的工作。有新成果、阻塞或需要决定时才发言。按 Node 的时区运行；Node 离线时不会执行。","Follow work already assigned here. Speak only for a new result, blocker, or decision. Uses the Node’s time zone; it runs while the Node is available.");
+  cadence.setAttribute("aria-label",t("跟进频率","Follow-up frequency"));cadence.options[0].textContent=t("工作日 9:17–17:17，每小时","Weekdays, hourly from 9:17am–5:17pm");cadence.options[1].textContent=t("工作日早上 9:17","Weekdays at 9:17am");cadence.hidden=!!routine;
+  action.textContent=busy?t("正在保存…","Saving…"):routine?(routine.isEnabled?t("暂停跟进","Pause follow-up"):t("恢复跟进","Resume follow-up")):t("开启跟进","Enable follow-up");
+  action.disabled=busy||uncertain||down()||!ready||(unsupported&&!routine.isEnabled);cadence.disabled=action.disabled;
+  reload.textContent=t("重新读取","Reload");reload.hidden=ready&&!uncertain;reload.disabled=busy||down();
+  status.textContent=feedback||(unsupported?t("此跟进任务需要定时触发才能运行。请在例行任务中调整触发方式。","This follow-up needs a scheduled trigger. Update its trigger in Routines."):routine?(routine.isEnabled?t("已开启，可在例行任务中调整指令和时间。","Enabled. Edit its instruction and timing in Routines."):t("已暂停。","Paused.")):snap?.status==="failed"?t("未能读取例行任务。","Could not read routines."):snap?.status==="unavailable"?t("当前连接不支持例行任务。","Routines are unavailable on this connection."):!ready?t("正在读取…","Loading…"):t("尚未开启。","Disabled."));
+ }
+ function schedule(){if(disposed||scheduled)return;scheduled=true;queueMicrotask(render);}
+ action.onclick=async()=>{if(action.disabled||!id||!host||isRemote())return;const captured={id,epoch},routine=currentRoutine();busy=true;feedback="";render();try{if(routine){const enabled=!routine.isEnabled;await runtime.automations.setEnabled(captured.id,routine.id,enabled);if(disposed||captured.epoch!==epoch)return;const saved=currentRoutine();if(saved?.id!==routine.id||saved.isEnabled!==enabled)throw Error("followup_state_not_confirmed");}else {const result=await runtime.automations.create(captured.id,RFollowupSpec(cadence.value));if(!result||result.purpose!==RFollowupPurpose||result.executionOwner!=="local")throw Error("followup_not_confirmed");}if(disposed||captured.epoch!==epoch)return;feedback=t("设置已保存。","Settings saved.");}catch{if(!disposed&&captured.epoch===epoch){uncertain=true;feedback=t("保存结果未确认，请重新读取后再操作；不会自动重复请求。","Save is unconfirmed. Reload before acting; the request will not be repeated automatically.");}}finally{if(!disposed&&captured.epoch===epoch){busy=false;render();}}};
+ reload.onclick=()=>{if(reload.disabled||!id)return;uncertain=false;feedback="";runtime.automations.refresh(id);render();};
+ const invalidate=()=>{epoch++;busy=false;uncertain=false;feedback="";offRoutine?.();offRoutine=undefined;resource=null;host=null;root.remove();schedule();};
+ const offSelection=runtime.selection.snapshots.subscribe(invalidate),offConnection=runtime.connection?.snapshots?.subscribe(invalidate);
+ const observer=new MutationObserver(records=>{if(records.some(record=>record.type==="attributes"||[...record.addedNodes,...record.removedNodes].some(node=>node.nodeType===1&&node!==root&&!root.contains(node))))schedule();});observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:["data-beebot-library-host","aria-hidden","data-beebot-remote-active"]});
+ window.addEventListener("sand-ui-language-changed",schedule);window.addEventListener("beebot-node-selection",invalidate);
+ window.__beebotFollowup={runtime,dispose(){disposed=true;epoch++;offRoutine?.();offSelection?.();offConnection?.();observer.disconnect();root.remove();window.removeEventListener("sand-ui-language-changed",schedule);window.removeEventListener("beebot-node-selection",invalidate);if(window.__beebotFollowup?.runtime===runtime)delete window.__beebotFollowup;}};render();
+}

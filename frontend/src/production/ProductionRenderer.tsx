@@ -1,3 +1,4 @@
+import type { DraftDeliveryAdapter } from "../recovered/features/conversation/cards/transcript-card/draft-delivery";
 import type { BotRoleDraft } from "../../../source/shared/bot-role";
 import { locateQuotedMessage } from "../recovered/features/conversation/workspace/quoted-message-navigation";
 import { Component, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
@@ -1755,6 +1756,16 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     accountSlot: client == null ? null : transcriptAccountSlot,
     agentId: client == null || activeAgentId.length === 0 ? null : activeAgentId
   }), [activeAgentId, client, transcriptAccountSlot]);
+  const draftLanguageRef = useRef(uiLanguage);
+  draftLanguageRef.current = uiLanguage;
+  const draftDeliveryListenersRef = useRef(new Set<() => void>());
+  const transcriptCardDraftDelivery = useMemo<DraftDeliveryAdapter>(() => ({
+    getScope: () => ({agentId:activeAgentIdRef.current || null,generation:`${accountScopeGenerationRef.current}:${transportScopeGenerationRef.current}`,available:client != null && accountRef.current?.kind === "logged-in" && transportRef.current === "connected",language:draftLanguageRef.current}),
+    subscribe: listener => {draftDeliveryListenersRef.current.add(listener);return () => draftDeliveryListenersRef.current.delete(listener);},
+    getSnapshot: args => client == null ? Promise.reject(new Error("Draft coordinator unavailable")) : client.call("getDraftDelivery", args),
+    resolve: args => client == null ? Promise.reject(new Error("Draft coordinator unavailable")) : client.call("resolveDraftDelivery", args),
+  }), [client]);
+  useEffect(() => {for(const listener of draftDeliveryListenersRef.current)listener();}, [activeAgentId,transcriptAccountSlot,transport,uiLanguage]);
   const createTranscriptCardAutoReviewApproval = useCallback((input: AutoReviewApprovalActionInput) => {
     const actions = createAutoReviewApprovalActions(input, {
       instructions: transcriptCardAutoReviewInstructions,
@@ -1780,6 +1791,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
     widgetInteractions: transcriptCardWidgetInteractions,
     cloudAgents: transcriptCardCloudAgents,
     leafProviders: {
+      draftDelivery: transcriptCardDraftDelivery,
       autoReviewApproval: createTranscriptCardAutoReviewApproval,
       listenerIntegrations: transcriptCardListenerIntegrations,
       secretRequests: transcriptCardSecretRequests,
@@ -1788,7 +1800,7 @@ export function ProductionRenderer({ bridge, coordinatorPort }: ProductionRender
       urlCards: transcriptCardUrlCards,
       onOpenPullRequest: openTranscriptCardPullRequest
     }
-  }), [createTranscriptCardAutoReviewApproval, openTranscriptCardPullRequest, transcriptCardAttachments, transcriptCardCloudAgents, transcriptCardConnectors, transcriptCardListenerIntegrations, transcriptCardResolver, transcriptCardScope, transcriptCardSecretRequests, transcriptCardUrlCards, transcriptCardWidgetInteractions]);
+  }), [createTranscriptCardAutoReviewApproval, openTranscriptCardPullRequest, transcriptCardAttachments, transcriptCardCloudAgents, transcriptCardConnectors, transcriptCardDraftDelivery, transcriptCardListenerIntegrations, transcriptCardResolver, transcriptCardScope, transcriptCardSecretRequests, transcriptCardUrlCards, transcriptCardWidgetInteractions]);
   const transcriptCardEntries = useMemo(
     () => transcriptCardContract.projectEntries(entries),
     [entries, transcriptCardContract]
